@@ -2,6 +2,9 @@ open Core.Std
 open Async.Std
 
 let main ~server ~username =
+  let say s =
+    Writer.(write_sexp ~hum:true ~terminate_with:Newline (Lazy.force stdout)) s
+  in
   Rpc.Connection.with_client
     ~host:(Host_and_port.host server)
     ~port:(Host_and_port.port server)
@@ -12,10 +15,33 @@ let main ~server ~username =
       >>= function
       | Error `Already_playing -> assert false
       | Ok () ->
+        let order_id =
+          let r = ref Market.Order.Id.zero in
+          fun () ->
+            let id = !r in
+            r := Market.Order.Id.next id;
+            id
+        in
         Pipe.iter updates ~f:(fun update ->
-          Writer.(write_sexp ~hum:true ~terminate_with:Newline (Lazy.force stdout))
-            (Protocol.Update.sexp_of_t update);
-          Deferred.unit))
+          say [%sexp (update : Protocol.Update.t)];
+          Random.self_init ();
+          match update with
+          | Dealt _hand ->
+            let order symbol =
+              { Market.Order.owner = username
+              ; id = order_id ()
+              ; symbol
+              ; dir = if Random.int 2 = 0 then Sell else Buy
+              ; price = Market.Price.of_int 5
+              ; size = Market.Size.of_int 1
+              }
+            in
+            Deferred.List.iter Card.Suit.all ~how:`Sequential ~f:(fun suit ->
+              Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn (order suit)
+              >>| fun r ->
+              say [%sexp (r : (Market.Exec.t, Protocol.Reject.t) Result.t)])
+          | _ -> Deferred.unit
+        ))
 
 let command =
   let open Command.Let_syntax in
@@ -28,6 +54,6 @@ let command =
       fun () ->
         main
           ~server:(Host_and_port.of_string server)
-          ~username:(Protocol.Username.of_string username)
+          ~username:(Username.of_string username)
         >>| Or_error.of_exn_result
     ]

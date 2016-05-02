@@ -20,8 +20,8 @@ end
 let main ~port =
   let game = Game.create () in
   let users : User.t Address.Table.t = Address.Table.create () in
-  let users_of_player : User.t list Protocol.Username.Table.t =
-    Protocol.Username.Table.create ()
+  let users_of_player : User.t list Username.Table.t =
+    Username.Table.create ()
   in
   let drop ~addr ~conn ~reason =
     Option.iter (Hashtbl.find_and_remove users addr)
@@ -32,8 +32,16 @@ let main ~port =
     Rpc.Connection.close ~reason:(Info.t_of_sexp reason) conn
     |> don't_wait_for
   in
+  let drop_unknown ~addr ~conn =
+    Log.Global.sexp ~level:`Info [%message "don't know who this is" (addr : Address.t)];
+    drop ~addr ~conn ~reason:[%message "don't know who you are"]
+  in
+  let broadcast update =
+    Hashtbl.iteri users ~f:(fun ~key:_ ~data:user ->
+      Pipe.write_without_pushback user.updates update)
+  in
   let start_game () =
-    Game.deal game;
+    Game.start game;
     Deferred.List.iter ~how:`Parallel (Hashtbl.data users) ~f:(fun user ->
       Pipe.write user.updates (Dealt user.player.hand))
     |> don't_wait_for
@@ -66,14 +74,46 @@ let main ~port =
           (fun (addr, conn) is_ready ->
             match Hashtbl.find users addr with
             | None ->
-              drop ~addr ~conn ~reason:[%message "don't know who you are"];
-              (* this doesn't really matter *)
+              drop_unknown ~addr ~conn;
               return (Ok ())
             | Some user ->
               match Game.set_ready game ~player:user.player ~is_ready with
               | Error _ as e -> return e
               | Ok `All_ready -> start_game (); return (Ok ())
               | Ok `Still_waiting -> return (Ok ()))
+      ; Rpc.Rpc.implement Protocol.Book.rpc
+          (fun _ () -> return game.market)
+      ; Rpc.Rpc.implement Protocol.Hand.rpc
+          (fun (addr, conn) () ->
+            match Hashtbl.find users addr with
+            | None ->
+              drop_unknown ~addr ~conn;
+              return (Card.Hand.create_all Market.Size.zero, Market.Price.zero)
+            | Some user ->
+              return (user.player.hand, user.player.chips))
+      ; Rpc.Rpc.implement Protocol.Order.rpc
+          (fun (addr, conn) order ->
+            match Hashtbl.find users addr with
+            | None ->
+              drop_unknown ~addr ~conn;
+              return (Error Protocol.Reject.You're_not_playing)
+            | Some user ->
+              let r = Game.add_order game ~order ~sender:user.player in
+              Result.iter r ~f:(fun exec ->
+                broadcast (Exec (order, exec)));
+              return r)
+      ; Rpc.Rpc.implement Protocol.Cancel.rpc
+          (fun (addr, conn) id ->
+            match Hashtbl.find users addr with
+            | None ->
+              drop_unknown ~addr ~conn;
+              return (Error `No_such_order)
+            | Some user ->
+              let r = Game.cancel game ~id ~sender:user.player in
+              Result.map r ~f:(fun order ->
+                broadcast (Out order);
+                ())
+              |> return)
       ]
   in
   Rpc.Connection.serve
