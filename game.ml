@@ -84,13 +84,11 @@ let start t =
     done;
     Array.map hands ~f:(Hand.map ~f:(fun r -> Market.Size.of_int !r))
   in
-  let ix = ref 0 in
-  Hashtbl.iteri t.players ~f:(fun ~key:_ ~data:player ->
-    player.hand <- hands.(!ix);
-    incr ix);
+  List.iter2_exn (Hashtbl.data t.players) (Array.to_list hands) ~f:(fun player hand ->
+    player.hand <- hand);
   t.stage <- Playing
 
-let add_order t ~(order : Market.Order.t) ~(sender : Player.t) =
+let add_order t ~order:(sent_order : Market.Order.t) ~(sender : Player.t) =
   let open Result.Monad_infix in
   let open Protocol.Reject in
   begin match t.stage with
@@ -98,29 +96,55 @@ let add_order t ~(order : Market.Order.t) ~(sender : Player.t) =
   | Playing -> Ok ()
   end
   >>= fun () ->
-  Result.ok_if_true (Username.equal order.owner sender.username)
+  Result.ok_if_true (Username.equal sent_order.owner sender.username)
     ~error:Owner_is_not_sender
   >>= fun () ->
-  Result.ok_if_true (not (Hashtbl.mem sender.orders order.id))
+  Result.ok_if_true (not (Hashtbl.mem sender.orders sent_order.id))
     ~error:Duplicate_order_id
   >>= fun () ->
   Result.ok_if_true
-    (Market.Dir.equal order.dir Buy ||
-      let max_sell = Card.Hand.get (Player.sellable_hand sender) ~suit:order.symbol in
-      Market.Size.O.(order.size <= max_sell))
+    (Market.Dir.equal sent_order.dir Buy ||
+      let max_sell =
+        Card.Hand.get (Player.sellable_hand sender) ~suit:sent_order.symbol
+      in
+      Market.Size.O.(sent_order.size <= max_sell))
     ~error:Not_enough_to_sell
   >>| fun () ->
-  let { Market.Match_result.exec; remaining } = Market.match_ t.market order in
+  let { Market.Match_result.exec; remaining } = Market.match_ t.market sent_order in
   t.market <- remaining;
-  List.iter exec.fully_filled ~f:(fun order ->
-    let owner = Hashtbl.find_exn t.players order.owner in
-    Hashtbl.remove owner.orders order.id);
+  let settle_order ~owner (executed_order : Market.Order.t) =
+    let add_cards ~(player : Player.t) delta =
+      player.hand <-
+        Card.Hand.modify player.hand ~suit:executed_order.symbol
+          ~f:(fun s -> Market.Size.O.(s + delta))
+    in
+    let size_for_owner =
+      Market.Dir.fold executed_order.dir
+        ~buy:Fn.id ~sell:Market.Size.neg
+        executed_order.size
+    in
+    let price_for_owner =
+      Market.Dir.fold executed_order.dir
+        ~buy:Market.Price.neg ~sell:Fn.id
+        Market.O.(executed_order.size *$ executed_order.price)
+    in
+    add_cards ~player:owner  size_for_owner;
+    add_cards ~player:sender (Market.Size.neg size_for_owner);
+    owner.chips <- Market.Price.O.(owner.chips + price_for_owner);
+    owner.chips <- Market.Price.O.(owner.chips - price_for_owner)
+  in
+  List.iter exec.fully_filled ~f:(fun executed_order ->
+    let owner = Hashtbl.find_exn t.players executed_order.owner in
+    settle_order ~owner executed_order;
+    Hashtbl.remove owner.orders executed_order.id);
   Option.iter exec.partially_filled ~f:(fun partial_fill ->
-    let order = partial_fill.original_order in
-    let owner = Hashtbl.find_exn t.players order.owner in
+    let executed_order = partial_fill.original_order in
+    let owner = Hashtbl.find_exn t.players executed_order.owner in
+    settle_order ~owner { executed_order with size = partial_fill.filled_by };
+    let remaining_size = Market.Size.O.(executed_order.size - partial_fill.filled_by) in
     Hashtbl.set owner.orders
-      ~key:order.id
-      ~data:{ order with size = Market.Size.O.(order.size - partial_fill.filled_by) });
+      ~key:executed_order.id
+      ~data:{ executed_order with size = remaining_size });
   Option.iter exec.posted ~f:(fun order ->
     Hashtbl.add_exn sender.orders ~key:order.id ~data:order);
   exec

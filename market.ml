@@ -99,6 +99,13 @@ end = struct
   include Int
 end
 
+module O = struct
+  let ( *$ ) size price =
+    let size = Size.to_int size in
+    Price.O.(size * price)
+end
+include O
+
 module Order = struct
   module Id : sig include Identifiable.S val zero : t val next : t -> t end = struct
     include Int
