@@ -51,13 +51,12 @@ module Dirpair = struct
     { buy = f Dir.Buy t.buy; sell = f Dir.Sell t.sell }
 end
 
-module type Int_with_units = sig
+module type With_units = sig
   type t
 
   include Identifiable.S with type t := t
 
   val of_int : int -> t
-  val to_int : t -> int
 
   module O : sig
     val zero : t
@@ -65,6 +64,7 @@ module type Int_with_units = sig
     val (+) : t -> t -> t
     val (-) : t -> t -> t
     val ( * ) : int -> t -> t
+    val (/) : t -> int -> t
     val (=) : t -> t -> bool
     val (<>) : t -> t -> bool
     val (<) : t -> t -> bool
@@ -76,11 +76,11 @@ module type Int_with_units = sig
 end
 
 module Price : sig
-  include Int_with_units
+  include With_units
   val more_agg          : t -> than:t -> dir:Dir.t -> bool
   val more_agg_or_equal : t -> than:t -> dir:Dir.t -> bool
 end = struct
-  include Int
+  include Rational
 
   let more_agg_or_equal t ~than ~dir =
     match (dir : Dir.t) with
@@ -94,7 +94,8 @@ end = struct
 end
 
 module Size : sig 
-  include Int_with_units
+  include With_units
+  val to_int : t -> int
 end = struct
   include Int
 end

@@ -100,7 +100,7 @@ let score t =
       Market.O.(Price.(t.pot - total_gold_cards *$ Params.gold_card_value))
     in
     let pot_per_winner =
-      Market.Price.to_int pot_size / Map.length winners |> Market.Price.of_int
+      Market.Price.O.(pot_size / Map.length winners)
     in
     Map.merge winners losers
       ~f:(fun ~key:_ -> function
