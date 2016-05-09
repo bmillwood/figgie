@@ -103,8 +103,10 @@ module O = struct
   let ( *$ ) size price =
     let size = Size.to_int size in
     Price.O.(size * price)
+  module Price = Price.O
+  module Size = Size.O
 end
-include O
+let ( *$ ) = O.( *$ )
 
 module Order = struct
   module Id : sig include Identifiable.S val zero : t val next : t -> t end = struct

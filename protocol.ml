@@ -7,6 +7,7 @@ module Update = struct
     | Dealt of Market.Size.t Card.Hand.t
     | Exec of Market.Order.t * Market.Exec.t
     | Out of Market.Order.t
+    | Round_over of Market.Price.t Username.Map.t
     [@@deriving bin_io, sexp]
 end
 

@@ -40,8 +40,14 @@ let main ~port =
     Hashtbl.iteri users ~f:(fun ~key:_ ~data:user ->
       Pipe.write_without_pushback user.updates update)
   in
+  let broadcast_waiting () =
+    broadcast (Waiting_for (Game.waiting_for game))
+  in
   let start_game () =
-    Game.start game;
+    let end_of_round = Game.new_round game in
+    Deferred.upon end_of_round (fun scores ->
+      broadcast (Round_over scores);
+      broadcast_waiting ());
     Deferred.List.iter ~how:`Parallel (Hashtbl.data users) ~f:(fun user ->
       Pipe.write user.updates (Dealt user.player.hand))
     |> don't_wait_for
@@ -53,7 +59,7 @@ let main ~port =
       [ (Rpc.Pipe_rpc.implement Protocol.Join_game.rpc
           (fun (addr, conn) username ->
             match game.stage with
-            | Playing -> return (Error `Game_already_started)
+            | Playing _ -> return (Error `Game_already_started)
             | Waiting_for_players ->
               if Game.num_players game >= Params.max_players              
               then return (Error `Game_is_full)
@@ -80,9 +86,12 @@ let main ~port =
               match Game.set_ready game ~player:user.player ~is_ready with
               | Error _ as e -> return e
               | Ok `All_ready -> start_game (); return (Ok ())
-              | Ok `Still_waiting -> return (Ok ()))
+              | Ok `Still_waiting -> broadcast_waiting (); return (Ok ()))
       ; Rpc.Rpc.implement Protocol.Book.rpc
-          (fun _ () -> return game.market)
+          (fun _ () ->
+            match game.stage with
+            | Waiting_for_players -> return Market.empty
+            | Playing round -> return round.market)
       ; Rpc.Rpc.implement Protocol.Hand.rpc
           (fun (addr, conn) () ->
             match Hashtbl.find users addr with
