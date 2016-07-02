@@ -53,6 +53,8 @@ module Order = struct
     | `Game_not_in_progress
     | `Owner_is_not_sender
     | `Duplicate_order_id
+    | `Price_must_be_nonnegative
+    | `Size_must_be_positive
     | `Not_enough_to_sell
     ] [@@deriving bin_io, sexp]
   type response = (Market.Exec.t, error) Result.t [@@deriving bin_io, sexp]
