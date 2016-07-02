@@ -14,7 +14,7 @@ module Suit = struct
 
   let random_two () =
     let i1 = Random.int 4 in
-    let i2 = (i1 + Random.int 3) mod 4 in
+    let i2 = (i1 + Random.int 3 + 1) mod 4 in
     let all = Array.of_list all in
     (all.(i1), all.(i2))
 end

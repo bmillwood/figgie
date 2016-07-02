@@ -106,6 +106,7 @@ module Round = struct
 
   let start ~players =
     let num_players = Map.length players in
+    assert (Market.Size.to_int Params.num_cards_in_deck mod num_players = 0);
     let hands, gold =
       let open Card in
       let long, short = Suit.random_two () in
@@ -119,15 +120,17 @@ module Round = struct
       in
       for ix = 0 to Market.Size.to_int Params.num_cards_in_deck - 1 do
         let suit =
-          List.nth_exn !remaining_suits (Random.int (List.length !remaining_suits))
+          List.nth_exn !remaining_suits
+            (Random.int (List.length !remaining_suits))
         in
         let deck_suit = Hand.get deck ~suit in
         let hand_suit = Hand.get hands.(ix mod num_players) ~suit in
         deck_suit := Market.Size.(!deck_suit - of_int 1);
         hand_suit := Market.Size.(!hand_suit + of_int 1);
-        if Market.Size.O.(!deck_suit = zero)
+        begin if Market.Size.O.(!deck_suit = zero)
         then remaining_suits :=
           List.filter !remaining_suits ~f:(Fn.non (Suit.equal suit))
+        end
       done;
       Array.map hands ~f:(Hand.map ~f:(fun r -> !r)), Suit.opposite long
     in
