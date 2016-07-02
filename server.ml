@@ -37,6 +37,7 @@ let main ~port =
     drop ~addr ~conn ~reason:[%message "don't know who you are"]
   in
   let broadcast update =
+    Log.Global.sexp [%message "BROADCAST" (update : Protocol.Update.t)];
     Hashtbl.iteri users ~f:(fun ~key:_ ~data:user ->
       Pipe.write_without_pushback user.updates update)
   in
@@ -44,8 +45,8 @@ let main ~port =
     broadcast (Waiting_for (Game.waiting_for game))
   in
   let setup_round (round : Game.Round.t) =
-    Deferred.upon round.end_ (fun scores ->
-      broadcast (Round_over scores);
+    Deferred.upon round.end_ (fun results ->
+      broadcast (Round_over results);
       broadcast_waiting ());
     Map.iteri round.players ~f:(fun ~key:username ~data:p ->
       List.iter (Hashtbl.find_exn users_of_player username) ~f:(fun user ->

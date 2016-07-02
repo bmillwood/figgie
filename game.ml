@@ -52,12 +52,20 @@ module Round = struct
           ~f:(fun s -> Market.Size.O.(s - order.size)))
   end
 
+  module Results = struct
+    type t = {
+      gold : Card.Suit.t;
+      hands : Market.Size.t Card.Hand.t Username.Map.t;
+      scores_this_round : Market.Price.t Username.Map.t;
+    } [@@deriving bin_io, sexp]
+  end
+
   type t = {
     players : Player.t Username.Map.t;
     pot : Market.Price.t;
     mutable market : Market.t;
     gold : Card.Suit.t;
-    end_ : Market.Price.t Username.Map.t Deferred.t;
+    end_ : Results.t Deferred.t;
   }
 
   let score t =
@@ -88,11 +96,15 @@ module Round = struct
     let pot_per_winner =
       Market.Price.O.(pot_size / Map.length winners)
     in
-    Map.merge winners losers
-      ~f:(fun ~key:_ -> function
-        | `Left x -> Some Market.O.(Price.(x *$ Params.gold_card_value + pot_per_winner))
-        | `Right x -> Some Market.O.(x *$ Params.gold_card_value)
-        | `Both (_, _) -> assert false)
+    let scores_this_round =
+      Map.merge winners losers
+        ~f:(fun ~key:_ -> function
+          | `Left x -> Some Market.O.(Price.(x *$ Params.gold_card_value + pot_per_winner))
+          | `Right x -> Some Market.O.(x *$ Params.gold_card_value)
+          | `Both (_, _) -> assert false)
+    in
+    let hands = Map.map t.players ~f:(fun player -> player.hand) in
+    { Results.gold = t.gold; hands; scores_this_round }
 
   let start ~players =
     let num_players = Map.length players in
