@@ -81,7 +81,7 @@ module Round = struct
                   | `Both (_, _) -> assert false)
               )
           | Equal -> (Map.add winners ~key:username ~data:gold, gold, losers)
-          | Less -> (winners, gold, Map.add losers ~key:username ~data:gold))
+          | Less -> (winners, winning_amount, Map.add losers ~key:username ~data:gold))
     in
     let total_gold_cards =
       let open Market.Size.O in
