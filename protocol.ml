@@ -12,9 +12,10 @@ module Update = struct
 end
 
 module Join_game = struct
-  type query = Username.t [@@deriving bin_io]
-  type error = [ `Game_is_full | `Game_already_started ] [@@deriving bin_io]
-  type response = Update.t [@@deriving bin_io]
+  type query = Username.t [@@deriving bin_io, sexp]
+  type error = [ `Game_is_full | `Game_already_started ]
+    [@@deriving bin_io, sexp]
+  type response = Update.t [@@deriving bin_io, sexp]
   let rpc =
     Rpc.Pipe_rpc.create
       ~name:"join" ~version:1 ~bin_query ~bin_response ~bin_error
@@ -22,30 +23,31 @@ module Join_game = struct
 end
 
 module Is_ready = struct
-  type query = bool [@@deriving bin_io]
-  type response = (unit, [ `Already_playing ]) Result.t [@@deriving bin_io]
+  type query = bool [@@deriving bin_io, sexp]
+  type response = (unit, [ `Already_playing ]) Result.t
+    [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"ready" ~version:1 ~bin_query ~bin_response
 end
 
 module Hand = struct
-  type query = unit [@@deriving bin_io]
+  type query = unit [@@deriving bin_io, sexp]
   type response =
     ( Market.Size.t Card.Hand.t * Market.Price.t
     , [ `You're_not_playing
       | `Game_not_in_progress
       ]
-    ) Result.t [@@deriving bin_io]
+    ) Result.t [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"hand" ~version:1 ~bin_query ~bin_response
 end
 
 module Book = struct
-  type query = unit [@@deriving bin_io]
-  type response = Market.t [@@deriving bin_io]
+  type query = unit [@@deriving bin_io, sexp]
+  type response = Market.t [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"book" ~version:1 ~bin_query ~bin_response
 end
 
 module Order = struct
-  type query = Market.Order.t [@@deriving bin_io]
+  type query = Market.Order.t [@@deriving bin_io, sexp]
   type error =
     [ `You're_not_playing
     | `Game_not_in_progress
@@ -58,12 +60,12 @@ module Order = struct
 end
 
 module Cancel = struct
-  type query = Market.Order.Id.t [@@deriving bin_io]
+  type query = Market.Order.Id.t [@@deriving bin_io, sexp]
   type error =
     [ `You're_not_playing
     | `Game_not_in_progress
     | `No_such_order
     ] [@@deriving bin_io, sexp]
-  type response = (unit, error) Result.t [@@deriving bin_io]
+  type response = (unit, error) Result.t [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"cancel" ~version:1 ~bin_query ~bin_response
 end

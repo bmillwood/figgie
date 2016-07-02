@@ -34,7 +34,9 @@ let make_command ~summary ~param ~username ~f =
   Command.async_or_error'
     ~summary
     [%map_open
-      let server = anon ("HOST:PORT" %: string)
+      let server =
+        flag "-server" (required string)
+          ~doc:"HOST:PORT where to connect"
       and stuff = param
       in
       fun () ->
