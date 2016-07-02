@@ -39,7 +39,7 @@ let main ~server ~username =
             Deferred.List.iter Card.Suit.all ~how:`Sequential ~f:(fun suit ->
               Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn (order suit)
               >>| fun r ->
-              say [%sexp (r : (Market.Exec.t, Protocol.Reject.t) Result.t)])
+              say [%sexp (r : Protocol.Order.response)])
           | _ -> Deferred.unit
         ))
 

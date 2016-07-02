@@ -12,7 +12,7 @@ end
 
 module User = struct
   type t = {
-    player : Game.Player.t;
+    username : Username.t;
     updates : Protocol.Update.t Pipe.Writer.t;
   }
 end
@@ -26,7 +26,7 @@ let main ~port =
   let drop ~addr ~conn ~reason =
     Option.iter (Hashtbl.find_and_remove users addr)
       ~f:(fun user ->
-        Hashtbl.change users_of_player user.player.username
+        Hashtbl.change users_of_player user.username
           ~f:(Option.map ~f:(List.filter ~f:(fun u -> not (phys_equal user u))));
         Pipe.close user.updates);
     Rpc.Connection.close ~reason:(Info.t_of_sexp reason) conn
@@ -43,39 +43,32 @@ let main ~port =
   let broadcast_waiting () =
     broadcast (Waiting_for (Game.waiting_for game))
   in
-  let start_game () =
-    let end_of_round = Game.new_round game in
-    Deferred.upon end_of_round (fun scores ->
+  let setup_round (round : Game.Round.t) =
+    Deferred.upon round.end_ (fun scores ->
       broadcast (Round_over scores);
       broadcast_waiting ());
-    Deferred.List.iter ~how:`Parallel (Hashtbl.data users) ~f:(fun user ->
-      Pipe.write user.updates (Dealt user.player.hand))
-    |> don't_wait_for
+    Map.iteri round.players ~f:(fun ~key:username ~data:p ->
+      List.iter (Hashtbl.find_exn users_of_player username) ~f:(fun user ->
+        Pipe.write_without_pushback user.updates (Dealt p.hand)))
   in
   let implementations =
     Rpc.Implementations.create_exn
       ~on_unknown_rpc:`Close_connection
       ~implementations:
-      [ (Rpc.Pipe_rpc.implement Protocol.Join_game.rpc
+      [ Rpc.Pipe_rpc.implement Protocol.Join_game.rpc
           (fun (addr, conn) username ->
-            match game.stage with
-            | Playing _ -> return (Error `Game_already_started)
-            | Waiting_for_players ->
-              if Game.num_players game >= Params.max_players              
-              then return (Error `Game_is_full)
-              else begin
-                let player = Game.player game ~username in
-                let r, w = Pipe.create () in
-                Deferred.upon (Pipe.closed r)
-                  (fun () ->
-                    drop ~addr ~conn
-                      ~reason:[%message "stopped listening to updates"]);
-                let user : User.t = { player; updates = w } in
-                Hashtbl.set users ~key:addr ~data:user;
-                Hashtbl.add_multi users_of_player ~key:username ~data:user;
-                Pipe.write_without_pushback w (Waiting_for (Game.waiting_for game));
-                return (Ok r)
-              end))
+            return (Game.player_join game ~username)
+            >>|? fun () ->
+            let r, w = Pipe.create () in
+            Deferred.upon (Pipe.closed r)
+              (fun () ->
+                drop ~addr ~conn
+                  ~reason:[%message "stopped listening to updates"]);
+            let user : User.t = { username; updates = w } in
+            Hashtbl.set users ~key:addr ~data:user;
+            Hashtbl.add_multi users_of_player ~key:username ~data:user;
+            Pipe.write_without_pushback w (Waiting_for (Game.waiting_for game));
+            r)
       ; Rpc.Rpc.implement Protocol.Is_ready.rpc
           (fun (addr, conn) is_ready ->
             match Hashtbl.find users addr with
@@ -83,31 +76,31 @@ let main ~port =
               drop_unknown ~addr ~conn;
               return (Ok ())
             | Some user ->
-              match Game.set_ready game ~player:user.player ~is_ready with
+              match Game.set_ready game ~username:user.username ~is_ready with
               | Error _ as e -> return e
-              | Ok `All_ready -> start_game (); return (Ok ())
+              | Ok (`Started round) -> setup_round round; return (Ok ())
               | Ok `Still_waiting -> broadcast_waiting (); return (Ok ()))
       ; Rpc.Rpc.implement Protocol.Book.rpc
           (fun _ () ->
-            match game.stage with
-            | Waiting_for_players -> return Market.empty
+            match game.phase with
+            | Waiting_for_players _ -> return Market.empty
             | Playing round -> return round.market)
       ; Rpc.Rpc.implement Protocol.Hand.rpc
           (fun (addr, conn) () ->
             match Hashtbl.find users addr with
             | None ->
               drop_unknown ~addr ~conn;
-              return (Card.Hand.create_all Market.Size.zero, Market.Price.zero)
+              return (Error `You're_not_playing)
             | Some user ->
-              return (user.player.hand, user.player.chips))
+              return (Game.get_hand game ~username:user.username))
       ; Rpc.Rpc.implement Protocol.Order.rpc
           (fun (addr, conn) order ->
             match Hashtbl.find users addr with
             | None ->
               drop_unknown ~addr ~conn;
-              return (Error Protocol.Reject.You're_not_playing)
+              return (Error `You're_not_playing)
             | Some user ->
-              let r = Game.add_order game ~order ~sender:user.player in
+              let r = Game.add_order game ~order ~sender:user.username in
               Result.iter r ~f:(fun exec ->
                 broadcast (Exec (order, exec)));
               return r)
@@ -116,9 +109,9 @@ let main ~port =
             match Hashtbl.find users addr with
             | None ->
               drop_unknown ~addr ~conn;
-              return (Error `No_such_order)
+              return (Error `You're_not_playing)
             | Some user ->
-              let r = Game.cancel game ~id ~sender:user.player in
+              let r = Game.cancel game ~id ~sender:user.username in
               Result.map r ~f:(fun order ->
                 broadcast (Out order);
                 ())

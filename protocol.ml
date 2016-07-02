@@ -29,7 +29,12 @@ end
 
 module Hand = struct
   type query = unit [@@deriving bin_io]
-  type response = (Market.Size.t Card.Hand.t * Market.Price.t) [@@deriving bin_io]
+  type response =
+    ( Market.Size.t Card.Hand.t * Market.Price.t
+    , [ `You're_not_playing
+      | `Game_not_in_progress
+      ]
+    ) Result.t [@@deriving bin_io]
   let rpc = Rpc.Rpc.create ~name:"hand" ~version:1 ~bin_query ~bin_response
 end
 
@@ -39,24 +44,26 @@ module Book = struct
   let rpc = Rpc.Rpc.create ~name:"book" ~version:1 ~bin_query ~bin_response
 end
 
-module Reject = struct
-  type t =
-    | You're_not_playing
-    | Game_not_in_progress
-    | Owner_is_not_sender
-    | Duplicate_order_id
-    | Not_enough_to_sell
-    [@@deriving bin_io, sexp]
-end
-
 module Order = struct
   type query = Market.Order.t [@@deriving bin_io]
-  type response = (Market.Exec.t, Reject.t) Result.t [@@deriving bin_io]
+  type error =
+    [ `You're_not_playing
+    | `Game_not_in_progress
+    | `Owner_is_not_sender
+    | `Duplicate_order_id
+    | `Not_enough_to_sell
+    ] [@@deriving bin_io, sexp]
+  type response = (Market.Exec.t, error) Result.t [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"order" ~version:1 ~bin_query ~bin_response
 end
 
 module Cancel = struct
   type query = Market.Order.Id.t [@@deriving bin_io]
-  type response = (unit, [ `No_such_order ]) Result.t [@@deriving bin_io]
+  type error =
+    [ `You're_not_playing
+    | `Game_not_in_progress
+    | `No_such_order
+    ] [@@deriving bin_io, sexp]
+  type response = (unit, error) Result.t [@@deriving bin_io]
   let rpc = Rpc.Rpc.create ~name:"cancel" ~version:1 ~bin_query ~bin_response
 end
