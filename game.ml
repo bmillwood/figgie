@@ -1,4 +1,3 @@
-open Async.Std
 open Core.Std
 
 module Player = struct
@@ -65,10 +64,9 @@ module Round = struct
     pot : Market.Price.t;
     mutable market : Market.t;
     gold : Card.Suit.t;
-    end_ : Results.t Deferred.t;
   }
 
-  let score t =
+  let results t =
     let winners, _, losers =
       Map.fold t.players
         ~init:(Username.Map.empty, Market.Size.zero, Username.Map.empty)
@@ -144,16 +142,7 @@ module Round = struct
         p.username, player)
       |> Username.Map.of_alist_exn
     in
-    let rec end_ =
-      lazy begin
-        Clock.after Params.length_of_round
-        >>| fun () ->
-        score (Lazy.force round)
-      end
-    and round =
-      lazy { players; pot = !pot; market = Market.empty; gold; end_ = Lazy.force end_ }
-    in
-    Lazy.force round
+    { players; pot = !pot; market = Market.empty; gold }
 
   let add_order t ~order:(sent_order : Market.Order.t) ~(sender : Player.t) =
     let open Result.Monad_infix in
@@ -256,6 +245,14 @@ let player_join t ~username =
       ignore player;
       Ok ()
     end
+
+let end_round t (round : Round.t) =
+  let players = Username.Table.create () in
+  Map.iteri round.players ~f:(fun ~key:_ ~data:player ->
+    Hashtbl.set players ~key:player.p.username
+      ~data:(Waiting.Player.create player.p));
+  t.phase <- Waiting_for_players { players };
+  Round.results round
 
 let set_ready t ~username ~is_ready =
   match t.phase with

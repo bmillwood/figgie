@@ -45,9 +45,13 @@ let main ~port =
     broadcast (Waiting_for (Game.waiting_for game))
   in
   let setup_round (round : Game.Round.t) =
-    Deferred.upon round.end_ (fun results ->
+    don't_wait_for begin
+      Clock.after Params.length_of_round
+      >>| fun () ->
+      let results = Game.end_round game round in
       broadcast (Round_over results);
-      broadcast_waiting ());
+      broadcast_waiting ()
+    end;
     Map.iteri round.players ~f:(fun ~key:username ~data:p ->
       List.iter (Hashtbl.find_exn users_of_player username) ~f:(fun user ->
         Pipe.write_without_pushback user.updates (Dealt p.hand)))

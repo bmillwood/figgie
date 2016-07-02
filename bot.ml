@@ -17,7 +17,12 @@ module Do_nothing = struct
         ~summary:"Do nothing"
         ~param
         ~username:(fun i -> which_user ~stem:"lazybot" i)
-        ~f:(fun t _which -> Pipe.closed t.updates)
+        ~f:(fun client _which ->
+          Pipe.iter client.updates ~f:(function
+            | Round_over _ ->
+              Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc client.conn true
+              |> Deferred.ignore
+            | _ -> Deferred.unit))
     )
 end
 
@@ -93,6 +98,9 @@ module Offer_everything = struct
             end
           in
           Pipe.iter client.updates ~f:(function
+            | Round_over _ ->
+              Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc client.conn true
+              |> Deferred.ignore
             | Dealt hand ->
               Deferred.List.iter ~how:`Parallel Card.Suit.all ~f:(fun suit ->
                 let size =

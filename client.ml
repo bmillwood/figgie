@@ -26,12 +26,6 @@ let run ~server ~username ~f =
             r := Market.Order.Id.next id;
             id
         in
-        Pipe.iter updates ~f:(function
-          | Round_over _ ->
-            Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn true
-            |> Deferred.ignore
-          | _ -> Deferred.unit)
-        |> don't_wait_for;
         f { username; conn; updates; new_order_id })
   >>| Or_error.of_exn_result
 
