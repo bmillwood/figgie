@@ -4,7 +4,7 @@ open Async.Std
 ;;
 Command.group
   ~summary:"Figgie!"
-  [ "client", Client.command
+  [ "bot", Bot.command
   ; "server", Server.command
   ]
 |> Command.run

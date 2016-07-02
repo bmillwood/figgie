@@ -1,10 +1,14 @@
 open Core.Std
 open Async.Std
 
-let main ~server ~username =
-  let say s =
-    Writer.(write_sexp ~hum:true ~terminate_with:Newline (Lazy.force stdout)) s
-  in
+type t = {
+  username : Username.t;
+  conn : Rpc.Connection.t;
+  updates : Protocol.Update.t Pipe.Reader.t;
+  new_order_id : unit -> Market.Order.Id.t;
+}
+
+let run ~server ~username ~f =
   Rpc.Connection.with_client
     ~host:(Host_and_port.host server)
     ~port:(Host_and_port.port server)
@@ -15,45 +19,33 @@ let main ~server ~username =
       >>= function
       | Error `Already_playing -> assert false
       | Ok () ->
-        let order_id =
+        let new_order_id =
           let r = ref Market.Order.Id.zero in
           fun () ->
             let id = !r in
             r := Market.Order.Id.next id;
             id
         in
-        Pipe.iter updates ~f:(fun update ->
-          say [%sexp (update : Protocol.Update.t)];
-          Random.self_init ();
-          match update with
-          | Dealt _hand ->
-            let order symbol =
-              { Market.Order.owner = username
-              ; id = order_id ()
-              ; symbol
-              ; dir = if Random.int 2 = 0 then Sell else Buy
-              ; price = Market.Price.of_int 5
-              ; size = Market.Size.of_int 1
-              }
-            in
-            Deferred.List.iter Card.Suit.all ~how:`Sequential ~f:(fun suit ->
-              Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn (order suit)
-              >>| fun r ->
-              say [%sexp (r : Protocol.Order.response)])
-          | _ -> Deferred.unit
-        ))
+        Pipe.iter updates ~f:(function
+          | Round_over _ ->
+            Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn true
+            |> Deferred.ignore
+          | _ -> Deferred.unit)
+        |> don't_wait_for;
+        f { username; conn; updates; new_order_id })
+  >>| Or_error.of_exn_result
 
-let command =
+let make_command ~summary ~param ~username ~f =
   let open Command.Let_syntax in
   Command.async_or_error'
-    ~summary:"Figgie client"
+    ~summary
     [%map_open
       let server = anon ("HOST:PORT" %: string)
-      and username = flag "-username" (required string) ~doc:"NAME"
+      and stuff = param
       in
       fun () ->
-        main
+        run
           ~server:(Host_and_port.of_string server)
-          ~username:(Username.of_string username)
-        >>| Or_error.of_exn_result
+          ~username:(username stuff)
+          ~f:(fun t -> f t stuff)
     ]
