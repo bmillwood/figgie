@@ -52,6 +52,16 @@ let main ~port =
         Pipe.write_without_pushback user.updates (Dealt p.hand)))
   in
   let implementations =
+    let for_existing_user rpc f =
+      Rpc.Rpc.implement rpc
+        (fun (addr, conn) query ->
+          match Hashtbl.find users addr with
+          | None ->
+            drop_unknown ~addr ~conn;
+            return (Error `You're_not_playing)
+          | Some user ->
+            f ~user query)
+    in
     Rpc.Implementations.create_exn
       ~on_unknown_rpc:`Close_connection
       ~implementations:
@@ -85,37 +95,21 @@ let main ~port =
             match game.phase with
             | Waiting_for_players _ -> return Market.empty
             | Playing round -> return round.market)
-      ; Rpc.Rpc.implement Protocol.Hand.rpc
-          (fun (addr, conn) () ->
-            match Hashtbl.find users addr with
-            | None ->
-              drop_unknown ~addr ~conn;
-              return (Error `You're_not_playing)
-            | Some user ->
-              return (Game.get_hand game ~username:user.username))
-      ; Rpc.Rpc.implement Protocol.Order.rpc
-          (fun (addr, conn) order ->
-            match Hashtbl.find users addr with
-            | None ->
-              drop_unknown ~addr ~conn;
-              return (Error `You're_not_playing)
-            | Some user ->
-              let r = Game.add_order game ~order ~sender:user.username in
-              Result.iter r ~f:(fun exec ->
-                broadcast (Exec (order, exec)));
-              return r)
-      ; Rpc.Rpc.implement Protocol.Cancel.rpc
-          (fun (addr, conn) id ->
-            match Hashtbl.find users addr with
-            | None ->
-              drop_unknown ~addr ~conn;
-              return (Error `You're_not_playing)
-            | Some user ->
-              let r = Game.cancel game ~id ~sender:user.username in
-              Result.map r ~f:(fun order ->
-                broadcast (Out order);
-                ())
-              |> return)
+      ; for_existing_user Protocol.Hand.rpc
+          (fun ~user () ->
+            return (Game.get_hand game ~username:user.username))
+      ; for_existing_user Protocol.Order.rpc
+          (fun ~user order ->
+            let r = Game.add_order game ~order ~sender:user.username in
+            Result.iter r ~f:(fun exec ->
+              broadcast (Exec (order, exec)));
+            return r)
+      ; for_existing_user Protocol.Cancel.rpc
+          (fun ~user id ->
+            let r = Game.cancel game ~id ~sender:user.username in
+            Result.iter r ~f:(fun order ->
+              broadcast (Out order));
+            return (Result.ignore r))
       ]
   in
   Rpc.Connection.serve
