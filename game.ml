@@ -62,7 +62,7 @@ module Round = struct
   type t = {
     players : Player.t Username.Map.t;
     pot : Market.Price.t;
-    mutable market : Market.t;
+    mutable market : Market.Book.t;
     gold : Card.Suit.t;
   }
 
@@ -145,7 +145,7 @@ module Round = struct
         p.username, player)
       |> Username.Map.of_alist_exn
     in
-    { players; pot = !pot; market = Market.empty; gold }
+    { players; pot = !pot; market = Market.Book.empty; gold }
 
   let add_order t ~order:(sent_order : Market.Order.t) ~(sender : Player.t) =
     let open Result.Monad_infix in
@@ -169,7 +169,9 @@ module Round = struct
         Market.Size.O.(sent_order.size <= max_sell))
       ~error:`Not_enough_to_sell
     >>| fun () ->
-    let { Market.Match_result.exec; remaining } = Market.match_ t.market sent_order in
+    let { Market.Match_result.exec; remaining } =
+      Market.Book.match_ t.market sent_order
+    in
     t.market <- remaining;
     let settle_order ~owner (executed_order : Market.Order.t) =
       let add_cards ~(player : Player.t) delta =
@@ -214,7 +216,7 @@ module Round = struct
     match Hashtbl.find sender.orders id with
     | None -> Error `No_such_order
     | Some order ->
-      Result.map (Market.cancel t.market order) ~f:(fun new_market ->
+      Result.map (Market.Book.cancel t.market order) ~f:(fun new_market ->
         t.market <- new_market;
         Hashtbl.remove sender.orders id;
         order)

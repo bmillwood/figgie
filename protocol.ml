@@ -49,7 +49,7 @@ end
 
 module Book = struct
   type query = unit [@@deriving bin_io, sexp]
-  type response = Market.t [@@deriving bin_io, sexp]
+  type response = Market.Book.t [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"book" ~version:1 ~bin_query ~bin_response
 end
 

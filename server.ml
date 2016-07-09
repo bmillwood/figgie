@@ -106,7 +106,7 @@ let main ~port =
       ; Rpc.Rpc.implement Protocol.Book.rpc
           (fun _ () ->
             match game.phase with
-            | Waiting_for_players _ -> return Market.empty
+            | Waiting_for_players _ -> return Market.Book.empty
             | Playing round -> return round.market)
       ; for_existing_user Protocol.Hand.rpc
           (fun ~user () ->

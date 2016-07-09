@@ -114,8 +114,10 @@ module Match_result : sig
   type 'a t = { exec : Exec.t; remaining : 'a }
 end
 
-type t [@@deriving bin_io, sexp]
+module Book : sig
+  type t [@@deriving bin_io, sexp]
 
-val empty : t
-val match_ : t -> Order.t -> t Match_result.t
-val cancel : t -> Order.t -> (t, [> `No_such_order ]) Result.t
+  val empty : t
+  val match_ : t -> Order.t -> t Match_result.t
+  val cancel : t -> Order.t -> (t, [> `No_such_order ]) Result.t
+end

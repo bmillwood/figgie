@@ -204,29 +204,31 @@ module Halfbook = struct
       }
 end
 
-type t = Halfbook.t Dirpair.t Per_symbol.t [@@deriving bin_io, sexp]
+module Book = struct
+  type t = Halfbook.t Dirpair.t Per_symbol.t [@@deriving bin_io, sexp]
 
-let empty = Per_symbol.create_all (Dirpair.create_both [])
+  let empty = Per_symbol.create_all (Dirpair.create_both [])
 
-let match_ t (order : Order.t) : t Match_result.t =
-  let book = Per_symbol.get t ~symbol:order.symbol in
-  let opp_dir = Dir.other order.dir in
-  let opp_book = Dirpair.get book ~dir:opp_dir in
-  let r = Halfbook.match_ opp_book order in
-  let new_book =
-    match r.exec.posted with
-    | Some posted ->
-      Dirpair.mapi book ~f:(fun side hbook ->
-        if Dir.equal side order.dir
-        then Halfbook.add_order hbook posted
-        else r.remaining)
-    | None -> Dirpair.set book ~dir:opp_dir ~to_:r.remaining
-  in
-  { r with remaining = Per_symbol.set t ~symbol:order.symbol ~to_:new_book }
+  let match_ t (order : Order.t) : t Match_result.t =
+    let book = Per_symbol.get t ~symbol:order.symbol in
+    let opp_dir = Dir.other order.dir in
+    let opp_book = Dirpair.get book ~dir:opp_dir in
+    let r = Halfbook.match_ opp_book order in
+    let new_book =
+      match r.exec.posted with
+      | Some posted ->
+        Dirpair.mapi book ~f:(fun side hbook ->
+          if Dir.equal side order.dir
+          then Halfbook.add_order hbook posted
+          else r.remaining)
+      | None -> Dirpair.set book ~dir:opp_dir ~to_:r.remaining
+    in
+    { r with remaining = Per_symbol.set t ~symbol:order.symbol ~to_:new_book }
 
-let cancel t (order : Order.t) =
-  let book = Per_symbol.get t ~symbol:order.symbol in
-  let same = Dirpair.get book ~dir:order.dir in
-  Result.map (Halfbook.cancel same order) ~f:(fun hb ->
-    Per_symbol.set t ~symbol:order.symbol
-      ~to_:(Dirpair.set book ~dir:order.dir ~to_:hb))
+  let cancel t (order : Order.t) =
+    let book = Per_symbol.get t ~symbol:order.symbol in
+    let same = Dirpair.get book ~dir:order.dir in
+    Result.map (Halfbook.cancel same order) ~f:(fun hb ->
+      Per_symbol.set t ~symbol:order.symbol
+        ~to_:(Dirpair.set book ~dir:order.dir ~to_:hb))
+end
