@@ -60,7 +60,7 @@ module Offer_everything = struct
         ~f:(fun client t ->
           let hand = ref (Card.Hand.create_all Market.Size.zero) in
           let rec sell ~suit ~size =
-            let size = Market.Size.max size (Card.Hand.get !hand ~suit) in
+            let size = Market.Size.min size (Card.Hand.get !hand ~suit) in
             if Market.Size.(equal zero) size
             then Deferred.unit
             else begin
@@ -101,15 +101,20 @@ module Offer_everything = struct
             | Round_over _ ->
               Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc client.conn true
               |> Deferred.ignore
-            | Dealt hand ->
+            | Dealt new_hand ->
+              hand := new_hand;
               Deferred.List.iter ~how:`Parallel Card.Suit.all ~f:(fun suit ->
                 let size =
                   Option.value_map t.size
                     ~default:Fn.id
-                    ~f:Market.Size.max
-                    (Card.Hand.get hand ~suit)
+                    ~f:Market.Size.min
+                    (Card.Hand.get new_hand ~suit)
                 in
                 sell ~suit ~size)
+            | Exec (order, exec) ->
+              if not (Username.equal client.username order.owner)
+              then handle_exec exec
+              else Deferred.unit
             | _ -> Deferred.unit))
     )
 end
@@ -121,9 +126,11 @@ module Card_counter = struct
   module Counts = struct
     type t = {
       per_player : Size.t Hand.t Username.Table.t
-    }
+    } [@@deriving sexp]
 
     let create () = { per_player = Username.Table.create () }
+
+    let clear t = Hashtbl.clear t.per_player
 
     let update t player ~f =
       Hashtbl.update t.per_player player ~f:(fun hand ->
@@ -136,6 +143,21 @@ module Card_counter = struct
       | Sell ->
         update t order.owner
           ~f:(Hand.modify ~suit:order.symbol ~f:(Size.max order.size))
+
+    let see_exec t ~(order : Market.Order.t) (exec : Market.Exec.t) =
+      let suit = order.symbol in
+      let apply_fill ~(filled : Market.Order.t) ~size =
+        update t filled.owner
+          ~f:(Hand.modify ~suit ~f:(fun c ->
+            Size.(+) c (Size.with_dir size ~dir:filled.dir)));
+        update t order.owner
+          ~f:(Hand.modify ~suit ~f:(fun c ->
+            Size.(+) c (Size.with_dir size ~dir:order.dir)))
+      in
+      List.iter exec.fully_filled ~f:(fun filled ->
+        apply_fill ~filled ~size:filled.size);
+      Option.iter exec.partially_filled ~f:(fun pf ->
+        apply_fill ~filled:pf.original_order ~size:pf.filled_by)
 
     let per_suit t ~suit =
       Hashtbl.fold t.per_player ~init:Size.zero
@@ -151,37 +173,51 @@ module Card_counter = struct
         in
         List.sum (module Float) (or_all long) ~f:(fun long ->
           List.sum (module Float) (or_all short) ~f:(fun short ->
-            let open Size.O in
-            let prod min max =
-              List.init (Size.to_int (max - min + Size.of_int 1))
-                ~f:(fun i -> min + Size.of_int i)
-            in
-            let sample_size = Hand.fold totals ~init:Size.zero ~f:Size.(+) in
-            let numerator =
-              prod (Size.of_int 1) sample_size
-              @ List.concat_map Suit.all ~f:(fun suit ->
-                let num_cards = Params.cards_in_suit suit ~long ~short in
-                prod (num_cards - Hand.get totals ~suit) num_cards)
-            in
-            let denominator =
-              prod
-                (Params.num_cards_in_deck - sample_size)
-                Params.num_cards_in_deck
-              @ List.concat_map Suit.all ~f:(fun suit ->
-                prod (Size.of_int 1) (Hand.get totals ~suit))
-            in
-            List.reduce_balanced_exn ~f:( *. )
-              (List.map numerator ~f:Size.to_float)
-            /. List.reduce_balanced_exn ~f:( *. )
-              (List.map denominator ~f:Size.to_float)))
+            if List.exists Suit.all ~f:(fun suit ->
+              Size.(>)
+                (Hand.get totals ~suit)
+                (Params.cards_in_suit suit ~long ~short))
+            then 0.
+            else begin
+              let open Size.O in
+              let prod min max =
+                List.init (Size.to_int (max - min + Size.of_int 1))
+                  ~f:(fun i -> min + Size.of_int i)
+              in
+              let sample_size = Hand.fold totals ~init:Size.zero ~f:Size.(+) in
+              let numerator =
+                prod (Size.of_int 1) sample_size
+                @ List.concat_map Suit.all ~f:(fun suit ->
+                  let num_cards = Params.cards_in_suit suit ~long ~short in
+                  prod
+                    (num_cards - Hand.get totals ~suit + Size.of_int 1)
+                    num_cards)
+              in
+              let denominator =
+                prod
+                  (Params.num_cards_in_deck - sample_size + Size.of_int 1)
+                  Params.num_cards_in_deck
+                @ List.concat_map Suit.all ~f:(fun suit ->
+                  prod (Size.of_int 1) (Hand.get totals ~suit))
+              in
+              List.reduce_balanced_exn ~f:( *. )
+                (List.map numerator ~f:Size.to_float)
+              /. List.reduce_balanced_exn ~f:( *. )
+                (List.map denominator ~f:Size.to_float)
+            end))
       in
-      let prior ~long:_ = 0.25 in
-      let p_long ~long =
-        prior ~long *. p_totals ~long () /. p_totals ()
-      in
+      if p_totals () =. 0.
+      then begin
+        raise_s [%message "these counts seem impossible"
+          ~counts:(t : t)
+        ]
+      end;
+      let p_long ~long = p_totals ~long () /. p_totals () in
       p_long ~long:(Suit.opposite suit)
-  end
 
+    let ps_gold t =
+      Hand.init ~f:(fun suit -> p_gold t ~suit)
+  end
   let param =
     let open Command.Param in
     flag "-which" (optional int)
@@ -194,10 +230,46 @@ module Card_counter = struct
         ~param
         ~username:(fun i -> which_user ~stem:"countbot" i)
         ~f:(fun client _which ->
+          let counts = Counts.create () in
           Pipe.iter client.updates ~f:(function
             | Round_over _ ->
+              Counts.clear counts;
               Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc client.conn true
               |> Deferred.ignore
+            | Dealt hand ->
+              Counts.update counts client.username ~f:(Fn.const hand);
+              Deferred.unit
+            | Exec (order, exec) ->
+              Counts.see_order counts order;
+              Counts.see_exec  counts ~order exec;
+              Log.Global.sexp ~level:`Info
+                [%sexp (Counts.ps_gold counts : float Hand.t)];
+              Rpc.Rpc.dispatch_exn Protocol.Book.rpc client.conn ()
+              >>= fun book ->
+              Deferred.List.iter ~how:`Parallel Suit.all ~f:(fun suit ->
+                let fair = 10. *. Hand.get (Counts.ps_gold counts) ~suit in
+                Deferred.List.iter ~how:`Parallel
+                  (Hand.get book ~suit).sell ~f:(fun order ->
+                    let want_to_trade =
+                      match order.dir with
+                      | Buy -> fair <. Price.to_float order.price
+                      | Sell -> fair >. Price.to_float order.price
+                    in
+                    if want_to_trade
+                    then begin
+                      Rpc.Rpc.dispatch_exn Protocol.Order.rpc client.conn
+                        { owner = client.username
+                        ; id = client.new_order_id ()
+                        ; symbol = order.symbol
+                        ; dir = Dir.other order.dir
+                        ; price = order.price
+                        ; size = order.size
+                        }
+                      >>= function
+                      | Error e ->
+                        raise_s [%sexp (e : Protocol.Order.error)]
+                      | Ok _exec -> Deferred.unit
+                    end else Deferred.unit))
             | _ -> Deferred.unit))
     )
 end
@@ -207,4 +279,5 @@ let command =
     ~summary:"Run a bot"
     [ Do_nothing.command
     ; Offer_everything.command
+    ; Card_counter.command
     ]

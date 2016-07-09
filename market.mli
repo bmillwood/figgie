@@ -4,7 +4,8 @@ module Cpty   = Username
 module Symbol = Card.Suit
 
 module Per_symbol : sig
-  type 'a t
+  type 'a t = 'a Card.Hand.t
+
   val get    : 'a t -> symbol:Symbol.t -> 'a
   val set    : 'a t -> symbol:Symbol.t -> to_:'a       -> 'a t
   val modify : 'a t -> symbol:Symbol.t -> f:('a -> 'a) -> 'a t
@@ -116,8 +117,12 @@ module Match_result : sig
   type 'a t = { exec : Exec.t; remaining : 'a }
 end
 
+module Halfbook : sig
+  type t = Order.t list [@@deriving bin_io, sexp]
+end
+
 module Book : sig
-  type t [@@deriving bin_io, sexp]
+  type t = Halfbook.t Dirpair.t Per_symbol.t [@@deriving bin_io, sexp]
 
   val empty : t
   val match_ : t -> Order.t -> t Match_result.t
