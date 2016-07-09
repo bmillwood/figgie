@@ -3,6 +3,8 @@ open Async.Std
 
 module Update = struct
   type t =
+    | Player_joined of Username.t
+    | Chat of Username.t * string
     | Waiting_for of int
     | Dealt of Market.Size.t Card.Hand.t
     | Exec of Market.Order.t * Market.Exec.t
@@ -27,6 +29,11 @@ module Is_ready = struct
   type response = (unit, [ `Already_playing ]) Result.t
     [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"ready" ~version:1 ~bin_query ~bin_response
+end
+
+module Chat = struct
+  type msg = string [@@deriving bin_io, sexp]
+  let rpc = Rpc.One_way.create ~name:"chat" ~version:1 ~bin_msg
 end
 
 module Hand = struct

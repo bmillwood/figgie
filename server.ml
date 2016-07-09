@@ -82,7 +82,9 @@ let main ~port =
             let user : User.t = { username; updates = w } in
             Hashtbl.set users ~key:addr ~data:user;
             Hashtbl.add_multi users_of_player ~key:username ~data:user;
-            Pipe.write_without_pushback w (Waiting_for (Game.waiting_for game));
+            broadcast (Player_joined username);
+            Pipe.write_without_pushback w
+              (Waiting_for (Game.waiting_for game));
             r)
       ; Rpc.Rpc.implement Protocol.Is_ready.rpc
           (fun (addr, conn) is_ready ->
@@ -95,6 +97,12 @@ let main ~port =
               | Error _ as e -> return e
               | Ok (`Started round) -> setup_round round; return (Ok ())
               | Ok `Still_waiting -> broadcast_waiting (); return (Ok ()))
+      ; Rpc.One_way.implement Protocol.Chat.rpc
+          (fun (addr, conn) msg ->
+            match Hashtbl.find users addr with
+            | None -> drop_unknown ~addr ~conn
+            | Some user ->
+              broadcast (Chat (user.username, msg)))
       ; Rpc.Rpc.implement Protocol.Book.rpc
           (fun _ () ->
             match game.phase with
