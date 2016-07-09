@@ -22,6 +22,7 @@ module T = struct
   include T'
 
   let of_int n = create ~n ~d:1
+  let to_float t = Float.of_int t.n /. Float.of_int t.d
 
   let hash = Hashtbl.hash
 

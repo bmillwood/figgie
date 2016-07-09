@@ -54,4 +54,8 @@ module Hand = struct
     | Clubs    -> { t with clubs    = f t.clubs    }
 
   let map t ~f = init ~f:(fun suit -> f (get t ~suit))
+  let map2 t1 t2 ~f = init ~f:(fun suit -> f (get t1 ~suit) (get t2 ~suit))
+
+  let fold t ~init ~f =
+    f (f (f (f init t.spades) t.hearts) t.diamonds) t.clubs
 end

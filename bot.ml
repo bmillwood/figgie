@@ -114,6 +114,94 @@ module Offer_everything = struct
     )
 end
 
+module Card_counter = struct
+  open Card
+  open Market
+
+  module Counts = struct
+    type t = {
+      per_player : Size.t Hand.t Username.Table.t
+    }
+
+    let create () = { per_player = Username.Table.create () }
+
+    let update t player ~f =
+      Hashtbl.update t.per_player player ~f:(fun hand ->
+        let hand = Option.value hand ~default:(Hand.create_all Size.zero) in
+        f hand)
+
+    let see_order t (order : Market.Order.t) =
+      match order.dir with
+      | Buy -> ()
+      | Sell ->
+        update t order.owner
+          ~f:(Hand.modify ~suit:order.symbol ~f:(Size.max order.size))
+
+    let per_suit t ~suit =
+      Hashtbl.fold t.per_player ~init:Size.zero
+        ~f:(fun ~key:_ ~data:hand acc -> Size.(+) acc (Hand.get hand ~suit))
+
+    let per_suits t = Hand.init ~f:(fun suit -> per_suit t ~suit)
+
+    let p_gold t ~suit =
+      let totals = per_suits t in
+      let p_totals ?long ?short () =
+        let or_all suit =
+          Option.value_map suit ~default:Suit.all ~f:List.return
+        in
+        List.sum (module Float) (or_all long) ~f:(fun long ->
+          List.sum (module Float) (or_all short) ~f:(fun short ->
+            let open Size.O in
+            let prod min max =
+              List.init (Size.to_int (max - min + Size.of_int 1))
+                ~f:(fun i -> min + Size.of_int i)
+            in
+            let sample_size = Hand.fold totals ~init:Size.zero ~f:Size.(+) in
+            let numerator =
+              prod (Size.of_int 1) sample_size
+              @ List.concat_map Suit.all ~f:(fun suit ->
+                let num_cards = Params.cards_in_suit suit ~long ~short in
+                prod (num_cards - Hand.get totals ~suit) num_cards)
+            in
+            let denominator =
+              prod
+                (Params.num_cards_in_deck - sample_size)
+                Params.num_cards_in_deck
+              @ List.concat_map Suit.all ~f:(fun suit ->
+                prod (Size.of_int 1) (Hand.get totals ~suit))
+            in
+            List.reduce_balanced_exn ~f:( *. )
+              (List.map numerator ~f:Size.to_float)
+            /. List.reduce_balanced_exn ~f:( *. )
+              (List.map denominator ~f:Size.to_float)))
+      in
+      let prior ~long:_ = 0.25 in
+      let p_long ~long =
+        prior ~long *. p_totals ~long () /. p_totals ()
+      in
+      p_long ~long:(Suit.opposite suit)
+  end
+
+  let param =
+    let open Command.Param in
+    flag "-which" (optional int)
+      ~doc:"N modulate username"
+
+  let command =
+    ( "counter"
+    , Client.make_command
+        ~summary:"Count cards"
+        ~param
+        ~username:(fun i -> which_user ~stem:"countbot" i)
+        ~f:(fun client _which ->
+          Pipe.iter client.updates ~f:(function
+            | Round_over _ ->
+              Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc client.conn true
+              |> Deferred.ignore
+            | _ -> Deferred.unit))
+    )
+end
+
 let command =
   Command.group
     ~summary:"Run a bot"

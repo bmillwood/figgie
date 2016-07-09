@@ -22,5 +22,8 @@ module Hand : sig
   val set : 'a t -> suit:Suit.t -> to_:'a -> 'a t
   val modify : 'a t -> suit:Suit.t -> f:('a -> 'a) -> 'a t
 
-  val map : 'a t -> f:('a -> 'b) -> 'b t
+  val map  : 'a t -> f:('a -> 'b) -> 'b t
+  val map2 : 'a t -> 'b t -> f:('a -> 'b -> 'c) -> 'c t
+
+  val fold : 'a t -> init:'b -> f:('b -> 'a -> 'b) -> 'b
 end

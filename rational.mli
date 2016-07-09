@@ -3,6 +3,7 @@ open Core.Std
 include Identifiable.S
 
 val of_int : int -> t
+val to_float : t -> float
 
 module O : sig
   val (=) : t -> t -> bool

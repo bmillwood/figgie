@@ -15,11 +15,13 @@ module Dir = struct
   let equal x y = compare x y = 0
 
   let other = function | Buy -> Sell | Sell -> Buy
+  let sign = function | Buy -> 1 | Sell -> -1
 
   let fold t ~buy ~sell =
     match t with
     | Buy -> buy
     | Sell -> sell
+
 end
 
 module Dirpair = struct
@@ -57,6 +59,7 @@ module type With_units = sig
   include Identifiable.S with type t := t
 
   val of_int : int -> t
+  val to_float : t -> float
 
   module O : sig
     val zero : t
@@ -96,8 +99,10 @@ end
 module Size : sig 
   include With_units
   val to_int : t -> int
+  val with_dir : t -> dir:Dir.t -> t
 end = struct
   include Int
+  let with_dir t ~dir = t * Dir.sign dir
 end
 
 module O = struct

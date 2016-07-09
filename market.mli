@@ -39,6 +39,7 @@ module type With_units = sig
   include Identifiable.S with type t := t
 
   val of_int : int -> t
+  val to_float : t -> float
 
   module O : sig
     val zero : t
@@ -66,6 +67,7 @@ end
 module Size : sig 
   include With_units
   val to_int : t -> int
+  val with_dir : t -> dir:Dir.t -> t
 end
 
 module O : sig
