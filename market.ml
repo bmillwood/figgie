@@ -170,10 +170,6 @@ module Halfbook = struct
     in
     go [] t
 
-  let most_agg = function
-    | [] -> None
-    | (o :: os) -> Some (o, os)
-
   let rec match_ t order : t Match_result.t =
     match t with
     | o :: os when Order.more_agg_or_equal order ~than:o ->
