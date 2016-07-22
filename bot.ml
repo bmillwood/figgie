@@ -253,17 +253,27 @@ module Card_counter = struct
         ~f:(fun client _which ->
           let counts = Counts.create () in
           Pipe.iter client.updates ~f:(function
-            | Round_over _ ->
+            | Round_over results ->
               Counts.clear counts;
+              Log.Global.sexp ~level:`Info [%message "round over"
+                (results.scores_this_round : Market.Price.t Username.Map.t)
+              ];
               Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc client.conn true
               |> Deferred.ignore
             | Dealt hand ->
               Counts.update counts client.username ~f:(Fn.const hand);
+              don't_wait_for begin
+                Rpc.Rpc.dispatch_exn Protocol.Hand.rpc client.conn ()
+                >>| Result.iter ~f:(fun (_hand, chips) ->
+                  Log.Global.sexp ~level:`Info [%message "new round"
+                    (chips : Market.Price.t)
+                  ])
+              end;
               Deferred.unit
             | Exec (order, exec) ->
               Counts.see_order counts order;
               Counts.see_exec  counts ~order exec;
-              Log.Global.sexp ~level:`Info
+              Log.Global.sexp ~level:`Debug
                 [%sexp (Counts.ps_gold counts : float Hand.t)];
               Rpc.Rpc.dispatch_exn Protocol.Book.rpc client.conn ()
               >>= fun book ->

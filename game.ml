@@ -263,7 +263,11 @@ let end_round t (round : Round.t) =
     Hashtbl.set players ~key:player.p.username
       ~data:(Waiting.Player.create player.p));
   t.phase <- Waiting_for_players { players };
-  Round.results round
+  let results = Round.results round in
+  Map.iteri results.scores_this_round ~f:(fun ~key:player ~data:score ->
+    let player = Hashtbl.find_exn players player in
+    player.p.chips <- Market.Price.O.(player.p.chips + score));
+  results
 
 let set_ready t ~username ~is_ready =
   match t.phase with
