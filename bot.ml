@@ -29,7 +29,8 @@ end
 module Offer_everything = struct
   type t = {
     which : int option;
-    at : Market.Price.t;
+    initial_sell_price : Market.Price.t;
+    fade : Market.Price.t;
     size : Market.Size.t option;
   }
 
@@ -39,15 +40,19 @@ module Offer_everything = struct
     let%map which =
       flag "-which" (optional int)
         ~doc:"N modulate username"
-    and at =
+    and initial_sell_price =
       flag "-at" (required int)
         ~doc:"P sell price"
+    and fade =
+      flag "-fade" (required int)
+        ~doc:"F increase price after a sale"
     and size =
       flag "-size" (optional int)
         ~doc:"S sell at most S at a time"
     in
     { which
-    ; at = Market.Price.of_int at
+    ; initial_sell_price = Market.Price.of_int initial_sell_price
+    ; fade = Market.Price.of_int fade
     ; size = Option.map size ~f:Market.Size.of_int
     }
 
@@ -58,6 +63,12 @@ module Offer_everything = struct
         ~param
         ~username:(fun t -> which_user ~stem:"sellbot" t.which)
         ~f:(fun client t ->
+          let sell_prices =
+            Card.Hand.init ~f:(fun _suit -> ref t.initial_sell_price)
+          in
+          let reset_sell_prices () =
+            Card.Hand.iter sell_prices ~f:(fun r -> r := t.initial_sell_price)
+          in
           let hand = ref (Card.Hand.create_all Market.Size.zero) in
           let rec sell ~suit ~size =
             let size = Market.Size.min size (Card.Hand.get !hand ~suit) in
@@ -71,7 +82,7 @@ module Offer_everything = struct
                 ; id = client.new_order_id ()
                 ; symbol = suit
                 ; dir = Sell
-                ; price = t.at
+                ; price = !(Card.Hand.get sell_prices ~suit)
                 ; size
                 }
               >>= function
@@ -84,8 +95,17 @@ module Offer_everything = struct
             let handle_filled_order (order : Market.Order.t) filled_amount =
               suit_to_sell := Some order.symbol;
               if Username.equal order.owner client.username
-              then amount_to_sell :=
-                Market.Size.O.(!amount_to_sell + filled_amount)
+              then begin
+                amount_to_sell :=
+                  Market.Size.O.(!amount_to_sell
+                    + filled_amount);
+                let price_to_sell_at =
+                  Card.Hand.get sell_prices ~suit:order.symbol
+                in
+                price_to_sell_at :=
+                  Market.O.(Price.(!price_to_sell_at
+                    + (filled_amount *$ t.fade)))
+              end
             in
             List.iter exec.fully_filled ~f:(fun order ->
               handle_filled_order order order.size);
@@ -103,6 +123,7 @@ module Offer_everything = struct
               |> Deferred.ignore
             | Dealt new_hand ->
               hand := new_hand;
+              reset_sell_prices ();
               Deferred.List.iter ~how:`Parallel Card.Suit.all ~f:(fun suit ->
                 let size =
                   Option.value_map t.size

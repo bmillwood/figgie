@@ -26,4 +26,5 @@ module Hand : sig
   val map2 : 'a t -> 'b t -> f:('a -> 'b -> 'c) -> 'c t
 
   val fold : 'a t -> init:'b -> f:('b -> 'a -> 'b) -> 'b
+  val iter : 'a t -> f:('a -> unit) -> unit
 end

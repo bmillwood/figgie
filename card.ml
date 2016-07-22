@@ -58,4 +58,10 @@ module Hand = struct
 
   let fold t ~init ~f =
     f (f (f (f init t.spades) t.hearts) t.diamonds) t.clubs
+
+  let iter t ~f =
+    f t.spades;
+    f t.hearts;
+    f t.diamonds;
+    f t.clubs
 end
