@@ -17,7 +17,9 @@ module User = struct
   }
 end
 
-let main ~port =
+let main ~game_port ~web_port =
+  Web_server.create ~port:web_port
+  >>= fun web_server ->
   let game = Game.create () in
   let users : User.t Address.Table.t = Address.Table.create () in
   let users_of_player : User.t list Username.Table.t =
@@ -37,7 +39,9 @@ let main ~port =
     drop ~addr ~conn ~reason:[%message "don't know who you are"]
   in
   let broadcast update =
-    Log.Global.sexp [%message "BROADCAST" (update : Protocol.Update.t)];
+    let sexp = [%message "BROADCAST" (update : Protocol.Update.t)] in
+    Log.Global.sexp sexp;
+    Web_server.broadcast web_server (Sexp.to_string sexp); 
     Hashtbl.iteri users ~f:(fun ~key:_ ~data:user ->
       Pipe.write_without_pushback user.updates update)
   in
@@ -127,12 +131,13 @@ let main ~port =
   in
   Rpc.Connection.serve
     ~initial_connection_state:(fun addr conn ->
-      Deferred.upon (Rpc.Connection.close_reason conn)
-        (fun reason -> drop ~addr ~conn
-          ~reason:[%message "Rpc connection closed" (reason : Info.t)]);
+      Deferred.upon (Rpc.Connection.close_reason conn ~on_close:`started)
+        (fun reason ->
+          drop ~addr ~conn
+            ~reason:[%message "Rpc connection closed" (reason : Info.t)]);
       (addr, conn))
     ~implementations
-    ~where_to_listen:(Tcp.on_port port)
+    ~where_to_listen:(Tcp.on_port game_port)
     ()
   >>= fun _server ->
   Deferred.never ()
@@ -142,10 +147,14 @@ let command =
   Command.async'
     ~summary:"Figgie server"
     [%map_open
-      let port =
-        flag "-port" (optional_with_default 10203 int) ~doc:"N port to listen on"
+      let game_port =
+        flag "-game-port" (optional_with_default 10203 int)
+          ~doc:"N port to listen on for players"
+      and web_port =
+        flag "-web-port" (optional_with_default 20406 int)
+          ~doc:"N port to listen on for web UI"
       in
       fun () ->
-        main ~port
+        main ~game_port ~web_port
         >>= never_returns
     ]
