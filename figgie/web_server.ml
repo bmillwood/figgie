@@ -53,7 +53,8 @@ let create ~port =
         let end_transfer =
           Pipe.transfer pipe_r to_client ~f:(fun m ->
             let s = Binable.to_string (module Web_protocol.Message) m in
-            WS.Frame.of_bytes s)
+            Print.printf "%S\n" s;
+            WS.Frame.of_bytes ~opcode:Binary s)
         in
         let end_read =
           Pipe.iter_without_pushback from_client ~f:(fun frame ->

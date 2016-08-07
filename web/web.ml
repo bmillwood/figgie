@@ -11,7 +11,7 @@ let read_from ~host ~port =
       let reader =
         Pipe.create_reader ~close_on_exception:false (fun writer ->
           socket##.onmessage := Dom.handler (fun event ->
-            Pipe.write_without_pushback writer event##.data;
+            Pipe.write_without_pushback writer event;
             Js._false);
           Deferred.create (fun close_when ->
             socket##.onclose := Dom.handler (fun _event ->
@@ -36,11 +36,25 @@ let main () =
   let broadcasts_list = Dom_html.getElementById "broadcasts" in
   read_from ~host:"localhost" ~port:20406
   >>= fun broadcasts ->
-  Pipe.iter_without_pushback broadcasts ~f:(fun data ->
-    let data = Js.to_string data in
-    match Binable.of_string (module Web_protocol.Message) data with
-    | exception e -> add_li ~to_:broadcasts_list (Exn.to_string e)
-    | Broadcast bc -> add_li ~to_:broadcasts_list bc)
+  Pipe.iter_without_pushback broadcasts ~f:(fun event ->
+    let reader = new%js File.fileReader in
+    reader##readAsBinaryString event##.data_blob;
+    reader##.onloadend := Dom.handler (fun _event ->
+      let data =
+        reader##.result
+        |> File.CoerceTo.string
+        |> fun opt -> Js.Opt.case opt (fun () -> "error") Js.to_string
+      in
+      begin match Binable.of_string (module Web_protocol.Message) data with
+      | exception exn ->
+        add_li ~to_:broadcasts_list (Sexp.to_string [%message
+          "bin_io fail"
+            (data : string)
+            (exn : exn)
+        ])
+      | Broadcast bc -> add_li ~to_:broadcasts_list bc
+      end;
+      Js._false))
   >>= fun () ->
   add_li ~to_:broadcasts_list "lost connection";
   Deferred.unit
