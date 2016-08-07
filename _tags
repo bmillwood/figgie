@@ -1,5 +1,7 @@
-<figgie/*>: package(async), package(core), package(websocket.async), ppx(ppx-jane -as-ppx)
+<figgie/*>: package(async), package(core), package(websocket.async), ppx-driver(ppx_jane)
+<web>: include
 <web/*>: package(async_kernel), package(core_kernel)
-<web/*>: package(js_of_ocaml), package(js_of_ocaml.async), package(js_of_ocaml.ppx)
+<web/*>: package(js_of_ocaml), package(js_of_ocaml.async), ppx-driver(ppx_jane+js_of_ocaml.ppx.driver)
+true: predicate(custom_ppx)
 true: warn(+a-4-40-42-44-48), strict_sequence
 true: thread,debug,annot

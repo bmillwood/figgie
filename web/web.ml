@@ -24,20 +24,25 @@ let read_from ~host ~port =
       Ivar.fill read_from reader;
       Js._false))
 
-let add_li ~to_:list_elt data =
+let add_li ~to_:list_elt contents =
   let document = Dom_html.window##.document in
   let li = document##createElement (Js.string "li") in
-  Dom.appendChild li (document##createTextNode data);
+  Dom.appendChild li (document##createTextNode (Js.string contents));
   Dom.appendChild list_elt li
+
+let alert s = Dom_html.window##alert (Js.string s)
 
 let main () =
   let broadcasts_list = Dom_html.getElementById "broadcasts" in
   read_from ~host:"localhost" ~port:20406
   >>= fun broadcasts ->
   Pipe.iter_without_pushback broadcasts ~f:(fun data ->
-    add_li ~to_:broadcasts_list data)
+    let data = Js.to_string data in
+    match Binable.of_string (module Web_protocol.Message) data with
+    | exception e -> add_li ~to_:broadcasts_list (Exn.to_string e)
+    | Broadcast bc -> add_li ~to_:broadcasts_list bc)
   >>= fun () ->
-  add_li ~to_:broadcasts_list (Js.string "lost connection");
+  add_li ~to_:broadcasts_list "lost connection";
   Deferred.unit
 
 let () =
