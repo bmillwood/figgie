@@ -37,24 +37,15 @@ let main () =
   read_from ~host:"localhost" ~port:20406
   >>= fun broadcasts ->
   Pipe.iter_without_pushback broadcasts ~f:(fun event ->
-    let reader = new%js File.fileReader in
-    reader##readAsBinaryString event##.data_blob;
-    reader##.onloadend := Dom.handler (fun _event ->
-      let data =
-        reader##.result
-        |> File.CoerceTo.string
-        |> fun opt -> Js.Opt.case opt (fun () -> "error") Js.to_string
-      in
-      begin match Binable.of_string (module Web_protocol.Message) data with
-      | exception exn ->
-        add_li ~to_:broadcasts_list (Sexp.to_string [%message
-          "bin_io fail"
-            (data : string)
-            (exn : exn)
-        ])
-      | Broadcast bc -> add_li ~to_:broadcasts_list bc
-      end;
-      Js._false))
+    let data = Js.to_string event##.data in
+    match [%of_sexp: Web_protocol.Message.t] (Sexp.of_string data) with
+    | exception exn ->
+      add_li ~to_:broadcasts_list (Sexp.to_string [%message
+        "sexp_of fail"
+          (data : string)
+          (exn : exn)
+      ])
+    | Broadcast bc -> add_li ~to_:broadcasts_list bc)
   >>= fun () ->
   add_li ~to_:broadcasts_list "lost connection";
   Deferred.unit

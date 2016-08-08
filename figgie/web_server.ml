@@ -47,14 +47,13 @@ let create ~port =
           | Error exn -> on_exn ~where:"WS.server" exn
           | Ok () -> ()
         in
-        Clock.every (sec 1.) (fun () ->
-          Pipe.write_without_pushback to_client
+        Clock.every ~stop:(Pipe.closed to_client) (sec 1.) (fun () ->
+          Pipe.write_without_pushback_if_open to_client
             (WS.Frame.of_bytes ~opcode:Ping (Time.to_string (Time.now ()))));
         let end_transfer =
           Pipe.transfer pipe_r to_client ~f:(fun m ->
-            let s = Binable.to_string (module Web_protocol.Message) m in
-            Print.printf "%S\n" s;
-            WS.Frame.of_bytes ~opcode:Binary s)
+            let s = Sexp.to_string [%sexp (m : Web_protocol.Message.t)] in
+            WS.Frame.of_bytes ~opcode:Text s)
         in
         let end_read =
           Pipe.iter_without_pushback from_client ~f:(fun frame ->
