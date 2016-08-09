@@ -1,15 +1,36 @@
-open Core.Std
-open Async.Std
+open Core_kernel.Std
+open Async_rpc_kernel.Std
 
-module Update = struct
+module Round_results = struct
+  type t = {
+    gold : Card.Suit.t;
+    hands : Market.Size.t Card.Hand.t Username.Map.t;
+    scores_this_round : Market.Price.t Username.Map.t;
+  } [@@deriving bin_io, sexp]
+end
+
+module Broadcast = struct
   type t =
     | Player_joined of Username.t
     | Chat of Username.t * string
     | Waiting_for of int
-    | Dealt of Market.Size.t Card.Hand.t
     | Exec of Market.Order.t * Market.Exec.t
     | Out of Market.Order.t
-    | Round_over of Game.Round.Results.t
+    | Round_over of Round_results.t
+    [@@deriving bin_io, sexp]
+end
+
+module Player_update = struct
+  type t =
+    | Broadcast of Broadcast.t
+    | Dealt of Market.Size.t Card.Hand.t
+    [@@deriving bin_io, sexp]
+end
+
+module Web_update = struct
+  type t =
+    | Broadcast of Broadcast.t
+    | Market of Market.Book.t
     [@@deriving bin_io, sexp]
 end
 
@@ -17,7 +38,7 @@ module Join_game = struct
   type query = Username.t [@@deriving bin_io, sexp]
   type error = [ `Game_is_full | `Game_already_started ]
     [@@deriving bin_io, sexp]
-  type response = Update.t [@@deriving bin_io, sexp]
+  type response = Player_update.t [@@deriving bin_io, sexp]
   let rpc =
     Rpc.Pipe_rpc.create
       ~name:"join" ~version:1 ~bin_query ~bin_response ~bin_error

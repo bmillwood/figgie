@@ -51,14 +51,6 @@ module Round = struct
           ~f:(fun s -> Market.Size.O.(s - order.size)))
   end
 
-  module Results = struct
-    type t = {
-      gold : Card.Suit.t;
-      hands : Market.Size.t Card.Hand.t Username.Map.t;
-      scores_this_round : Market.Price.t Username.Map.t;
-    } [@@deriving bin_io, sexp]
-  end
-
   type t = {
     players : Player.t Username.Map.t;
     pot : Market.Price.t;
@@ -102,7 +94,7 @@ module Round = struct
           | `Both (_, _) -> assert false)
     in
     let hands = Map.map t.players ~f:(fun player -> player.hand) in
-    { Results.gold = t.gold; hands; scores_this_round }
+    { Protocol.Round_results.gold = t.gold; hands; scores_this_round }
 
   let start ~players =
     let num_players = Map.length players in

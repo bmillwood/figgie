@@ -19,7 +19,7 @@ module Do_nothing = struct
         ~username:(fun i -> which_user ~stem:"lazybot" i)
         ~f:(fun client _which ->
           Pipe.iter client.updates ~f:(function
-            | Round_over _ ->
+            | Broadcast (Round_over _) ->
               Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc client.conn true
               |> Deferred.ignore
             | _ -> Deferred.unit))
@@ -118,7 +118,7 @@ module Offer_everything = struct
             end
           in
           Pipe.iter client.updates ~f:(function
-            | Round_over _ ->
+            | Broadcast (Round_over _) ->
               Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc client.conn true
               |> Deferred.ignore
             | Dealt new_hand ->
@@ -132,7 +132,7 @@ module Offer_everything = struct
                     (Card.Hand.get new_hand ~suit)
                 in
                 sell ~suit ~size)
-            | Exec (order, exec) ->
+            | Broadcast (Exec (order, exec)) ->
               if not (Username.equal client.username order.owner)
               then handle_exec exec
               else Deferred.unit
@@ -253,7 +253,7 @@ module Card_counter = struct
         ~f:(fun client _which ->
           let counts = Counts.create () in
           Pipe.iter client.updates ~f:(function
-            | Round_over results ->
+            | Broadcast (Round_over results) ->
               Counts.clear counts;
               Log.Global.sexp ~level:`Info [%message "round over"
                 (results.scores_this_round : Market.Price.t Username.Map.t)
@@ -270,7 +270,7 @@ module Card_counter = struct
                   ])
               end;
               Deferred.unit
-            | Exec (order, exec) ->
+            | Broadcast (Exec (order, exec)) ->
               Counts.see_order counts order;
               Counts.see_exec  counts ~order exec;
               Log.Global.sexp ~level:`Debug

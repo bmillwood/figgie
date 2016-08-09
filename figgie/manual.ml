@@ -33,7 +33,7 @@ let command =
       in
       let saye s = say ~on:Writer.stderr [%sexp (s : string)] in
       Pipe.iter_without_pushback client.updates ~f:(fun update ->
-        say [%sexp (update : Protocol.Update.t)])
+        say [%sexp (update : Protocol.Player_update.t)])
       |> don't_wait_for;
       Pipe.iter (Reader.read_sexps (Lazy.force Reader.stdin))
         ~f:(fun sexp ->

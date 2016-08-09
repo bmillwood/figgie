@@ -4,7 +4,7 @@ open Async.Std
 type t = {
   username : Username.t;
   conn : Rpc.Connection.t;
-  updates : Protocol.Update.t Pipe.Reader.t;
+  updates : Protocol.Player_update.t Pipe.Reader.t;
   new_order_id : unit -> Market.Order.Id.t;
 }
 

@@ -5,15 +5,19 @@ true: thread,debug,annot
 <shared>: include
 <shared/*>: \
 	package(async_kernel), \
+	package(async_rpc_kernel), \
 	package(core_kernel), \
 	ppx-driver(ppx_jane)
 <figgie/*>: \
 	package(async), \
+	package(async_kernel), \
+	package(async_rpc_kernel), \
 	package(core), \
 	package(websocket.async), \
 	ppx-driver(ppx_jane)
 <web/*>: \
 	package(async_kernel), \
+	package(async_rpc_kernel), \
 	package(core_kernel), \
 	package(js_of_ocaml), \
 	package(js_of_ocaml.async), \

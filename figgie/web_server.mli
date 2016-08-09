@@ -4,4 +4,4 @@ type t
 
 val create : port:int -> t Deferred.t
 
-val broadcast : t -> string -> unit
+val broadcast : t -> Protocol.Broadcast.t -> unit

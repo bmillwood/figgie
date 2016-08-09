@@ -13,7 +13,7 @@ end
 module User = struct
   type t = {
     username : Username.t;
-    updates : Protocol.Update.t Pipe.Writer.t;
+    updates : Protocol.Player_update.t Pipe.Writer.t;
   }
 end
 
@@ -35,13 +35,14 @@ let main ~game_port ~web_port =
     |> don't_wait_for
   in
   let drop_unknown ~addr ~conn =
-    Log.Global.sexp ~level:`Info [%message "don't know who this is" (addr : Address.t)];
+    Log.Global.sexp ~level:`Info
+      [%message "don't know who this is" (addr : Address.t)];
     drop ~addr ~conn ~reason:[%message "don't know who you are"]
   in
-  let broadcast update =
-    let sexp = [%message "BROADCAST" (update : Protocol.Update.t)] in
-    Log.Global.sexp sexp;
-    Web_server.broadcast web_server (Sexp.to_string sexp); 
+  let broadcast b =
+    let update = Protocol.Player_update.Broadcast b in
+    Log.Global.sexp [%sexp (update : Protocol.Player_update.t)];
+    Web_server.broadcast web_server b;
     Hashtbl.iteri users ~f:(fun ~key:_ ~data:user ->
       Pipe.write_without_pushback user.updates update)
   in
@@ -87,8 +88,9 @@ let main ~game_port ~web_port =
             Hashtbl.set users ~key:addr ~data:user;
             Hashtbl.add_multi users_of_player ~key:username ~data:user;
             broadcast (Player_joined username);
+            (* catch this person up on how many we still need *)
             Pipe.write_without_pushback w
-              (Waiting_for (Game.waiting_for game));
+              (Broadcast (Waiting_for (Game.waiting_for game)));
             r)
       ; Rpc.Rpc.implement Protocol.Is_ready.rpc
           (fun (addr, conn) is_ready ->

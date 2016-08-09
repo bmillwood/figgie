@@ -5,7 +5,7 @@ module WS = Websocket_async
 
 type t = {
   server : (Socket.Address.Inet.t, int) Tcp.Server.t;
-  pipe : Web_protocol.Message.t Pipe.Writer.t;
+  pipe : Protocol.Web_update.t Pipe.Writer.t;
 }
 
 let create ~port =
@@ -52,7 +52,7 @@ let create ~port =
             (WS.Frame.of_bytes ~opcode:Ping (Time.to_string (Time.now ()))));
         let end_transfer =
           Pipe.transfer pipe_r to_client ~f:(fun m ->
-            let s = Sexp.to_string [%sexp (m : Web_protocol.Message.t)] in
+            let s = Sexp.to_string [%sexp (m : Protocol.Web_update.t)] in
             WS.Frame.of_bytes ~opcode:Text s)
         in
         let end_read =
@@ -68,4 +68,5 @@ let create ~port =
     >>| fun server ->
     { server; pipe })
 
-let broadcast t s = Pipe.write_without_pushback t.pipe (Broadcast s)
+let broadcast t b =
+  Pipe.write_without_pushback t.pipe (Protocol.Web_update.Broadcast b)

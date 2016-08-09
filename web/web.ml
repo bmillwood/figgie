@@ -32,22 +32,40 @@ let add_li ~to_:list_elt contents =
 
 let alert s = Dom_html.window##alert (Js.string s)
 
+let string_of_broadcast (bc : Protocol.Broadcast.t) =
+  match bc with
+  | Player_joined u ->      sprintf !"%{Username} joined" u
+  | Chat (u, m) ->          sprintf !"<%{Username}> %S" u m
+  | Waiting_for n ->        sprintf "Need %d more players" n
+  | Exec (_order, _exec) -> "EXEC"
+  | Out _order ->           "OUT"
+  | Round_over _results  -> "Round over!"
+
+let set_status ?(fg="black") ?(bg="transparent") status =
+  let elt = Dom_html.getElementById "status" in
+  elt##.style##.color := Js.string fg;
+  elt##.style##.backgroundColor := Js.string bg;
+  elt##.textContent := Js.Opt.return (Js.string status)
+
 let main () =
   let broadcasts_list = Dom_html.getElementById "broadcasts" in
+  set_status ~bg:"yellow" "Connecting";
   read_from ~host:"localhost" ~port:20406
   >>= fun broadcasts ->
+  set_status ~fg:"white" ~bg:"green" "Connected";
   Pipe.iter_without_pushback broadcasts ~f:(fun event ->
     let data = Js.to_string event##.data in
-    match [%of_sexp: Web_protocol.Message.t] (Sexp.of_string data) with
+    match [%of_sexp: Protocol.Web_update.t] (Sexp.of_string data) with
     | exception exn ->
       add_li ~to_:broadcasts_list (Sexp.to_string [%message
         "sexp_of fail"
           (data : string)
           (exn : exn)
       ])
-    | Broadcast bc -> add_li ~to_:broadcasts_list bc)
+    | Broadcast bc -> add_li ~to_:broadcasts_list (string_of_broadcast bc)
+    | Market _ -> ())
   >>= fun () ->
-  add_li ~to_:broadcasts_list "lost connection";
+  set_status ~fg:"white" ~bg:"red" "Disconnected";
   Deferred.unit
 
 let () =
