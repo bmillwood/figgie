@@ -1,2 +1,2 @@
-open Core.Std
+open Core_kernel.Std
 include Identifiable.S

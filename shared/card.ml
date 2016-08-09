@@ -1,4 +1,4 @@
-open Core.Std
+open Core_kernel.Std
 
 module Suit = struct
   type t = Spades | Hearts | Diamonds | Clubs
