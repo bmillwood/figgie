@@ -21,4 +21,5 @@ true: thread,debug,annot
 	package(core_kernel), \
 	package(js_of_ocaml), \
 	package(js_of_ocaml.async), \
+	package(incr_dom), \
 	ppx-driver(ppx_jane+js_of_ocaml.ppx.driver)
