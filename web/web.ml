@@ -25,7 +25,7 @@ module Figgie_web = struct
       ; market = Market.Book.empty
       }
 
-    let max_broadcasts = 10
+    let max_broadcasts = 1000
   end
 
   module Action = struct
@@ -59,7 +59,7 @@ module Figgie_web = struct
     in
     match connection_status with
     | Connecting        -> node ~bg:"yellow" "Connecting"
-    | Failed_to_connect -> node ~fg:"white" ~bg:"red" "Failed"
+    | Failed_to_connect -> node ~fg:"white" ~bg:"red" "Failed to connect"
     | Connected         -> node ~fg:"white" ~bg:"green" "Connected"
     | Disconnected      -> node ~fg:"white" ~bg:"red" "Disconnected"
 
@@ -88,18 +88,57 @@ module Figgie_web = struct
       (row ~tr:thead ~td:th ["Symbol"; "Bid"; "Ask"]
       :: List.map Card.Suit.all ~f:sym_row)
 
-  let string_of_broadcast (bc : Protocol.Broadcast.t) =
+  let describe_order_cancel ~cancel (order : Market.Order.t) =
+    match order.dir with
+    | Buy ->
+      sprintf !"%{Username} %s %{Market.Price} bid for %{Market.Size} %s"
+        order.owner
+        (if cancel then "cancels their" else "is")
+        order.price
+        order.size
+        (Card.Suit.name order.symbol)
+    | Sell ->
+      sprintf !"%{Username} %s %{Market.Size} %s at %{Market.Price}"
+        order.owner
+        (if cancel then "cancels their offer of" else "has")
+        order.size
+        (Card.Suit.name order.symbol)
+        order.price
+
+  let items_of_broadcast (bc : Protocol.Broadcast.t) =
     match bc with
-    | Player_joined u ->      sprintf !"%{Username} joined" u
-    | Chat (u, m) ->          sprintf !"<%{Username}> %S" u m
-    | Waiting_for n ->        sprintf "Need %d more players" n
-    | Exec (_order, _exec) -> "EXEC"
-    | Out _order ->           "OUT"
-    | Round_over _results  -> "Round over!"
+    | Player_joined u -> [sprintf !"%{Username} joined" u]
+    | Chat (u, m)     -> [sprintf !"<%{Username}> %S" u m]
+    | Waiting_for _   -> []
+    | Exec (order, exec) ->
+      let fill_to_string (filled_order : Market.Order.t) ~filled_by =
+        sprintf
+          !"%s %(%s%s%) %s for %s"
+          (Username.to_string order.owner)
+          (Market.Dir.fold order.dir
+            ~buy: (format_of_string "bought %s %s from")
+            ~sell:(format_of_string "sold %s %s to"))
+          (Market.Size.to_string filled_by)
+          (Card.Suit.name order.symbol)
+          (Username.to_string filled_order.owner)
+          (Market.Price.to_string filled_order.price)
+      in
+      let of_option opt ~f = Option.to_list (Option.map opt ~f) in
+      List.concat
+        [ List.map exec.fully_filled ~f:(fun filled_order ->
+            fill_to_string filled_order ~filled_by:filled_order.size)
+        ; of_option exec.partially_filled ~f:(fun pf ->
+            fill_to_string pf.original_order ~filled_by:pf.filled_by)
+        ; of_option exec.posted ~f:(fun order ->
+            describe_order_cancel ~cancel:false order)
+        ]
+    | Out order -> [describe_order_cancel ~cancel:true order]
+    | Round_over _results -> ["Round over!"]
 
   let broadcasts_list broadcasts =
-    List.map (Fqueue.to_list broadcasts) ~f:(fun broadcast ->
-      Vdom.Node.li [] [Vdom.Node.text (string_of_broadcast broadcast)])
+    List.concat_map (Fqueue.to_list broadcasts) ~f:items_of_broadcast
+    |> List.map ~f:(fun item -> Vdom.Node.li [] [Vdom.Node.text item])
+    |> fun items -> List.drop items (List.length items - 20)
     |> Vdom.Node.ul []
 
   let view (incr_model : Model.t Incr.t) ~schedule:_ =
