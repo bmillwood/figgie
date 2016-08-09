@@ -63,6 +63,31 @@ module Figgie_web = struct
     | Connected         -> node ~fg:"white" ~bg:"green" "Connected"
     | Disconnected      -> node ~fg:"white" ~bg:"red" "Disconnected"
 
+  let market_display market =
+    let best_price ~symbol ~side =
+      let of_order (order : Market.Order.t) =
+        Market.Price.to_string order.price
+      in
+      Market.Per_symbol.get market ~symbol
+      |> Market.Dirpair.get ~dir:side
+      |> List.hd
+      |> Option.value_map ~default:"" ~f:of_order
+    in
+    let open Vdom.Node in
+    let row ?(tr=tr) ?(td=td) cells =
+      tr [] (List.map cells ~f:(fun data -> td [] [text data]))
+    in
+    let sym_row symbol =
+      row
+        [ Card.Suit.name symbol
+        ; best_price ~symbol ~side:Buy
+        ; best_price ~symbol ~side:Sell
+        ]
+    in
+    table []
+      (row ~tr:thead ~td:th ["Symbol"; "Bid"; "Ask"]
+      :: List.map Card.Suit.all ~f:sym_row)
+
   let string_of_broadcast (bc : Protocol.Broadcast.t) =
     match bc with
     | Player_joined u ->      sprintf !"%{Username} joined" u
@@ -79,9 +104,10 @@ module Figgie_web = struct
 
   let view (incr_model : Model.t Incr.t) ~schedule:_ =
     let open Incr.Let_syntax in
-    let%map { connection_status; broadcasts; market = _ } = incr_model in
+    let%map { connection_status; broadcasts; market } = incr_model in
     Vdom.Node.body []
       [ Vdom.Node.p  [] [status_span connection_status]
+      ; market_display market
       ; broadcasts_list broadcasts
       ]
 end

@@ -3,6 +3,8 @@ open Core_kernel.Std
 module Suit = struct
   type t = Spades | Hearts | Diamonds | Clubs
     [@@deriving bin_io, compare, enumerate, sexp]
+
+  let name t = Sexp.to_string [%sexp (t : t)]
   
   let equal t1 t2 = compare t1 t2 = 0
 

@@ -86,5 +86,5 @@ let create ~port =
     in
     { pipe })
 
-let broadcast t b =
-  Pipe.write_without_pushback t.pipe (Protocol.Web_update.Broadcast b)
+let broadcast t b = Pipe.write_without_pushback t.pipe (Broadcast b)
+let market    t m = Pipe.write_without_pushback t.pipe (Market m)

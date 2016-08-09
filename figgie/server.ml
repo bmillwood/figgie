@@ -49,6 +49,11 @@ let main ~game_port ~web_port =
   let broadcast_waiting () =
     broadcast (Waiting_for (Game.waiting_for game))
   in
+  let update_web_market () =
+    match game.phase with
+    | Waiting_for_players _ -> ()
+    | Playing round -> Web_server.market web_server round.market
+  in
   let setup_round (round : Game.Round.t) =
     don't_wait_for begin
       Clock.after Params.length_of_round
@@ -121,13 +126,15 @@ let main ~game_port ~web_port =
           (fun ~user order ->
             let r = Game.add_order game ~order ~sender:user.username in
             Result.iter r ~f:(fun exec ->
-              broadcast (Exec (order, exec)));
+              broadcast (Exec (order, exec));
+              update_web_market ());
             return r)
       ; for_existing_user Protocol.Cancel.rpc
           (fun ~user id ->
             let r = Game.cancel game ~id ~sender:user.username in
             Result.iter r ~f:(fun order ->
-              broadcast (Out order));
+              broadcast (Out order);
+              update_web_market ());
             return (Result.ignore r))
       ]
   in

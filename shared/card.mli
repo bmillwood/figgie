@@ -3,6 +3,8 @@ open Core_kernel.Std
 module Suit : sig
   type t = Spades | Hearts | Diamonds | Clubs
     [@@deriving bin_io, compare, enumerate, sexp]
+
+  val name : t -> string
   
   val equal : t -> t -> bool
 
