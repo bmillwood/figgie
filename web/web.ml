@@ -21,7 +21,10 @@ let read_from ~host ~port =
           )
         )
       in
-      Ivar.fill read_from reader;
+      Ivar.fill read_from (Some reader);
+      Js._false);
+    socket##.onerror := Dom.handler (fun _event ->
+      Ivar.fill read_from None;
       Js._false))
 
 let add_li ~to_:list_elt contents =
@@ -51,22 +54,26 @@ let main () =
   let broadcasts_list = Dom_html.getElementById "broadcasts" in
   set_status ~bg:"yellow" "Connecting";
   read_from ~host:"localhost" ~port:20406
-  >>= fun broadcasts ->
-  set_status ~fg:"white" ~bg:"green" "Connected";
-  Pipe.iter_without_pushback broadcasts ~f:(fun event ->
-    let data = Js.to_string event##.data in
-    match [%of_sexp: Protocol.Web_update.t] (Sexp.of_string data) with
-    | exception exn ->
-      add_li ~to_:broadcasts_list (Sexp.to_string [%message
-        "sexp_of fail"
-          (data : string)
-          (exn : exn)
-      ])
-    | Broadcast bc -> add_li ~to_:broadcasts_list (string_of_broadcast bc)
-    | Market _ -> ())
-  >>= fun () ->
-  set_status ~fg:"white" ~bg:"red" "Disconnected";
-  Deferred.unit
+  >>= function
+  | None ->
+    set_status ~fg:"white" ~bg:"red" "Failed";
+    Deferred.unit
+  | Some broadcasts ->
+    set_status ~fg:"white" ~bg:"green" "Connected";
+    Pipe.iter_without_pushback broadcasts ~f:(fun event ->
+      let data = Js.to_string event##.data in
+      match [%of_sexp: Protocol.Web_update.t] (Sexp.of_string data) with
+      | exception exn ->
+        add_li ~to_:broadcasts_list (Sexp.to_string [%message
+          "sexp_of fail"
+            (data : string)
+            (exn : exn)
+        ])
+      | Broadcast bc -> add_li ~to_:broadcasts_list (string_of_broadcast bc)
+      | Market _ -> ())
+    >>= fun () ->
+    set_status ~fg:"white" ~bg:"red" "Disconnected";
+    Deferred.unit
 
 let () =
   Dom_html.window##.onload := Dom.handler (fun _event ->

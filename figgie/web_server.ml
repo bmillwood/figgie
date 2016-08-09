@@ -4,12 +4,11 @@ open Async.Std
 module WS = Websocket_async
 
 type t = {
-  server : (Socket.Address.Inet.t, int) Tcp.Server.t;
   pipe : Protocol.Web_update.t Pipe.Writer.t;
 }
 
 let create ~port =
-  let pipe_r, pipe = Pipe.create () in
+  let broadcast_recipients = String.Table.create () in
   let monitor = Monitor.create () in
   Monitor.detach_and_iter_errors monitor ~f:(fun exn ->
     Log.Global.sexp ~level:`Error [%message
@@ -32,11 +31,19 @@ let create ~port =
           ~f:(on_exn ~where:"Writer");
         let app_to_ws, to_client = Pipe.create () in
         let from_client, ws_to_app = Pipe.create () in
-        Log.Global.set_level `Debug;
-        let _finished =
+        Hashtbl.set broadcast_recipients
+          ~key:(Socket.Address.Inet.to_string addr)
+          ~data:to_client;
+        let ws_log =
+          Log.create
+            ~level:`Debug
+            ~output:[Log.Output.stdout ()]
+            ~on_error:`Raise
+        in
+        let finished =
           Monitor.try_with (fun () ->
             WS.server
-              ~log:(Lazy.force Log.Global.log)
+              ~log:ws_log
               ~app_to_ws
               ~ws_to_app
               ~reader
@@ -50,11 +57,6 @@ let create ~port =
         Clock.every ~stop:(Pipe.closed to_client) (sec 1.) (fun () ->
           Pipe.write_without_pushback_if_open to_client
             (WS.Frame.of_bytes ~opcode:Ping (Time.to_string (Time.now ()))));
-        let end_transfer =
-          Pipe.transfer pipe_r to_client ~f:(fun m ->
-            let s = Sexp.to_string [%sexp (m : Protocol.Web_update.t)] in
-            WS.Frame.of_bytes ~opcode:Text s)
-        in
         let end_read =
           Pipe.iter_without_pushback from_client ~f:(fun frame ->
             match frame.opcode with
@@ -63,10 +65,26 @@ let create ~port =
               Pipe.close to_client
             | _ -> ())
         in
-        Deferred.all_unit [end_transfer; end_read]
+        let end_write = Pipe.closed to_client in
+        Deferred.any_unit [finished; end_read; end_write]
       )
-    >>| fun server ->
-    { server; pipe })
+    >>| fun _server ->
+    let pipe =
+      Pipe.create_writer (fun reader ->
+        Pipe.iter_without_pushback reader ~f:(fun update ->
+          Hashtbl.filteri_inplace broadcast_recipients
+            ~f:(fun ~key:_ ~data:pipe ->
+              if Pipe.is_closed pipe
+              then false
+              else begin
+                Pipe.write_without_pushback pipe
+                  ([%sexp (update : Protocol.Web_update.t)]
+                  |> Sexp.to_string
+                  |> WS.Frame.of_bytes ~opcode:Text);
+                true
+              end)))
+    in
+    { pipe })
 
 let broadcast t b =
   Pipe.write_without_pushback t.pipe (Protocol.Web_update.Broadcast b)
