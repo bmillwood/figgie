@@ -178,14 +178,16 @@ let read_updates_from ~host ~port =
     )
   )
 
-let on_startup ~schedule _ =
-  don't_wait_for begin
+let connection_loop ~schedule =
+  let rec loop () =
     let open Figgie_web.Action in
     read_updates_from ~host:"localhost" ~port:20406
     >>= function
     | None ->
       schedule (Set_connection_status Failed_to_connect);
-      Deferred.unit
+      Clock_ns.after (Time_ns.Span.of_sec 5.)
+      >>= fun () ->
+      loop ()
     | Some updates ->
       schedule (Set_connection_status Connected);
       Pipe.iter_without_pushback updates ~f:(function
@@ -193,13 +195,14 @@ let on_startup ~schedule _ =
         | Market market -> schedule (Set_market market))
       >>= fun () ->
       schedule (Set_connection_status Disconnected);
-      Deferred.unit
-  end
+      loop ()
+  in
+  don't_wait_for (loop ())
 
 let () =
   Start_app.start
     ~initial_state:Figgie_web.Model.initial
-    ~on_startup
+    ~on_startup:(fun ~schedule _ -> connection_loop ~schedule)
     ~project_immutable_summary:Fn.id
     ~on_display:(fun ~schedule:_ ~old:_ _new -> ())
     (module Figgie_web)
