@@ -176,15 +176,15 @@ module Round = struct
           ~buy:Fn.id ~sell:Market.Size.neg
           executed_order.size
       in
-      let price_for_owner =
+      let cashflow_for_owner =
         Market.Dir.fold executed_order.dir
           ~buy:Market.Price.neg ~sell:Fn.id
           Market.O.(executed_order.size *$ executed_order.price)
       in
       add_cards ~player:owner  size_for_owner;
       add_cards ~player:sender (Market.Size.neg size_for_owner);
-      owner.p.chips <- Market.Price.O.(owner.p.chips + price_for_owner);
-      owner.p.chips <- Market.Price.O.(owner.p.chips - price_for_owner)
+      owner.p.chips  <- Market.Price.O.(owner.p.chips  + cashflow_for_owner);
+      sender.p.chips <- Market.Price.O.(sender.p.chips - cashflow_for_owner)
     in
     List.iter exec.fully_filled ~f:(fun executed_order ->
       let owner = Map.find_exn t.players executed_order.owner in
