@@ -16,12 +16,14 @@ module Figgie_web = struct
     type t = {
       connection_status : Connection_status.t;
       broadcasts        : Protocol.Broadcast.t Fqueue.t;
+      hands             : Market.Size.t Card.Hand.t Username.Map.t;
       market            : Market.Book.t;
     }
 
     let initial =
       { connection_status = Connecting
       ; broadcasts = Fqueue.empty
+      ; hands = Username.Map.empty
       ; market = Market.Book.empty
       }
 
@@ -31,6 +33,7 @@ module Figgie_web = struct
   module Action = struct
     type t =
       | Set_connection_status of Connection_status.t
+      | Set_hands of Market.Size.t Card.Hand.t Username.Map.t
       | Set_market of Market.Book.t
       | Add_broadcast of Protocol.Broadcast.t
       [@@deriving sexp]
@@ -39,6 +42,8 @@ module Figgie_web = struct
       match action with
       | Set_connection_status connection_status ->
         { model with connection_status }
+      | Set_hands hands ->
+        { model with hands }
       | Set_market market ->
         { model with market }
       | Add_broadcast broadcast ->
@@ -87,6 +92,34 @@ module Figgie_web = struct
     table []
       (row ~tr:thead ~td:th ["Symbol"; "Bid"; "Ask"]
       :: List.map Card.Suit.all ~f:sym_row)
+
+  let hands_display hands =
+    let utf8_of_suit : Card.Suit.t -> string = function
+      | Spades -> "\xe2\x99\xa0"
+      | Hearts -> "\xe2\x99\xa1"
+      | Diamonds -> "\xe2\x99\xa2"
+      | Clubs -> "\xe2\x99\xa3"
+    in
+    let player_hands =
+      Map.map hands ~f:(fun hand ->
+        Card.Hand.foldi hand ~init:[] ~f:(fun suit acc num_of_this_suit ->
+          let this =
+            List.init (Market.Size.to_int num_of_this_suit)
+              ~f:(fun _ -> utf8_of_suit suit)
+          in
+          this @ acc)
+        |> List.rev
+        |> String.concat)
+    in
+    let open Vdom.Node in
+    table []
+      (thead [] [th [] [text "Player"]; th [] [text "Cards"]]
+      :: Map.fold player_hands ~init:[]
+        ~f:(fun ~key:username ~data:hand acc ->
+          tr []
+            [ td [] [text (Username.to_string username)]
+            ; td [] [text hand]
+            ] :: acc))
 
   let describe_order_cancel ~cancel (order : Market.Order.t) =
     match order.dir with
@@ -143,10 +176,11 @@ module Figgie_web = struct
 
   let view (incr_model : Model.t Incr.t) ~schedule:_ =
     let open Incr.Let_syntax in
-    let%map { connection_status; broadcasts; market } = incr_model in
+    let%map { connection_status; broadcasts; market; hands } = incr_model in
     Vdom.Node.body []
       [ Vdom.Node.p  [] [status_span connection_status]
       ; market_display market
+      ; hands_display hands
       ; broadcasts_list broadcasts
       ]
 end
@@ -192,6 +226,7 @@ let connection_loop ~schedule =
       schedule (Set_connection_status Connected);
       Pipe.iter_without_pushback updates ~f:(function
         | Broadcast broadcast -> schedule (Add_broadcast broadcast)
+        | Hands hands -> schedule (Set_hands hands)
         | Market market -> schedule (Set_market market))
       >>= fun () ->
       schedule (Set_connection_status Disconnected);

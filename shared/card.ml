@@ -58,8 +58,15 @@ module Hand = struct
   let map t ~f = init ~f:(fun suit -> f (get t ~suit))
   let map2 t1 t2 ~f = init ~f:(fun suit -> f (get t1 ~suit) (get t2 ~suit))
 
-  let fold t ~init ~f =
-    f (f (f (f init t.spades) t.hearts) t.diamonds) t.clubs
+  let foldi t ~init ~f =
+    let f (suit : Suit.t) v a = f suit a v in
+    init
+    |> f Spades t.spades
+    |> f Hearts t.hearts
+    |> f Diamonds t.diamonds
+    |> f Clubs t.clubs
+
+  let fold t ~init ~f = foldi t ~init ~f:(fun _ b a -> f b a)
 
   let iter t ~f =
     f t.spades;

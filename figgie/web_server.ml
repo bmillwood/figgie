@@ -88,3 +88,4 @@ let create ~port =
 
 let broadcast t b = Pipe.write_without_pushback t.pipe (Broadcast b)
 let market    t m = Pipe.write_without_pushback t.pipe (Market m)
+let hands     t h = Pipe.write_without_pushback t.pipe (Hands h)

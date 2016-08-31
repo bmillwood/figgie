@@ -54,6 +54,13 @@ let main ~game_port ~web_port =
     | Waiting_for_players _ -> ()
     | Playing round -> Web_server.market web_server round.market
   in
+  let update_web_hands () =
+    match game.phase with
+    | Waiting_for_players _ -> ()
+    | Playing round ->
+      let hands = Map.map round.players ~f:(fun p -> p.hand) in
+      Web_server.hands web_server hands
+  in
   let setup_round (round : Game.Round.t) =
     don't_wait_for begin
       Clock.after Params.length_of_round
@@ -64,7 +71,8 @@ let main ~game_port ~web_port =
     end;
     Map.iteri round.players ~f:(fun ~key:username ~data:p ->
       List.iter (Hashtbl.find_exn users_of_player username) ~f:(fun user ->
-        Pipe.write_without_pushback user.updates (Dealt p.hand)))
+        Pipe.write_without_pushback user.updates (Dealt p.hand)));
+    update_web_hands ()
   in
   let implementations =
     let for_existing_user rpc f =
@@ -127,6 +135,7 @@ let main ~game_port ~web_port =
             let r = Game.add_order game ~order ~sender:user.username in
             Result.iter r ~f:(fun exec ->
               broadcast (Exec (order, exec));
+              update_web_hands ();
               update_web_market ());
             return r)
       ; for_existing_user Protocol.Cancel.rpc
