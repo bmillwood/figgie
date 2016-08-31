@@ -158,16 +158,16 @@ module Card_counter = struct
         let hand = Option.value hand ~default:(Hand.create_all Size.zero) in
         f hand)
 
-    let see_order t (order : Market.Order.t) =
+    let see_order t (order : Order.t) =
       match order.dir with
       | Buy -> ()
       | Sell ->
         update t order.owner
           ~f:(Hand.modify ~suit:order.symbol ~f:(Size.max order.size))
 
-    let see_exec t ~(order : Market.Order.t) (exec : Market.Exec.t) =
+    let see_exec t ~(order : Order.t) (exec : Exec.t) =
       let suit = order.symbol in
-      let apply_fill ~(filled : Market.Order.t) ~size =
+      let apply_fill ~(filled : Order.t) ~size =
         update t filled.owner
           ~f:(Hand.modify ~suit ~f:(fun c ->
             Size.(+) c (Size.with_dir size ~dir:filled.dir)));
@@ -239,10 +239,18 @@ module Card_counter = struct
     let ps_gold t =
       Hand.init ~f:(fun suit -> p_gold t ~suit)
   end
+
   let param =
-    let open Command.Param in
-    flag "-which" (optional int)
-      ~doc:"N modulate username"
+    let open Command.Let_syntax in
+    let%map_open which =
+      flag "-which" (optional int)
+        ~doc:"N modulate username"
+    and log_level = 
+      flag "-log-level" (optional_with_default `Info Log.Level.arg)
+        ~doc:"L Debug, Info, or Error"
+    in
+    Log.Global.set_level log_level;
+    which
 
   let command =
     ( "counter"
@@ -256,7 +264,7 @@ module Card_counter = struct
             | Broadcast (Round_over results) ->
               Counts.clear counts;
               Log.Global.sexp ~level:`Info [%message "round over"
-                (results.scores_this_round : Market.Price.t Username.Map.t)
+                (results.gold : Suit.t)
               ];
               Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc client.conn true
               |> Deferred.ignore
@@ -266,13 +274,18 @@ module Card_counter = struct
                 Rpc.Rpc.dispatch_exn Protocol.Hand.rpc client.conn ()
                 >>| Result.iter ~f:(fun (_hand, chips) ->
                   Log.Global.sexp ~level:`Info [%message "new round"
-                    (chips : Market.Price.t)
+                    (chips : Price.t)
                   ])
               end;
               Deferred.unit
             | Broadcast (Exec (order, exec)) ->
               Counts.see_order counts order;
               Counts.see_exec  counts ~order exec;
+              begin if Username.equal order.owner client.username
+              then
+                Log.Global.sexp ~level:`Debug [%message
+                  "My order" (order.dir : Dir.t) (order.symbol : Suit.t)]
+              end;
               Log.Global.sexp ~level:`Debug
                 [%sexp (Counts.ps_gold counts : float Hand.t)];
               Rpc.Rpc.dispatch_exn Protocol.Book.rpc client.conn ()
