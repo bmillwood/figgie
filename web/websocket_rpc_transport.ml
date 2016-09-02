@@ -9,7 +9,7 @@ module T = struct
     monitor : Monitor.t;
     incoming_messages : Bigstring.t Pipe.Reader.t;
     close_started : bool ref;
-    mutable unconsumed_message : Bigsubstring.t;
+    unconsumed_message : Bigsubstring.t ref;
   }
 
   let of_socket ~host_and_port:_ socket =
@@ -24,9 +24,12 @@ module T = struct
     let incoming_messages =
       Pipe.create_reader ~close_on_exception:false (fun writer ->
         socket##.onmessage := Dom.handler (fun event ->
+          Js.Unsafe.global##.debugEvent := event;
           let bigstring =
             Typed_array.Bigstring.of_arrayBuffer event##.data_buffer
           in
+          Incr_dom.Common.logf "msg arrived %S"
+            (Bigstring.to_string bigstring);
           Pipe.write_without_pushback writer bigstring;
           Js._false);
         closed)
@@ -36,7 +39,7 @@ module T = struct
     ; monitor = Monitor.create ()
     ; incoming_messages
     ; close_started
-    ; unconsumed_message = Bigsubstring.of_string ""
+    ; unconsumed_message = ref (Bigsubstring.of_string "")
     }
 
   let sexp_of_t _t = Sexp.Atom "<websocket>"
@@ -48,67 +51,11 @@ module T = struct
     t.socket##close;
     t.closed
 
-  let read_n_bytes t n ~on_end_of_batch =
-    let unconsumed_len = Bigsubstring.length t.unconsumed_message in
-    if unconsumed_len >= n
-    then begin
-      let ret = Bigsubstring.sub t.unconsumed_message ~pos:0 ~len:n in
-      t.unconsumed_message <-
-        Bigsubstring.sub t.unconsumed_message ~pos:n ~len:(unconsumed_len - n);
-      Deferred.return (Ok ret)
-    end else begin
-      let ret = Bigstring.create n in
-      Bigsubstring.blit_to_bigstring t.unconsumed_message ~dst:ret ~dst_pos:0;
-      let rec loop ~dst_pos ~still_need =
-        begin if Pipe.is_empty t.incoming_messages
-        then on_end_of_batch ()
-        end;
-        Pipe.read t.incoming_messages
-        >>= function
-        | `Eof ->
-          Deferred.return (Error (if is_closed t then `Closed else `Eof))
-        | `Ok msg ->
-          let len = Bigstring.length msg in
-          if len >= still_need
-          then begin
-            Bigstring.blit ~src:msg ~src_pos:0 ~len:still_need ~dst:ret ~dst_pos;
-            t.unconsumed_message <- Bigsubstring.create ~pos:still_need msg;
-            Deferred.return (Ok (Bigsubstring.create ret))
-          end else begin
-            Bigstring.blit ~src:msg ~src_pos:0 ~len ~dst:ret ~dst_pos;
-            loop ~dst_pos:(dst_pos + len) ~still_need:(still_need - len)
-          end
-      in
-      loop ~dst_pos:unconsumed_len ~still_need:(n - unconsumed_len)
-    end
-
-  let read_forever t ~on_message ~on_end_of_batch =
-    Deferred.repeat_until_finished () (fun () ->
-      begin
-        read_n_bytes t ~on_end_of_batch Rpc.Transport.Header.length
-        >>=? fun header ->
-        read_n_bytes t ~on_end_of_batch
-          (Rpc.Transport.Header.unsafe_get_payload_length
-            (Bigsubstring.base header)
-            ~pos:(Bigsubstring.pos header))
-        >>=? fun message ->
-        match
-          on_message
-            (Bigsubstring.base message)
-            ~pos:(Bigsubstring.pos message)
-            ~len:(Bigsubstring.length message)
-        with
-        | Rpc.Transport.Handler_result.Stop a ->
-            Deferred.return (Ok (`Finished (Ok a)))
-        | Continue ->
-            Deferred.return (Ok (`Repeat ()))
-        | Wait wait ->
-            wait >>| fun () -> Ok (`Repeat ())
-      end
-      >>| function
-      | Error e -> `Finished (Error e)
-      | Ok v -> v
-    )
+  let read_forever t =
+    Transport_util.read_forever_of_chunk_pipe
+      t.incoming_messages
+      ~unconsumed:t.unconsumed_message
+      ~is_closed:(fun () -> is_closed t)
 
   let monitor t = t.monitor
   let bytes_to_write _t = 0
@@ -121,9 +68,11 @@ module T = struct
     then Rpc.Transport.Send_result.Closed
     else begin
       let bigstring = Bigstring.create (len + Rpc.Transport.Header.length) in
-      let _pos = write_bigstring bigstring ~pos:Rpc.Transport.Header.length in
       Rpc.Transport.Header.unsafe_set_payload_length bigstring ~pos:0 len;
+      let _pos = write_bigstring bigstring ~pos:Rpc.Transport.Header.length in
       t.socket##send_buffer (Typed_array.Bigstring.to_arrayBuffer bigstring);
+      Incr_dom.Common.logf "msg sent %S"
+        (Bigstring.to_string bigstring);
       Rpc.Transport.Send_result.Sent ()
     end
 
@@ -156,6 +105,7 @@ let connect host_and_port =
     new%js WebSockets.webSocket
       (Js.string (sprintf "ws://%s:%d" host port))
   in
+  socket##.binaryType := Js.string "arraybuffer";
   Deferred.create (fun ivar ->
     socket##.onopen := Dom.handler (fun _event ->
       let transport_reader =
@@ -168,4 +118,10 @@ let connect host_and_port =
         (Ok { Rpc.Transport.reader = transport_reader
         ; writer = transport_writer
         });
-      Js._false))
+      Js._false
+    );
+    socket##.onerror := Dom.handler (fun _event ->
+      Ivar.fill_if_empty ivar (Error ());
+      Js._false
+    )
+  )

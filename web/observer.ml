@@ -1,5 +1,6 @@
-open Async_kernel.Std
 open Core_kernel.Std
+open Async_kernel.Std
+open Async_rpc_kernel.Std
 open Incr_dom.Std
 
 module Figgie_web = struct
@@ -185,54 +186,41 @@ module Figgie_web = struct
       ]
 end
 
-let read_updates_from ~host ~port =
-  Deferred.create (fun read_from ->
-    let socket =
-      new%js WebSockets.webSocket
-        (Js.string (sprintf "ws://%s:%d" host port))
-    in
-    let reader, writer = Pipe.create () in
-    socket##.onopen := Dom.handler (fun _event ->
-      Ivar.fill_if_empty read_from (Some reader);
-      socket##.onmessage := Dom.handler (fun event ->
-        let data = Js.to_string event##.data in
-        Pipe.write_without_pushback writer
-          ([%of_sexp: Protocol.Web_update.t] (Sexp.of_string data));
-        Js._false
-      );
-      socket##.onclose := Dom.handler (fun _event ->
-        Pipe.close writer;
-        Js._false
-      );
-      Js._false
-    );
-    socket##.onerror := Dom.handler (fun _event ->
-      Ivar.fill_if_empty read_from None;
-      Js._false
-    )
-  )
-
 let connection_loop ~schedule =
-  let rec loop () =
+  don't_wait_for begin
     let open Figgie_web.Action in
-    read_updates_from ~host:"localhost" ~port:20406
+    let handle_update : Protocol.Web_update.t -> unit =
+      function
+      | Broadcast broadcast -> schedule (Add_broadcast broadcast)
+      | Hands hands -> schedule (Set_hands hands)
+      | Market market -> schedule (Set_market market)
+    in
+    schedule (Set_connection_status Connecting);
+    Websocket_rpc_transport.connect
+      (Host_and_port.create ~host:"localhost" ~port:20406)
     >>= function
-    | None ->
+    | Error () ->
       schedule (Set_connection_status Failed_to_connect);
-      Clock_ns.after (Time_ns.Span.of_sec 5.)
-      >>= fun () ->
-      loop ()
-    | Some updates ->
-      schedule (Set_connection_status Connected);
-      Pipe.iter_without_pushback updates ~f:(function
-        | Broadcast broadcast -> schedule (Add_broadcast broadcast)
-        | Hands hands -> schedule (Set_hands hands)
-        | Market market -> schedule (Set_market market))
-      >>= fun () ->
-      schedule (Set_connection_status Disconnected);
-      loop ()
-  in
-  don't_wait_for (loop ())
+      Deferred.unit
+    | Ok transport ->
+      Rpc.Connection.with_close
+        ~connection_state:(fun _ -> ())
+        transport
+        ~on_handshake_error:`Raise
+        ~dispatch_queries:(fun conn ->
+          schedule (Set_connection_status Connected);
+          Rpc.Pipe_rpc.dispatch_iter Protocol.Get_web_updates.rpc conn ()
+            ~f:(function
+              | Update update -> handle_update update; Continue
+              | Closed _ -> Continue)
+          >>| ok_exn
+          >>= function
+          | Error nope -> Nothing.unreachable_code nope
+          | Ok _pipe_id -> Deferred.unit
+        )
+      >>| fun () ->
+      schedule (Set_connection_status Disconnected)
+  end
 
 let () =
   Start_app.start

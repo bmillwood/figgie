@@ -35,6 +35,16 @@ module Web_update = struct
     [@@deriving bin_io, sexp]
 end
 
+module Get_web_updates = struct
+  type query = unit [@@deriving bin_io, sexp]
+  type error = Nothing.t [@@deriving bin_io, sexp]
+  type response = Web_update.t [@@deriving bin_io, sexp]
+  let rpc =
+    Rpc.Pipe_rpc.create
+      ~name:"web-updates" ~version:1 ~bin_query ~bin_response ~bin_error
+      ()
+end
+
 module Join_game = struct
   type query = Username.t [@@deriving bin_io, sexp]
   type error = [ `Game_is_full | `Game_already_started ]

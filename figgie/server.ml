@@ -171,8 +171,12 @@ let command =
       and web_port =
         flag "-web-port" (optional_with_default 20406 int)
           ~doc:"N port to listen on for web UI"
+      and log_level =
+        flag "-log-level" (optional_with_default `Info Log.Level.arg)
+          ~doc:"LEVEL Error, Info, or Debug"
       in
       fun () ->
+        Log.Global.set_level log_level;
         main ~game_port ~web_port
         >>= never_returns
     ]
