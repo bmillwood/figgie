@@ -108,12 +108,9 @@ let connect host_and_port =
   socket##.binaryType := Js.string "arraybuffer";
   Deferred.create (fun ivar ->
     socket##.onopen := Dom.handler (fun _event ->
-      let transport_reader =
-        Rpc.Transport.Reader.pack reader (T.of_socket ~host_and_port socket)
-      in
-      let transport_writer =
-        Rpc.Transport.Writer.pack writer (T.of_socket ~host_and_port socket)
-      in
+      let t = T.of_socket ~host_and_port socket in
+      let transport_reader = Rpc.Transport.Reader.pack reader t in
+      let transport_writer = Rpc.Transport.Writer.pack writer t in
       Ivar.fill_if_empty ivar
         (Ok { Rpc.Transport.reader = transport_reader
         ; writer = transport_writer
