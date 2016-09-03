@@ -55,7 +55,7 @@ module Figgie_web = struct
         in
         { model with broadcasts = Fqueue.enqueue old_broadcasts broadcast }
 
-    let should_log _ = true
+    let should_log _ = false
   end
 
   let status_span (connection_status : Connection_status.t) =

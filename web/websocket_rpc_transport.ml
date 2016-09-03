@@ -28,8 +28,6 @@ module T = struct
           let bigstring =
             Typed_array.Bigstring.of_arrayBuffer event##.data_buffer
           in
-          Incr_dom.Common.logf "msg arrived %S"
-            (Bigstring.to_string bigstring);
           Pipe.write_without_pushback writer bigstring;
           Js._false);
         closed)
@@ -71,8 +69,6 @@ module T = struct
       Rpc.Transport.Header.unsafe_set_payload_length bigstring ~pos:0 len;
       let _pos = write_bigstring bigstring ~pos:Rpc.Transport.Header.length in
       t.socket##send_buffer (Typed_array.Bigstring.to_arrayBuffer bigstring);
-      Incr_dom.Common.logf "msg sent %S"
-        (Bigstring.to_string bigstring);
       Rpc.Transport.Send_result.Sent ()
     end
 
