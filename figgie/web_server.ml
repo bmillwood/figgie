@@ -23,11 +23,18 @@ let create ~port =
   in
   let end_ =
     Web_transport.serve ~port
-      ~f:(fun _addr transport ->
+      ~f:(fun addr transport ->
         Rpc_kernel.Rpc.Connection.server_with_close transport
           ~implementations
           ~on_handshake_error:`Raise
-          ~connection_state:(fun _ -> ()))
+          ~connection_state:(fun _conn ->
+              Log.Global.sexp ~level:`Info [%message
+                "Web client connected"
+                  (addr : Socket.Address.Inet.t)
+              ];
+              ()
+            )
+      )
     >>| function
     | Ok () | Error () -> ()
   in
