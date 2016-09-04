@@ -1,0 +1,7 @@
+PKG async_kernel async_rpc_kernel core_kernel
+PKG ppx_jane
+PKG js_of_ocaml
+PKG incr_dom
+B ../_build/web
+B ../_build/shared
+S ../shared

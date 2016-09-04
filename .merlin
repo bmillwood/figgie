@@ -1,5 +1,0 @@
-PKG async async_kernel async_extra async_unix
-PKG bin_prot
-PKG core core_kernel
-PKG ppx_jane
-B _build

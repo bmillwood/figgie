@@ -175,7 +175,7 @@ module Figgie_web = struct
     |> fun items -> List.drop items (List.length items - 20)
     |> Vdom.Node.ul []
 
-  let view (incr_model : Model.t Incr.t) ~schedule:_ =
+  let view (incr_model : Model.t Incr.t) ~inject:_ =
     let open Incr.Let_syntax in
     let%map { connection_status; broadcasts; market; hands } = incr_model in
     Vdom.Node.body []
@@ -184,48 +184,49 @@ module Figgie_web = struct
       ; hands_display hands
       ; broadcasts_list broadcasts
       ]
+
+  let on_startup ~schedule _ =
+    don't_wait_for begin
+      let open Action in
+      let handle_update : Protocol.Web_update.t -> unit =
+        function
+        | Broadcast broadcast -> schedule (Add_broadcast broadcast)
+        | Hands hands -> schedule (Set_hands hands)
+        | Market market -> schedule (Set_market market)
+      in
+      schedule (Set_connection_status Connecting);
+      Websocket_rpc_transport.connect
+        (Host_and_port.create ~host:"localhost" ~port:20406)
+      >>= function
+      | Error () ->
+        schedule (Set_connection_status Failed_to_connect);
+        Deferred.unit
+      | Ok transport ->
+        Rpc.Connection.with_close
+          ~connection_state:(fun _ -> ())
+          transport
+          ~on_handshake_error:`Raise
+          ~dispatch_queries:(fun conn ->
+            schedule (Set_connection_status Connected);
+            Rpc.Pipe_rpc.dispatch_iter Protocol.Get_web_updates.rpc conn ()
+              ~f:(function
+                | Update update -> handle_update update; Continue
+                | Closed _ -> Continue)
+            >>| ok_exn
+            >>= function
+            | Error nope -> Nothing.unreachable_code nope
+            | Ok _pipe_id -> Deferred.unit
+          )
+        >>| fun () ->
+        schedule (Set_connection_status Disconnected)
+    end
+
+  let on_display ~schedule:_ ~old:_ _new = ()
+
+  let update_visibility model = model
 end
 
-let connection_loop ~schedule =
-  don't_wait_for begin
-    let open Figgie_web.Action in
-    let handle_update : Protocol.Web_update.t -> unit =
-      function
-      | Broadcast broadcast -> schedule (Add_broadcast broadcast)
-      | Hands hands -> schedule (Set_hands hands)
-      | Market market -> schedule (Set_market market)
-    in
-    schedule (Set_connection_status Connecting);
-    Websocket_rpc_transport.connect
-      (Host_and_port.create ~host:"localhost" ~port:20406)
-    >>= function
-    | Error () ->
-      schedule (Set_connection_status Failed_to_connect);
-      Deferred.unit
-    | Ok transport ->
-      Rpc.Connection.with_close
-        ~connection_state:(fun _ -> ())
-        transport
-        ~on_handshake_error:`Raise
-        ~dispatch_queries:(fun conn ->
-          schedule (Set_connection_status Connected);
-          Rpc.Pipe_rpc.dispatch_iter Protocol.Get_web_updates.rpc conn ()
-            ~f:(function
-              | Update update -> handle_update update; Continue
-              | Closed _ -> Continue)
-          >>| ok_exn
-          >>= function
-          | Error nope -> Nothing.unreachable_code nope
-          | Ok _pipe_id -> Deferred.unit
-        )
-      >>| fun () ->
-      schedule (Set_connection_status Disconnected)
-  end
-
 let () =
-  Start_app.start
+  Start_app.simple
     ~initial_state:Figgie_web.Model.initial
-    ~on_startup:(fun ~schedule _ -> connection_loop ~schedule)
-    ~project_immutable_summary:Fn.id
-    ~on_display:(fun ~schedule:_ ~old:_ _new -> ())
     (module Figgie_web)
