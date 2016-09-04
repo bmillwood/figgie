@@ -36,11 +36,6 @@ module Connection_state = struct
 
   let create ~address ~conn : t =
     ref (Login_status.Not_logged_in { address; conn })
-
-  let connection_info (t : t) =
-    match !t with
-    | Not_logged_in conn -> conn
-    | Logged_in { conn; _ } -> conn
 end
 
 module Connection_manager = struct
@@ -144,8 +139,11 @@ let main ~game_port ~web_port =
               return (Game.player_join game ~username)
               >>|? fun () ->
               let r, w = Pipe.create () in
-              Connection_manager.login conns
-                { Connection_state.Login_info.username; conn; updates = w };
+              let login_info : Connection_state.Login_info.t =
+                { username; conn; updates = w }
+              in
+              Connection_manager.login conns login_info;
+              state := Logged_in login_info;
               broadcast (Player_joined username);
               (* catch this person up on how many we still need *)
               Pipe.write_without_pushback w
