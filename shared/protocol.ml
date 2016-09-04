@@ -45,35 +45,38 @@ module Get_web_updates = struct
       ()
 end
 
-module Join_game = struct
+module Login = struct
   type query = Username.t [@@deriving bin_io, sexp]
-  type error = [ `Game_is_full | `Game_already_started ]
+  type error = [ `Game_is_full | `Game_already_started | `Already_logged_in ]
     [@@deriving bin_io, sexp]
   type response = Player_update.t [@@deriving bin_io, sexp]
   let rpc =
     Rpc.Pipe_rpc.create
-      ~name:"join" ~version:1 ~bin_query ~bin_response ~bin_error
+      ~name:"login" ~version:1 ~bin_query ~bin_response ~bin_error
       ()
 end
 
 module Is_ready = struct
   type query = bool [@@deriving bin_io, sexp]
-  type response = (unit, [ `Already_playing ]) Result.t
+  type response = (unit, [ `Login_first | `Already_playing ]) Result.t
     [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"ready" ~version:1 ~bin_query ~bin_response
 end
 
 module Chat = struct
-  type msg = string [@@deriving bin_io, sexp]
-  let rpc = Rpc.One_way.create ~name:"chat" ~version:1 ~bin_msg
+  type query = string [@@deriving bin_io, sexp]
+  type response = (unit, [ `Login_first ]) Result.t
+    [@@deriving bin_io, sexp]
+  let rpc = Rpc.Rpc.create ~name:"chat" ~version:1 ~bin_query ~bin_response
 end
 
 module Hand = struct
   type query = unit [@@deriving bin_io, sexp]
   type response =
     ( Market.Size.t Card.Hand.t * Market.Price.t
-    , [ `You're_not_playing
+    , [ `Login_first
       | `Game_not_in_progress
+      | `You're_not_playing
       ]
     ) Result.t [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"hand" ~version:1 ~bin_query ~bin_response
@@ -88,8 +91,9 @@ end
 module Order = struct
   type query = Market.Order.t [@@deriving bin_io, sexp]
   type error =
-    [ `You're_not_playing
+    [ `Login_first
     | `Game_not_in_progress
+    | `You're_not_playing
     | `Owner_is_not_sender
     | `Duplicate_order_id
     | `Price_must_be_nonnegative
@@ -103,8 +107,9 @@ end
 module Cancel = struct
   type query = Market.Order.Id.t [@@deriving bin_io, sexp]
   type error =
-    [ `You're_not_playing
+    [ `Login_first
     | `Game_not_in_progress
+    | `You're_not_playing
     | `No_such_order
     ] [@@deriving bin_io, sexp]
   type response = (unit, error) Result.t [@@deriving bin_io, sexp]

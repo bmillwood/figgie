@@ -13,11 +13,11 @@ let run ~server ~username ~f =
     ~host:(Host_and_port.host server)
     ~port:(Host_and_port.port server)
     (fun conn ->
-      Rpc.Pipe_rpc.dispatch_exn Protocol.Join_game.rpc conn username
+      Rpc.Pipe_rpc.dispatch_exn Protocol.Login.rpc conn username
       >>= fun (updates, _metadata) ->
       Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn true
       >>= function
-      | Error `Already_playing -> assert false
+      | Error (`Login_first | `Already_playing) -> assert false
       | Ok () ->
         let new_order_id =
           let r = ref Market.Order.Id.zero in
