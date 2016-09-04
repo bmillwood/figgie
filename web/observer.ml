@@ -215,7 +215,7 @@ module Figgie_web = struct
             >>| ok_exn
             >>= function
             | Error nope -> Nothing.unreachable_code nope
-            | Ok _pipe_id -> Deferred.unit
+            | Ok _pipe_id -> Deferred.never ()
           )
         >>| fun () ->
         schedule (Set_connection_status Disconnected)
