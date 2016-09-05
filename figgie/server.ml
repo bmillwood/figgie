@@ -108,7 +108,7 @@ let implementations () =
       let results = Game.end_round game round in
       Connection_manager.broadcasts conns
         [ Round_over results
-        ; Waiting_for (Game.waiting_for game)
+        ; Waiting_for (Game.num_players game)
         ]
     end;
     Map.iteri round.players ~f:(fun ~key:username ~data:p ->
@@ -148,10 +148,14 @@ let implementations () =
             in
             Connection_manager.add_player_conn conns player_conn;
             state := Player player_conn;
+            let catch_up : Protocol.Player_update.t list =
+              match game.phase with
+              | Waiting_for_players wait ->
+                [ Broadcast (Waiting_for (Game.Waiting.waiting_for wait)) ]
+              | Playing _ -> []
+            in
+            List.iter catch_up ~f:(Pipe.write_without_pushback updates_w);
             Connection_manager.broadcast conns (Player_joined username);
-            (* catch this person up on how many we still need *)
-            Pipe.write_without_pushback updates_w
-              (Broadcast (Waiting_for (Game.waiting_for game)));
             updates_r
           in
           match !state with
@@ -172,6 +176,17 @@ let implementations () =
             in
             Connection_manager.add_observer conns observer;
             state := Observer observer;
+            let catch_up : Protocol.Observer_update.t list =
+              match game.phase with
+              | Waiting_for_players wait ->
+                [ Broadcast (Waiting_for (Game.Waiting.waiting_for wait)) ]
+              | Playing round ->
+                [ Market round.market
+                ; Hands (Game.Round.hands round)
+                ; Gold round.gold
+                ]
+            in
+            List.iter catch_up ~f:(Pipe.write_without_pushback updates_w);
             return (Ok updates_r)
       )
     ; for_existing_user Protocol.Is_ready.rpc
@@ -179,9 +194,9 @@ let implementations () =
           return (Game.set_ready game ~username ~is_ready)
           >>|? function
           | `Started round -> setup_round round
-          | `Still_waiting ->
+          | `Still_waiting wait ->
             Connection_manager.broadcast conns
-              (Waiting_for (Game.waiting_for game)))
+              (Waiting_for (Game.Waiting.waiting_for wait)))
     ; for_existing_user Protocol.Chat.rpc
         (fun ~username msg ->
           Connection_manager.broadcast conns (Chat (username, msg));
@@ -196,10 +211,10 @@ let implementations () =
           let r = Game.Round.add_order round ~order ~sender:username in
           Result.iter r ~f:(fun exec ->
             Connection_manager.broadcast conns (Exec (order, exec));
-            List.iter
-              [ Protocol.Observer_update.Hands (Game.Round.hands round)
+            Connection_manager.observer_updates conns
+              [ Hands (Game.Round.hands round)
               ; Market round.market
-              ] ~f:(Connection_manager.observer_update conns)
+              ]
           );
           return r)
     ; during_game Protocol.Cancel.rpc

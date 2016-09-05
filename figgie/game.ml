@@ -245,11 +245,6 @@ type t = { mutable phase : Phase.t }
 
 let create () = { phase = Waiting_for_players { players = Username.Table.create () } }
 
-let waiting_for t =
-  match t.phase with
-  | Playing _ -> 0
-  | Waiting_for_players waiting -> Waiting.waiting_for waiting
-
 let num_players t =
   match t.phase with
   | Waiting_for_players waiting -> Hashtbl.length waiting.players
@@ -298,4 +293,4 @@ let set_ready t ~username ~is_ready =
         let round = Round.start ~players:round_players in
         t.phase <- Playing round;
         Ok (`Started round)
-      end else Ok `Still_waiting
+      end else Ok (`Still_waiting waiting)
