@@ -86,12 +86,16 @@ module Connection_manager = struct
       Pipe.write_without_pushback observer.updates update
     )
 
+  let observer_updates t updates = List.iter updates ~f:(observer_update t)
+
   let broadcast t broadcast =
     Log.Global.sexp [%sexp (broadcast : Protocol.Broadcast.t)];
     Hashtbl.iteri t.players ~f:(fun ~key:_ ~data:logins ->
       write_update_to_logins logins (Broadcast broadcast)
     );
     observer_update t (Broadcast broadcast)
+
+  let broadcasts t updates = List.iter updates ~f:(broadcast t)
 end
 
 let implementations () =
@@ -102,15 +106,18 @@ let implementations () =
       Clock.after Params.length_of_round
       >>| fun () ->
       let results = Game.end_round game round in
-      List.iter
-        [ Protocol.Broadcast.Round_over results
+      Connection_manager.broadcasts conns
+        [ Round_over results
         ; Waiting_for (Game.waiting_for game)
-        ] ~f:(Connection_manager.broadcast conns)
+        ]
     end;
     Map.iteri round.players ~f:(fun ~key:username ~data:p ->
       Connection_manager.player_update conns ~username (Dealt p.hand)
     );
-    Connection_manager.observer_update conns (Hands (Game.Round.hands round))
+    Connection_manager.observer_updates conns 
+      [ Hands (Game.Round.hands round)
+      ; Gold round.gold
+      ]
   in
   let for_existing_user rpc f =
     Rpc.Rpc.implement rpc

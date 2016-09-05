@@ -19,6 +19,7 @@ module Figgie_web = struct
       broadcasts        : Protocol.Broadcast.t Fqueue.t;
       hands             : Market.Size.t Card.Hand.t Username.Map.t;
       market            : Market.Book.t;
+      gold              : Card.Suit.t option;
     }
 
     let initial =
@@ -26,6 +27,7 @@ module Figgie_web = struct
       ; broadcasts = Fqueue.empty
       ; hands = Username.Map.empty
       ; market = Market.Book.empty
+      ; gold = None
       }
 
     let max_broadcasts = 1000
@@ -36,6 +38,7 @@ module Figgie_web = struct
       | Set_connection_status of Connection_status.t
       | Set_hands of Market.Size.t Card.Hand.t Username.Map.t
       | Set_market of Market.Book.t
+      | Set_gold of Card.Suit.t
       | Add_broadcast of Protocol.Broadcast.t
       [@@deriving sexp]
 
@@ -47,6 +50,8 @@ module Figgie_web = struct
         { model with hands }
       | Set_market market ->
         { model with market }
+      | Set_gold gold ->
+        { model with gold = Some gold }
       | Add_broadcast broadcast ->
         let old_broadcasts =
           if Fqueue.length model.broadcasts = Model.max_broadcasts
@@ -94,23 +99,32 @@ module Figgie_web = struct
       (row ~tr:thead ~td:th ["Symbol"; "Bid"; "Ask"]
       :: List.map Card.Suit.all ~f:sym_row)
 
-  let hands_display hands =
+  let hands_display hands ~gold =
     let utf8_of_suit : Card.Suit.t -> string = function
       | Spades -> "\xe2\x99\xa0"
-      | Hearts -> "\xe2\x99\xa1"
-      | Diamonds -> "\xe2\x99\xa2"
+      | Hearts -> "\xe2\x99\xa5"
+      | Diamonds -> "\xe2\x99\xa6"
       | Clubs -> "\xe2\x99\xa3"
+    in
+    let node_of_suit suit num_of_this_suit =
+      let text_node =
+        Vdom.Node.text
+          (List.init (Market.Size.to_int num_of_this_suit)
+            ~f:(fun _ -> utf8_of_suit suit)
+          |> String.concat)
+      in
+      let maybe_gold =
+        if Option.exists gold ~f:(Card.Suit.equal suit)
+        then [Vdom.Attr.class_ "gold"] else []
+      in
+      Vdom.Node.span (Vdom.Attr.id (Card.Suit.name suit) :: maybe_gold)
+        [text_node]
     in
     let player_hands =
       Map.map hands ~f:(fun hand ->
         Card.Hand.foldi hand ~init:[] ~f:(fun suit acc num_of_this_suit ->
-          let this =
-            List.init (Market.Size.to_int num_of_this_suit)
-              ~f:(fun _ -> utf8_of_suit suit)
-          in
-          this @ acc)
-        |> List.rev
-        |> String.concat)
+          node_of_suit suit num_of_this_suit :: acc)
+        |> List.rev)
     in
     let open Vdom.Node in
     table []
@@ -119,7 +133,7 @@ module Figgie_web = struct
         ~f:(fun ~key:username ~data:hand acc ->
           tr []
             [ td [] [text (Username.to_string username)]
-            ; td [] [text hand]
+            ; td [] hand
             ] :: acc))
 
   let describe_order_cancel ~cancel (order : Market.Order.t) =
@@ -177,12 +191,12 @@ module Figgie_web = struct
 
   let view (incr_model : Model.t Incr.t) ~inject:_ =
     let open Incr.Let_syntax in
-    let%map { connection_status; broadcasts; market; hands } = incr_model in
+    let%map model = incr_model in
     Vdom.Node.body []
-      [ Vdom.Node.p  [] [status_span connection_status]
-      ; market_display market
-      ; hands_display hands
-      ; broadcasts_list broadcasts
+      [ Vdom.Node.p  [] [status_span model.connection_status]
+      ; market_display model.market
+      ; hands_display model.hands ~gold:model.gold
+      ; broadcasts_list model.broadcasts
       ]
 
   let on_startup ~schedule _ =
@@ -193,6 +207,7 @@ module Figgie_web = struct
         | Broadcast broadcast -> schedule (Add_broadcast broadcast)
         | Hands hands -> schedule (Set_hands hands)
         | Market market -> schedule (Set_market market)
+        | Gold gold -> schedule (Set_gold gold)
       in
       schedule (Set_connection_status Connecting);
       Websocket_rpc_transport.connect

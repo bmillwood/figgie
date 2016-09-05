@@ -30,6 +30,7 @@ end
 module Observer_update = struct
   type t =
     | Broadcast of Broadcast.t
+    | Gold of Card.Suit.t
     | Hands of Market.Size.t Card.Hand.t Username.Map.t
     | Market of Market.Book.t
     [@@deriving bin_io, sexp]
