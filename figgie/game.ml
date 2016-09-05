@@ -139,7 +139,9 @@ module Round = struct
     in
     { players; pot = !pot; market = Market.Book.empty; gold }
 
-  let add_order t ~order:(sent_order : Market.Order.t) ~(sender : Player.t) =
+  let add_player_order t
+    ~order:(sent_order : Market.Order.t)
+    ~(sender : Player.t) =
     let open Result.Monad_infix in
     Result.ok_if_true (Username.equal sent_order.owner sender.p.username)
       ~error:`Owner_is_not_sender
@@ -204,7 +206,7 @@ module Round = struct
       Hashtbl.add_exn sender.orders ~key:order.id ~data:order);
     exec
 
-  let cancel t ~(id : Market.Order.Id.t) ~(sender : Player.t) =
+  let cancel_player_order t ~(id : Market.Order.Id.t) ~(sender : Player.t) =
     match Hashtbl.find sender.orders id with
     | None -> Error `No_such_order
     | Some order ->
@@ -212,6 +214,25 @@ module Round = struct
         t.market <- new_market;
         Hashtbl.remove sender.orders id;
         order)
+
+  let with_player t ~username ~f =
+    match Map.find t.players username with
+    | None -> Error `You're_not_playing
+    | Some player -> f ~player
+
+  let get_hand t ~username =
+    with_player t ~username ~f:(fun ~player ->
+      Ok (player.hand, player.p.chips))
+
+  let hands t = Map.map t.players ~f:(fun player -> player.hand)
+
+  let add_order t ~order ~sender:username =
+    with_player t ~username ~f:(fun ~player ->
+      add_player_order t ~order ~sender:player)
+
+  let cancel_order t ~id ~sender:username =
+    with_player t ~username ~f:(fun ~player ->
+      cancel_player_order t ~id ~sender:player)
 end
 
 module Phase = struct
@@ -278,23 +299,3 @@ let set_ready t ~username ~is_ready =
         t.phase <- Playing round;
         Ok (`Started round)
       end else Ok `Still_waiting
-
-let with_player_in_game t ~username ~f =
-  match t.phase with
-  | Waiting_for_players _ -> Error `Game_not_in_progress
-  | Playing round ->
-    match Map.find round.players username with
-    | None -> Error `You're_not_playing
-    | Some player -> f ~round ~player
-
-let add_order t ~order ~sender =
-  with_player_in_game t ~username:sender ~f:(fun ~round ~player ->
-    Round.add_order round ~order ~sender:player)
-
-let cancel t ~id ~sender =
-  with_player_in_game t ~username:sender ~f:(fun ~round ~player ->
-    Round.cancel round ~id ~sender:player)
-
-let get_hand t ~username =
-  with_player_in_game t ~username ~f:(fun ~round:_ ~player ->
-    Ok (player.hand, player.p.chips))

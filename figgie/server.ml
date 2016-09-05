@@ -97,19 +97,6 @@ end
 let implementations () =
   let game = Game.create () in
   let conns = Connection_manager.create () in
-  let update_web_market () =
-    match game.phase with
-    | Waiting_for_players _ -> ()
-    | Playing round ->
-      Connection_manager.observer_update conns (Market round.market)
-  in
-  let update_web_hands () =
-    match game.phase with
-    | Waiting_for_players _ -> ()
-    | Playing round ->
-      let hands = Map.map round.players ~f:(fun p -> p.hand) in
-      Connection_manager.observer_update conns (Hands hands)
-  in
   let setup_round (round : Game.Round.t) =
     don't_wait_for begin
       Clock.after Params.length_of_round
@@ -123,7 +110,7 @@ let implementations () =
     Map.iteri round.players ~f:(fun ~key:username ~data:p ->
       Connection_manager.player_update conns ~username (Dealt p.hand)
     );
-    update_web_hands ()
+    Connection_manager.observer_update conns (Hands (Game.Round.hands round))
   in
   let for_existing_user rpc f =
     Rpc.Rpc.implement rpc
@@ -194,23 +181,27 @@ let implementations () =
           return (Ok ()))
     ; during_game Protocol.Book.rpc
         (fun ~username:_ ~round () -> return (Ok round.market))
-    ; for_existing_user Protocol.Hand.rpc
-        (fun ~username () ->
-          return (Game.get_hand game ~username))
-    ; for_existing_user Protocol.Order.rpc
-        (fun ~username order ->
-          let r = Game.add_order game ~order ~sender:username in
+    ; during_game Protocol.Hand.rpc
+        (fun ~username ~round () ->
+          return (Game.Round.get_hand round ~username))
+    ; during_game Protocol.Order.rpc
+        (fun ~username ~round order ->
+          let r = Game.Round.add_order round ~order ~sender:username in
           Result.iter r ~f:(fun exec ->
             Connection_manager.broadcast conns (Exec (order, exec));
-            update_web_hands ();
-            update_web_market ());
+            List.iter
+              [ Protocol.Observer_update.Hands (Game.Round.hands round)
+              ; Market round.market
+              ] ~f:(Connection_manager.observer_update conns)
+          );
           return r)
-    ; for_existing_user Protocol.Cancel.rpc
-        (fun ~username id ->
-          let r = Game.cancel game ~id ~sender:username in
+    ; during_game Protocol.Cancel.rpc
+        (fun ~username ~round id ->
+          let r = Game.Round.cancel_order round ~id ~sender:username in
           Result.iter r ~f:(fun order ->
             Connection_manager.broadcast conns (Out order);
-            update_web_market ());
+            Connection_manager.observer_update conns (Market round.market)
+          );
           return (Result.ignore r))
     ]
 
