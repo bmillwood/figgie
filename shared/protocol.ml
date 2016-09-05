@@ -17,6 +17,7 @@ module Broadcast = struct
     | Exec of Market.Order.t * Market.Exec.t
     | Out of Market.Order.t
     | Round_over of Round_results.t
+    | Scores of Market.Price.t Username.Map.t
     [@@deriving bin_io, sexp]
 end
 

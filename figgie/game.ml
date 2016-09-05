@@ -294,3 +294,15 @@ let set_ready t ~username ~is_ready =
         t.phase <- Playing round;
         Ok (`Started round)
       end else Ok (`Still_waiting waiting)
+
+let players t =
+  match t.phase with
+  | Waiting_for_players waiting ->
+    Hashtbl.to_alist waiting.players
+    |> List.map ~f:(fun (key, waiter) -> (key, waiter.p))
+    |> Username.Map.of_alist_exn
+  | Playing round ->
+    Map.map round.players ~f:(fun player -> player.p)
+
+let scores t =
+  Map.map (players t) ~f:(fun player -> player.chips)

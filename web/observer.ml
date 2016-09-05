@@ -18,6 +18,7 @@ module Figgie_web = struct
       connection_status : Connection_status.t;
       broadcasts        : Protocol.Broadcast.t Fqueue.t;
       hands             : Market.Size.t Card.Hand.t Username.Map.t;
+      scores            : Market.Price.t Username.Map.t;
       market            : Market.Book.t;
       gold              : Card.Suit.t option;
     }
@@ -26,6 +27,7 @@ module Figgie_web = struct
       { connection_status = Connecting
       ; broadcasts = Fqueue.empty
       ; hands = Username.Map.empty
+      ; scores = Username.Map.empty
       ; market = Market.Book.empty
       ; gold = None
       }
@@ -53,12 +55,18 @@ module Figgie_web = struct
       | Set_gold gold ->
         { model with gold = Some gold }
       | Add_broadcast broadcast ->
+        let scores =
+          match broadcast with
+          | Scores scores -> scores
+          | _ -> model.scores
+        in
         let old_broadcasts =
           if Fqueue.length model.broadcasts = Model.max_broadcasts
           then Fqueue.discard_exn model.broadcasts
           else model.broadcasts
         in
-        { model with broadcasts = Fqueue.enqueue old_broadcasts broadcast }
+        let broadcasts = Fqueue.enqueue old_broadcasts broadcast in
+        { model with scores; broadcasts }
 
     let should_log _ = false
   end
@@ -99,7 +107,7 @@ module Figgie_web = struct
       (row ~tr:thead ~td:th ["Symbol"; "Bid"; "Ask"]
       :: List.map Card.Suit.all ~f:sym_row)
 
-  let hands_display hands ~gold =
+  let players_display ~hands ~gold ~scores =
     let utf8_of_suit : Card.Suit.t -> string = function
       | Spades -> "\xe2\x99\xa0"
       | Hearts -> "\xe2\x99\xa5"
@@ -120,20 +128,28 @@ module Figgie_web = struct
       Vdom.Node.span (Vdom.Attr.id (Card.Suit.name suit) :: maybe_gold)
         [text_node]
     in
-    let player_hands =
-      Map.map hands ~f:(fun hand ->
-        Card.Hand.foldi hand ~init:[] ~f:(fun suit acc num_of_this_suit ->
-          node_of_suit suit num_of_this_suit :: acc)
-        |> List.rev)
+    let player_hands_scores =
+      Map.merge hands scores ~f:(fun ~key:_ ->
+        function
+        | `Left _ | `Right _ -> None
+        | `Both (hand, score) -> 
+          let hand_display =
+            Card.Hand.foldi hand ~init:[] ~f:(fun suit acc num_of_this_suit ->
+              node_of_suit suit num_of_this_suit :: acc)
+            |> List.rev
+          in
+          Some (hand_display, Market.Price.to_string score))
     in
     let open Vdom.Node in
+    let th_text s = th [] [text s] in
     table []
-      (thead [] [th [] [text "Player"]; th [] [text "Cards"]]
-      :: Map.fold player_hands ~init:[]
-        ~f:(fun ~key:username ~data:hand acc ->
+      (thead [] [th_text "Player"; th_text "Cards"; th_text "Score"]
+      :: Map.fold player_hands_scores ~init:[]
+        ~f:(fun ~key:username ~data:(hand, score) acc ->
           tr []
             [ td [] [text (Username.to_string username)]
             ; td [] hand
+            ; td [] [text score]
             ] :: acc))
 
   let describe_order_cancel ~cancel (order : Market.Order.t) =
@@ -182,6 +198,7 @@ module Figgie_web = struct
         ]
     | Out order -> [describe_order_cancel ~cancel:true order]
     | Round_over _results -> ["Round over!"]
+    | Scores _scores -> []
 
   let broadcasts_list broadcasts =
     List.concat_map (Fqueue.to_list broadcasts) ~f:items_of_broadcast
@@ -195,7 +212,8 @@ module Figgie_web = struct
     Vdom.Node.body []
       [ Vdom.Node.p  [] [status_span model.connection_status]
       ; market_display model.market
-      ; hands_display model.hands ~gold:model.gold
+      ; players_display
+          ~hands:model.hands ~gold:model.gold ~scores:model.scores
       ; broadcasts_list model.broadcasts
       ]
 

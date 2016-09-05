@@ -108,6 +108,7 @@ let implementations () =
       let results = Game.end_round game round in
       Connection_manager.broadcasts conns
         [ Round_over results
+        ; Scores (Game.scores game)
         ; Waiting_for (Game.num_players game)
         ]
     end;
@@ -184,6 +185,7 @@ let implementations () =
                 [ Market round.market
                 ; Hands (Game.Round.hands round)
                 ; Gold round.gold
+                ; Broadcast (Scores (Game.scores game))
                 ]
             in
             List.iter catch_up ~f:(Pipe.write_without_pushback updates_w);
@@ -214,6 +216,7 @@ let implementations () =
             Connection_manager.observer_updates conns
               [ Hands (Game.Round.hands round)
               ; Market round.market
+              ; Broadcast (Scores (Game.scores game))
               ]
           );
           return r)

@@ -3,7 +3,7 @@ open Core_kernel.Std
 let gcd a b =
   let rec g a b =
     if b = 0
-    then a
+    then Int.abs a
     else g b (a mod b)
   in
   if a >= b then g a b else g b a
@@ -16,6 +16,12 @@ module T = struct
     type t = { n : int; d : int } [@@deriving bin_io, compare]
 
     let create ~n ~d =
+      let n, d =
+        match Int.sign d with
+        | Pos -> n, d
+        | Neg -> Int.neg n, Int.neg d
+        | Zero -> failwith "Rational.create ~d:0"
+      in
       let g = gcd n d in
       { n = n / g; d = d / g }
   end
@@ -29,7 +35,13 @@ module T = struct
   let sexp_of_t { n; d } =
     if d = 1
     then sexp_of_int n
-    else Sexp.List [sexp_of_int (n / d); Sexp.Atom (sprintf "%d/%d" (n mod d) d)]
+    else begin
+      let sign, n = if n < 0 then "-", Int.abs n else "", n in
+      Sexp.List
+        [ Sexp.Atom (sprintf "%s%d" sign (n / d))
+        ; Sexp.Atom (sprintf "%d/%d" (n mod d) d)
+        ]
+    end
 
   let t_of_sexp sexp =
     match sexp with
