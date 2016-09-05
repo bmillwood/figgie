@@ -1,19 +1,9 @@
 open Core.Std
 open Async.Std
 
-module Address = struct
-  include Socket.Address.Inet
-  include Hashable.Make(struct
-      include Socket.Address.Inet
-      let compare t1 t2 = String.compare (to_string t1) (to_string t2)
-      let hash t = String.hash (to_string t)
-    end)
-end
-
 module Connection_state = struct
   module Connection_info = struct
     type t = {
-      address : Address.t;
       conn    : Rpc.Connection.t;
     }
   end
@@ -34,8 +24,8 @@ module Connection_state = struct
 
   type t = Login_status.t ref
 
-  let create ~address ~conn : t =
-    ref (Login_status.Not_logged_in { address; conn })
+  let create ~conn : t =
+    ref (Login_status.Not_logged_in { conn })
 end
 
 module Connection_manager = struct
@@ -188,9 +178,13 @@ let main ~game_port ~web_port =
     ~initial_connection_state:(fun addr conn ->
       Deferred.upon (Rpc.Connection.close_reason conn ~on_close:`started)
         (fun reason ->
-          Log.Global.sexp ~level:`Info
-            [%message "disconnected" (addr : Address.t) (reason : Info.t)]);
-      Connection_state.create ~address:addr ~conn)
+          Log.Global.sexp ~level:`Info [%message
+            "disconnected"
+              (addr : Socket.Address.Inet.t)
+              (reason : Info.t)
+          ]
+        );
+      Connection_state.create ~conn)
     ~implementations
     ~where_to_listen:(Tcp.on_port game_port)
     ()
