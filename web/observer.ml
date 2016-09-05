@@ -174,6 +174,7 @@ module Figgie_web = struct
     | Player_joined u -> [sprintf !"%{Username} joined" u]
     | Chat (u, m)     -> [sprintf !"<%{Username}> %S" u m]
     | Waiting_for _   -> []
+    | New_round       -> []
     | Exec (order, exec) ->
       let fill_to_string (filled_order : Market.Order.t) ~filled_by =
         sprintf

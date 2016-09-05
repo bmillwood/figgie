@@ -115,6 +115,10 @@ let implementations () =
     Map.iteri round.players ~f:(fun ~key:username ~data:p ->
       Connection_manager.player_update conns ~username (Dealt p.hand)
     );
+    Connection_manager.broadcasts conns
+      [ New_round
+      ; Scores (Game.scores game)
+      ];
     Connection_manager.observer_updates conns 
       [ Hands (Game.Round.hands round)
       ; Gold round.gold
