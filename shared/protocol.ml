@@ -27,7 +27,7 @@ module Player_update = struct
     [@@deriving bin_io, sexp]
 end
 
-module Web_update = struct
+module Observer_update = struct
   type t =
     | Broadcast of Broadcast.t
     | Hands of Market.Size.t Card.Hand.t Username.Map.t
@@ -35,10 +35,10 @@ module Web_update = struct
     [@@deriving bin_io, sexp]
 end
 
-module Get_web_updates = struct
+module Get_observer_updates = struct
   type query = unit [@@deriving bin_io, sexp]
-  type error = Nothing.t [@@deriving bin_io, sexp]
-  type response = Web_update.t [@@deriving bin_io, sexp]
+  type error = [ `Already_logged_in ] [@@deriving bin_io, sexp]
+  type response = Observer_update.t [@@deriving bin_io, sexp]
   let rpc =
     Rpc.Pipe_rpc.create
       ~name:"web-updates" ~version:1 ~bin_query ~bin_response ~bin_error
@@ -70,30 +70,41 @@ module Chat = struct
   let rpc = Rpc.Rpc.create ~name:"chat" ~version:1 ~bin_query ~bin_response
 end
 
+type not_playing =
+  [ `Login_first | `Game_not_in_progress | `You're_not_playing ]
+  [@@deriving bin_io, sexp]
+
+let playing_exn =
+  function
+  | Ok x -> x
+  | Error not_playing ->
+    Error.raise_s [%message
+      "Protocol.playing_exn"
+        (not_playing : not_playing)
+    ]
+
 module Hand = struct
   type query = unit [@@deriving bin_io, sexp]
   type response =
     ( Market.Size.t Card.Hand.t * Market.Price.t
-    , [ `Login_first
-      | `Game_not_in_progress
-      | `You're_not_playing
-      ]
+    , not_playing
     ) Result.t [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"hand" ~version:1 ~bin_query ~bin_response
 end
 
 module Book = struct
   type query = unit [@@deriving bin_io, sexp]
-  type response = Market.Book.t [@@deriving bin_io, sexp]
+  type response = 
+    ( Market.Book.t
+    , not_playing
+    ) Result.t [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"book" ~version:1 ~bin_query ~bin_response
 end
 
 module Order = struct
   type query = Market.Order.t [@@deriving bin_io, sexp]
   type error =
-    [ `Login_first
-    | `Game_not_in_progress
-    | `You're_not_playing
+    [ not_playing
     | `Owner_is_not_sender
     | `Duplicate_order_id
     | `Price_must_be_nonnegative
@@ -107,9 +118,7 @@ end
 module Cancel = struct
   type query = Market.Order.Id.t [@@deriving bin_io, sexp]
   type error =
-    [ `Login_first
-    | `Game_not_in_progress
-    | `You're_not_playing
+    [ not_playing
     | `No_such_order
     ] [@@deriving bin_io, sexp]
   type response = (unit, error) Result.t [@@deriving bin_io, sexp]

@@ -188,7 +188,7 @@ module Figgie_web = struct
   let on_startup ~schedule _ =
     don't_wait_for begin
       let open Action in
-      let handle_update : Protocol.Web_update.t -> unit =
+      let handle_update : Protocol.Observer_update.t -> unit =
         function
         | Broadcast broadcast -> schedule (Add_broadcast broadcast)
         | Hands hands -> schedule (Set_hands hands)
@@ -208,13 +208,15 @@ module Figgie_web = struct
           ~on_handshake_error:`Raise
           ~dispatch_queries:(fun conn ->
             schedule (Set_connection_status Connected);
-            Rpc.Pipe_rpc.dispatch_iter Protocol.Get_web_updates.rpc conn ()
+            Rpc.Pipe_rpc.dispatch_iter
+              Protocol.Get_observer_updates.rpc conn ()
               ~f:(function
                 | Update update -> handle_update update; Continue
                 | Closed _ -> Continue)
             >>| ok_exn
             >>= function
-            | Error nope -> Nothing.unreachable_code nope
+            | Error `Already_logged_in ->
+              failwith "Server says I'm already logged in"
             | Ok _pipe_id -> Deferred.never ()
           )
         >>| fun () ->

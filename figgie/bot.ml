@@ -289,6 +289,7 @@ module Card_counter = struct
               Log.Global.sexp ~level:`Debug
                 [%sexp (Counts.ps_gold counts : float Hand.t)];
               Rpc.Rpc.dispatch_exn Protocol.Book.rpc client.conn ()
+              >>| Protocol.playing_exn
               >>= fun book ->
               Deferred.List.iter ~how:`Parallel Suit.all ~f:(fun suit ->
                 let fair = 10. *. Hand.get (Counts.ps_gold counts) ~suit in
