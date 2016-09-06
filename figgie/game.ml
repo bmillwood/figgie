@@ -221,8 +221,7 @@ module Round = struct
     | Some player -> f ~player
 
   let get_hand t ~username =
-    with_player t ~username ~f:(fun ~player ->
-      Ok (player.hand, player.p.chips))
+    with_player t ~username ~f:(fun ~player -> Ok player.hand)
 
   let hands t = Map.map t.players ~f:(fun player -> player.hand)
 

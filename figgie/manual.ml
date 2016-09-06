@@ -9,7 +9,7 @@ let param =
 type cmd =
   | Ready
   | Hand
-  | Book
+  | Market
   | Order of Market.Order.t
   | Cancel of Market.Order.Id.t
   [@@deriving sexp]
@@ -49,7 +49,7 @@ let command =
               saye "?";
               Deferred.unit
           | Ready -> do_rpc (module Protocol.Is_ready) true
-          | Hand -> do_rpc (module Protocol.Hand) ()
-          | Book -> do_rpc (module Protocol.Book) ()
+          | Hand -> do_rpc (module Protocol.Get_update) Hand
+          | Market -> do_rpc (module Protocol.Get_update) Market
           | Order order -> do_rpc (module Protocol.Order) order
           | Cancel id -> do_rpc (module Protocol.Cancel) id))

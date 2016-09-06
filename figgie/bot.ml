@@ -77,7 +77,7 @@ module Offer_everything = struct
             Card.Hand.iter sell_prices ~f:(fun r -> r := t.initial_sell_price)
           in
           let hand = ref (Card.Hand.create_all Market.Size.zero) in
-          let rec sell ~suit ~size =
+          let sell ~suit ~size =
             let size = Market.Size.min size (Card.Hand.get !hand ~suit) in
             if Market.Size.(equal zero) size
             then Deferred.unit
@@ -93,18 +93,19 @@ module Offer_everything = struct
                 ; size
                 }
               >>= function
-              | Error _ -> Deferred.unit
-              | Ok exec ->
-                let size =
-                  Market.Size.(+)
-                    (List.sum (module Market.Size) exec.fully_filled
-                      ~f:(fun order -> order.size))
-                    (Option.value_map exec.partially_filled
-                      ~default:Market.Size.zero
-                      ~f:(fun partial -> partial.filled_by))
-                in
-                sell ~suit ~size
+              | Error _ | Ok `Ack -> Deferred.unit
             end
+          in
+          let handle_my_filled_order ~suit (exec : Market.Exec.t) =
+            let size =
+              Market.Size.(+)
+                (List.sum (module Market.Size) exec.fully_filled
+                  ~f:(fun order -> order.size))
+                (Option.value_map exec.partially_filled
+                  ~default:Market.Size.zero
+                  ~f:(fun partial -> partial.filled_by))
+            in
+            sell ~suit ~size
           in
           let handle_exec (exec : Market.Exec.t) =
             let amount_to_sell = ref Market.Size.zero in
@@ -138,10 +139,17 @@ module Offer_everything = struct
             | Broadcast (Round_over _) ->
               Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc client.conn true
               |> Deferred.ignore
-            | Dealt new_hand ->
+            | Broadcast (Exec (order, exec)) ->
+              if Username.equal order.owner client.username
+              then handle_my_filled_order ~suit:order.symbol exec
+              else handle_exec exec
+            | Hand new_hand ->
               hand := new_hand;
               Log.Global.sexp ~level:`Debug
                 [%sexp (new_hand : Market.Size.t Card.Hand.t)];
+              (* The correctness of the below relies on sellbot never asking
+                 for a Hand update, only receiving them at the beginning of
+                 a new round. *)
               reset_sell_prices ();
               Deferred.List.iter ~how:`Parallel Card.Suit.all ~f:(fun suit ->
                 let size =
@@ -151,7 +159,6 @@ module Offer_everything = struct
                     (Card.Hand.get new_hand ~suit)
                 in
                 sell ~suit ~size)
-            | Broadcast (Exec (_order, exec)) -> handle_exec exec
             | _ -> Deferred.unit))
     )
 end
@@ -282,16 +289,6 @@ module Card_counter = struct
               ];
               Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc client.conn true
               |> Deferred.ignore
-            | Dealt hand ->
-              Counts.update counts client.username ~f:(Fn.const hand);
-              don't_wait_for begin
-                Rpc.Rpc.dispatch_exn Protocol.Hand.rpc client.conn ()
-                >>| Result.iter ~f:(fun (_hand, chips) ->
-                  Log.Global.sexp ~level:`Info [%message "new round"
-                    (chips : Price.t)
-                  ])
-              end;
-              Deferred.unit
             | Broadcast (Exec (order, exec)) ->
               Counts.see_order counts order;
               Counts.see_exec  counts ~order exec;
@@ -302,9 +299,12 @@ module Card_counter = struct
               end;
               Log.Global.sexp ~level:`Debug
                 [%sexp (Counts.ps_gold counts : float Hand.t)];
-              Rpc.Rpc.dispatch_exn Protocol.Book.rpc client.conn ()
+              Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc client.conn Market
               >>| Protocol.playing_exn
-              >>= fun book ->
+            | Hand hand ->
+              Counts.update counts client.username ~f:(Fn.const hand);
+              Deferred.unit
+            | Market book ->
               Deferred.List.iter ~how:`Parallel Suit.all ~f:(fun suit ->
                 let fair = 10. *. Hand.get (Counts.ps_gold counts) ~suit in
                 Deferred.List.iter ~how:`Parallel
@@ -327,7 +327,7 @@ module Card_counter = struct
                       >>= function
                       | Error e ->
                         raise_s [%sexp (e : Protocol.Order.error)]
-                      | Ok _exec -> Deferred.unit
+                      | Ok `Ack -> Deferred.unit
                     end else Deferred.unit))
             | _ -> Deferred.unit))
     )

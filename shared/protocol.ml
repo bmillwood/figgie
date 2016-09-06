@@ -25,7 +25,8 @@ end
 module Player_update = struct
   type t =
     | Broadcast of Broadcast.t
-    | Dealt of Market.Size.t Card.Hand.t
+    | Hand of Market.Size.t Card.Hand.t
+    | Market of Market.Book.t
     [@@deriving bin_io, sexp]
 end
 
@@ -86,22 +87,16 @@ let playing_exn =
         (not_playing : not_playing)
     ]
 
-module Hand = struct
-  type query = unit [@@deriving bin_io, sexp]
-  type response =
-    ( Market.Size.t Card.Hand.t * Market.Price.t
-    , not_playing
-    ) Result.t [@@deriving bin_io, sexp]
-  let rpc = Rpc.Rpc.create ~name:"hand" ~version:1 ~bin_query ~bin_response
-end
-
-module Book = struct
-  type query = unit [@@deriving bin_io, sexp]
-  type response = 
-    ( Market.Book.t
-    , not_playing
-    ) Result.t [@@deriving bin_io, sexp]
-  let rpc = Rpc.Rpc.create ~name:"book" ~version:1 ~bin_query ~bin_response
+(* The response comes via the updates stream rather than in the RPC response,
+   so that it has guaranteed ordering wrt other updates. *)
+module Get_update = struct
+  type query =
+    | Hand
+    | Market
+    [@@deriving bin_io, sexp]
+  type response = (unit, not_playing) Result.t [@@deriving bin_io, sexp]
+  let rpc =
+    Rpc.Rpc.create ~name:"get-update" ~version:1 ~bin_query ~bin_response
 end
 
 module Order = struct
@@ -114,16 +109,20 @@ module Order = struct
     | `Size_must_be_positive
     | `Not_enough_to_sell
     ] [@@deriving bin_io, sexp]
-  type response = (Market.Exec.t, error) Result.t [@@deriving bin_io, sexp]
+  type response = ([ `Ack ], error) Result.t [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"order" ~version:1 ~bin_query ~bin_response
 end
 
+(* Note that when you get the ack back, the order is cancelled, but it's
+   possible that fills on it that already happened are still in flight. You
+   should wait for an Out to show up in the updates pipe before assuming
+   nothing more can be done on the order. *)
 module Cancel = struct
   type query = Market.Order.Id.t [@@deriving bin_io, sexp]
   type error =
     [ not_playing
     | `No_such_order
     ] [@@deriving bin_io, sexp]
-  type response = (unit, error) Result.t [@@deriving bin_io, sexp]
+  type response = ([ `Ack ], error) Result.t [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"cancel" ~version:1 ~bin_query ~bin_response
 end
