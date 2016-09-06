@@ -5,6 +5,11 @@ let which_user ~stem i =
   stem ^ Option.value_map i ~default:"" ~f:Int.to_string
   |> Username.of_string
 
+let log_level_flag =
+  let open Command.Param in
+  flag "-log-level" (optional_with_default `Info Log.Level.arg)
+    ~doc:"L Debug, Info, or Error"
+
 module Do_nothing = struct
   let param =
     let open Command.Param in
@@ -49,7 +54,9 @@ module Offer_everything = struct
     and size =
       flag "-size" (optional int)
         ~doc:"S sell at most S at a time"
+    and log_level = log_level_flag
     in
+    Log.Global.set_level log_level;
     { which
     ; initial_sell_price = Market.Price.of_int initial_sell_price
     ; fade = Market.Price.of_int fade
@@ -123,6 +130,8 @@ module Offer_everything = struct
               |> Deferred.ignore
             | Dealt new_hand ->
               hand := new_hand;
+              Log.Global.sexp ~level:`Debug
+                [%sexp (new_hand : Market.Size.t Card.Hand.t)];
               reset_sell_prices ();
               Deferred.List.iter ~how:`Parallel Card.Suit.all ~f:(fun suit ->
                 let size =
@@ -245,9 +254,7 @@ module Card_counter = struct
     let%map_open which =
       flag "-which" (optional int)
         ~doc:"N modulate username"
-    and log_level = 
-      flag "-log-level" (optional_with_default `Info Log.Level.arg)
-        ~doc:"L Debug, Info, or Error"
+    and log_level = log_level_flag
     in
     Log.Global.set_level log_level;
     which
