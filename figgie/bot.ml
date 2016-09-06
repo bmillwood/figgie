@@ -94,9 +94,19 @@ module Offer_everything = struct
                 }
               >>= function
               | Error _ -> Deferred.unit
-              | Ok exec -> handle_exec exec
+              | Ok exec ->
+                let size =
+                  Market.Size.(+)
+                    (List.sum (module Market.Size) exec.fully_filled
+                      ~f:(fun order -> order.size))
+                    (Option.value_map exec.partially_filled
+                      ~default:Market.Size.zero
+                      ~f:(fun partial -> partial.filled_by))
+                in
+                sell ~suit ~size
             end
-          and handle_exec (exec : Market.Exec.t) =
+          in
+          let handle_exec (exec : Market.Exec.t) =
             let amount_to_sell = ref Market.Size.zero in
             let suit_to_sell = ref None in
             let handle_filled_order (order : Market.Order.t) filled_amount =
@@ -141,10 +151,7 @@ module Offer_everything = struct
                     (Card.Hand.get new_hand ~suit)
                 in
                 sell ~suit ~size)
-            | Broadcast (Exec (order, exec)) ->
-              if not (Username.equal client.username order.owner)
-              then handle_exec exec
-              else Deferred.unit
+            | Broadcast (Exec (_order, exec)) -> handle_exec exec
             | _ -> Deferred.unit))
     )
 end
