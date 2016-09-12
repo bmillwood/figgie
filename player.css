@@ -1,0 +1,167 @@
+body {
+	color: white;
+	background-color: #001;
+}
+div#container {
+	width: 45em;
+	margin: auto;
+	padding-bottom: 1em;
+	background-color: #002;
+	text-align: center;
+}
+.me {
+	color: #000;
+	background-color: #99f;
+}
+.them1 {
+	color: #ff6;
+}
+.them2 {
+	color: #6ff;
+}
+.them3 {
+	color: #f6f;
+}
+p#status {
+	position: relative;
+	padding: 0.1em 0.5em;
+	font-size: large;
+	text-align: left;
+}
+p#status.Disconnected {
+	background-color: #802;
+}
+p#status.Connected {
+	background-color: #006;
+}
+span.clock {
+	position: absolute;
+	right: 1em;
+}
+div#exchange {
+	padding-bottom: 0.5em;
+	text-align: center;
+}
+table#market {
+	display: inline-block;
+}
+table#market td {
+	padding: 0.05em 0.8em;
+	font-size: 18pt;
+	text-align: center;
+}
+tr.sell td, tr#ordersell td {
+	background-color: #313;
+}
+tr.buy td, tr#orderbuy td {
+	background-color: #133;
+}
+tr#suits td {
+	background-color: #224;
+}
+.Spades, .Clubs {
+	color: black;
+}
+.Hearts, .Diamonds {
+	color: darkred;
+}
+.None {
+	color: grey;
+}
+tr#ordersell input, tr#orderbuy input {
+	width: 2em;
+	margin: 0;
+	padding: 0;
+	color: white;
+	border: 0;
+	text-align: center;
+	font-size: 18pt;
+}
+tr#ordersell input {
+	background-color: #535;
+}
+tr#orderbuy input {
+	background-color: #355;
+}
+table#tape {
+	display: inline-block;
+	height: 18em;
+	min-width: 15em;
+	margin-left: 1em;
+	overflow-y: scroll;
+	background-color: #224;
+}
+table#tape td {
+	padding: 0 0.2em;
+}
+table#tape td.buy {
+	color: #0f4;
+}
+table#tape td.sell {
+	color: #f04;
+}
+td.price {
+	text-align: center;
+}
+div.hands .me, div.hands .them1, div.hands .them2, div.hands .them3 {
+	padding: 0 0.5em;
+	font-size: 0.8em;
+}
+.first, .second, .third, .last {
+	float: right;
+	color: black;
+	font-size: 0.8em;
+}
+.first { background-color: gold; }
+.second { background-color: silver; }
+.third { background-color: brown; }
+.last { background-color: #f00; color: white; }
+div.hands > div {
+	text-align: left;
+	display: inline-block;
+	background-color: #224;
+}
+div.lefthand {
+	display: inline-block;
+	float: left;
+	margin-left: 3em;
+}
+div.middlehand {
+	display: inline-block;
+}
+div.righthand {
+	display: inline-block;
+	float: right;
+	margin-right: 3em;
+}
+div#myhand {
+	display: inline-block;
+	margin-top: 0.5em;
+	clear: both;
+	font-size: 2em;
+	background-color: #224;
+}
+div#historycmd {
+	width: 40em;
+	display: inline-block;
+	text-align: left;
+}
+ul#history {
+	font-size: small;
+	height: 8em;
+	overflow-y: scroll;
+	background-color: #224;
+	list-style-type: none;
+	padding-left: 0.5em;
+	margin-bottom: 2px;
+}
+li.broadcast {
+	font-weight: bold;
+}
+input#cmdline {
+	border: 1px solid #669;
+	padding: 0.1em 0.5em;
+	background-color: #006;
+	color: white;
+	width: 100%;
+}

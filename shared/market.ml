@@ -22,6 +22,7 @@ module Dir = struct
     | Buy -> buy
     | Sell -> sell
 
+  let to_string = fold ~buy:"buy" ~sell:"sell"
 end
 
 module Dirpair = struct

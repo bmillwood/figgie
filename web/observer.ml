@@ -3,7 +3,7 @@ open Async_kernel.Std
 open Async_rpc_kernel.Std
 open Incr_dom.Std
 
-module Figgie_web = struct
+module Observer_app = struct
   module Connection_status = struct
     type t =
       | Connecting
@@ -108,17 +108,11 @@ module Figgie_web = struct
       :: List.map Card.Suit.all ~f:sym_row)
 
   let players_display ~hands ~gold ~scores =
-    let utf8_of_suit : Card.Suit.t -> string = function
-      | Spades -> "\xe2\x99\xa0"
-      | Hearts -> "\xe2\x99\xa5"
-      | Diamonds -> "\xe2\x99\xa6"
-      | Clubs -> "\xe2\x99\xa3"
-    in
     let node_of_suit suit num_of_this_suit =
       let text_node =
         Vdom.Node.text
           (List.init (Market.Size.to_int num_of_this_suit)
-            ~f:(fun _ -> utf8_of_suit suit)
+            ~f:(fun _ -> Card.Suit.to_utf8 suit)
           |> String.concat)
       in
       let maybe_gold =
@@ -264,5 +258,5 @@ end
 
 let () =
   Start_app.simple
-    ~initial_state:Figgie_web.Model.initial
-    (module Figgie_web)
+    ~initial_state:Observer_app.Model.initial
+    (module Observer_app)

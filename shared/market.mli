@@ -19,6 +19,8 @@ module Dir : sig
   val other : t -> t
 
   val fold : t -> buy:'a -> sell:'a -> 'a
+
+  val to_string : t -> string
 end
 
 module Dirpair : sig

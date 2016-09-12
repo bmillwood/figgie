@@ -12,8 +12,8 @@ end
 module Broadcast = struct
   type t =
     | Player_joined of Username.t
-    | Chat of Username.t * string
     | Waiting_for of int
+    | Chat of Username.t * string
     | New_round
     | Exec of Market.Order.t * Market.Exec.t
     | Out of Market.Order.t
