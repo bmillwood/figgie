@@ -166,8 +166,8 @@ module Observer_app = struct
   let items_of_broadcast (bc : Protocol.Broadcast.t) =
     match bc with
     | Player_joined u -> [sprintf !"%{Username} joined" u]
+    | Player_ready _  -> []
     | Chat (u, m)     -> [sprintf !"<%{Username}> %S" u m]
-    | Waiting_for _   -> []
     | New_round       -> []
     | Exec (order, exec) ->
       let fill_to_string (filled_order : Market.Order.t) ~filled_by =

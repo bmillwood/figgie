@@ -12,7 +12,7 @@ end
 module Broadcast = struct
   type t =
     | Player_joined of Username.t
-    | Waiting_for of int
+    | Player_ready of { who : Username.t; is_ready : bool; waiting_for : int }
     | Chat of Username.t * string
     | New_round
     | Exec of Market.Order.t * Market.Exec.t

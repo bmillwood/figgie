@@ -109,7 +109,6 @@ let implementations () =
       Connection_manager.broadcasts conns
         [ Round_over results
         ; Scores (Game.scores game)
-        ; Waiting_for (Game.num_players game)
         ]
     end;
     Map.iteri round.players ~f:(fun ~key:username ~data:p ->
@@ -155,8 +154,7 @@ let implementations () =
             state := Player player_conn;
             let catch_up : Protocol.Player_update.t list =
               match game.phase with
-              | Waiting_for_players wait ->
-                [ Broadcast (Waiting_for (Game.Waiting.waiting_for wait)) ]
+              | Waiting_for_players _ -> []
               | Playing _ -> []
             in
             List.iter catch_up ~f:(Pipe.write_without_pushback updates_w);
@@ -183,8 +181,8 @@ let implementations () =
             state := Observer observer;
             let catch_up : Protocol.Observer_update.t list =
               match game.phase with
-              | Waiting_for_players wait ->
-                [ Broadcast (Waiting_for (Game.Waiting.waiting_for wait)) ]
+              | Waiting_for_players _wait ->
+                []
               | Playing round ->
                 [ Market round.market
                 ; Hands (Game.Round.hands round)
@@ -197,12 +195,15 @@ let implementations () =
       )
     ; for_existing_user Protocol.Is_ready.rpc
         (fun ~username is_ready ->
+          let broadcast waiting_for =
+            Connection_manager.broadcast conns
+              (Player_ready { who = username; is_ready; waiting_for })
+          in
           return (Game.set_ready game ~username ~is_ready)
           >>|? function
-          | `Started round -> setup_round round
+          | `Started round -> broadcast 0; setup_round round
           | `Still_waiting wait ->
-            Connection_manager.broadcast conns
-              (Waiting_for (Game.Waiting.waiting_for wait)))
+              broadcast (Game.Waiting.waiting_for wait))
     ; for_existing_user Protocol.Chat.rpc
         (fun ~username msg ->
           Connection_manager.broadcast conns (Chat (username, msg));

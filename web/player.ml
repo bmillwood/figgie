@@ -3,152 +3,330 @@ open Async_kernel.Std
 open Async_rpc_kernel.Std
 open Incr_dom.Std
 
-module Player_app = struct
-  module Status = struct
-    type t =
-      | Connecting
-      | Connected of { conn : Rpc.Connection.t; is_ready : bool }
-      | Failed_to_connect
-      | Disconnected
-      [@@deriving sexp_of]
-  end
-
-  module Message = struct
-    type t =
-      | Broadcast of Protocol.Broadcast.t
-      | Log of string
-      [@@deriving sexp_of]
-  end
-
-  module Other_player = struct
-    type t = {
-      id : int;
-      hand : Market.Size.t Card.Hand.t;
-    }
-
-    let class_ t = "them" ^ Int.to_string t.id
-  end
-
+module Waiting = struct
   module Model = struct
-    type t = {
-      username   : Username.t option;
-      others     : Other_player.t Username.Map.t;
-      messages   : Message.t Fqueue.t;
-      trades     : (Market.Order.t * Market.Cpty.t) Fqueue.t;
-      next_order : Market.Order.Id.t;
-      market     : Market.Book.t;
-      hand       : Market.Size.t Card.Hand.t;
-      score      : Market.Price.t;
-      status     : Status.t;
-    }
-
-    let initial =
-      { username   = None
-      ; others     = Username.Map.empty
-      ; messages   = Fqueue.empty
-      ; trades     = Fqueue.empty
-      ; next_order = Market.Order.Id.zero
-      ; market     = Market.Book.empty
-      ; hand       = Card.Hand.create_all Market.Size.zero
-      ; score      = Market.Price.zero
-      ; status     = Disconnected
-      }
+    type t = { not_ready : Username.Set.t }
   end
 
   module Action = struct
     type t =
-      | Login of Username.t
-      | Player_joined of Username.t
-      | Message of Message.t
+      | Player_is_ready of { other : Username.t option; is_ready : bool }
+      [@@deriving sexp_of]
+  end
+end
+
+module Playing = struct
+  module Model = struct
+    type t = {
+      market     : Market.Book.t;
+      trades     : (Market.Order.t * Market.Cpty.t) Fqueue.t;
+      my_hand    : Market.Size.t Card.Hand.t;
+      hands      : Partial_hand.t Username.Map.t;
+      next_order : Market.Order.Id.t;
+    }
+  end
+
+  module Action = struct
+    type t =
       | Market of Market.Book.t
       | Hand of Market.Size.t Card.Hand.t
       | Trade of Market.Order.t * Market.Cpty.t
       | Score of Market.Price.t
-      | Status of Status.t
       | Send_order of {
           symbol : Card.Suit.t;
           dir    : Market.Dir.t; 
           price  : Market.Price.t;
         }
-      | Set_ready of bool
+      [@@deriving sexp_of]
+  end
+end
+
+module Game = struct
+  module Model = struct
+    type t =
+      | Waiting of Waiting.Model.t
+      | Playing of Playing.Model.t
+  end
+
+  module Action = struct
+    type t =
+      | Waiting of Waiting.Action.t
+      | Playing of Playing.Action.t
+      | Start_playing
+      | Round_over
+      [@@deriving sexp_of]
+  end 
+end
+
+module Player_id = struct
+  type t = int
+
+  let class_ t = "them" ^ Int.to_string t
+end
+
+module Other_player = struct
+  type t = {
+    id : Player_id.t;
+    score : Market.Price.t;
+  }
+end
+
+module Logged_in = struct
+  module Model = struct
+    type t = {
+      username   : Username.t;
+      others     : Other_player.t Username.Map.t;
+      score      : Market.Price.t;
+      game       : Game.Model.t;
+    }
+  end
+
+  module Action = struct
+    type t =
+      | Player_joined of Username.t
+      | Game of Game.Action.t
+      [@@deriving sexp_of]
+  end
+end
+
+module Connected = struct
+  module Model = struct
+    type t = {
+      conn : Rpc.Connection.t;
+      login : Logged_in.Model.t option;
+    }
+  end
+
+  module Action = struct
+    type t =
+      | Login of Username.t
+      | Logged_in of Logged_in.Action.t
+      [@@deriving sexp_of]
+  end
+end
+
+module App = struct
+  module Model = struct
+    module Connection_state = struct
+      type t =
+        | Connecting
+        | Connected of Connected.Model.t
+        | Disconnected
+    end
+
+    module Message = struct
+      type t =
+        | Order_reject of Protocol.Order.error
+        [@@deriving sexp_of]
+    end
+
+    type t = {
+      messages : Message.t Fqueue.t;
+      state : Connection_state.t
+    }
+
+    let initial =
+      { messages = Fqueue.empty
+      ; state = Disconnected
+      }
+  end
+  open Model
+
+  module Action = struct
+    type t =
+      | Message of Message.t
+      | Disconnect
+      | Start_connecting
+      | Finish_connecting of Rpc.Connection.t
+      | Connected of Connected.Action.t
       [@@deriving sexp_of]
 
-    let apply t ~schedule (model : Model.t) =
-      let if_connected ~f =
-        match model.status with
-        | Connected { conn; _ } -> f conn
-        | _ -> ()
-      in
+    let connected cact = Connected cact
+    let logged_in lact = connected (Logged_in lact)
+    let game gact      = logged_in (Game gact)
+    let waiting wact   = game (Waiting wact)
+    let playing pact   = game (Playing pact)
+
+    let apply_waiting_action
+        (t : Waiting.Action.t)
+        ~schedule:_ ~conn ~(login : Logged_in.Model.t)
+        ({ not_ready } : Waiting.Model.t)
+      =
       match t with
-      | Login username -> { model with username = Some username }
-      | Market market  -> { model with market }
-      | Hand hand      -> { model with hand }
-      | Score score    -> { model with score }
-      | Status status  -> { model with status }
-      | Player_joined other ->
+      | Player_is_ready { other; is_ready } ->
+        let toggle = if is_ready then Set.remove else Set.add in
+        let not_ready =
+          toggle not_ready (Option.value other ~default:login.username)
+        in
+        begin if Option.is_none other 
+        then 
+          don't_wait_for begin
+            Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn is_ready
+            >>| function
+            | Ok () -> ()
+            | Error `Already_playing -> ()
+            | Error `Login_first -> ()
+          end
+        end;
+        { Waiting.Model.not_ready }
+
+    let apply_playing_action
+        (t : Playing.Action.t)
+        ~schedule ~conn
+        (round : Playing.Model.t)
+      =
+      match t with
+      | Market market -> { round with market }
+      | Hand my_hand  -> { round with my_hand }
+      | Trade (order, with_) ->
+        let trades = Fqueue.enqueue round.trades (order, with_) in
+        { round with trades }
+      | Score _ -> round
+      | Send_order { symbol; dir; price } ->
+        let order =
+          { Market.Order.owner = Username.of_string "bmillwood"
+          ; id = round.next_order
+          ; symbol; dir; price
+          ; size = Market.Size.of_int 1
+          } 
+        in
+        don't_wait_for begin
+          Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn order
+          >>| function
+          | Ok `Ack -> ()
+          | Error reject -> schedule (Message (Order_reject reject))
+        end;
+        let next_order = Market.Order.Id.next round.next_order in
+        { round with next_order }
+
+    let apply_game_action
+        (t : Game.Action.t)
+        ~schedule ~conn ~login
+        (game : Game.Model.t) : Game.Model.t
+      =
+      match game, t with
+      | Waiting wait, Waiting wact ->
+        Waiting (apply_waiting_action wact ~schedule ~conn ~login wait)
+      | Playing round, Playing pact ->
+        Playing (apply_playing_action pact ~schedule ~conn round)
+      | Waiting _wait, Start_playing ->
+        Playing
+          { market  = Market.Book.empty
+          ; trades  = Fqueue.empty
+          ; my_hand = Card.Hand.create_all Market.Size.zero
+          ; hands =
+              Map.map login.others ~f:(fun _ ->
+                Partial_hand.create_unknown (Market.Size.of_int 10))
+          ; next_order = Market.Order.Id.zero
+          }
+      | Playing _round, Round_over ->
+        Waiting
+          { not_ready = Username.Set.of_list (Map.keys login.others) }
+      | _ -> game
+
+    let apply_logged_in_action
+        (t : Logged_in.Action.t)
+        ~schedule ~conn
+        (login : Logged_in.Model.t) : Logged_in.Model.t
+      =
+      match t with
+      | Player_joined their_name ->
         let id =
           let rec loop n =
-            if Map.exists model.others ~f:(fun other -> n = other.id)
+            if Map.exists login.others ~f:(fun other -> n = other.id)
             then loop (n + 1)
             else n
           in
           loop 1
         in
-        let hand = Card.Hand.create_all Market.Size.zero in
-        let others = Map.add model.others ~key:other ~data:{ id; hand } in
-        { model with others }
-      | Trade (trade, with_) ->
-        { model with trades = Fqueue.enqueue model.trades (trade, with_) }
-      | Message m ->
-        { model with messages = Fqueue.enqueue model.messages m }
-      | Set_ready is_ready ->
-        if_connected ~f:(fun conn ->
-          schedule (Status (Connected { conn; is_ready }));
-          don't_wait_for begin
-            Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn is_ready
-            |> Deferred.ignore;
-          end);
-        model
-      | Send_order { symbol; dir; price } ->
-        let order =
-          { Market.Order.owner = Username.of_string "bmillwood"
-          ; id = model.next_order
-          ; symbol; dir; price
-          ; size = Market.Size.of_int 1
-          } 
+        let others =
+          Map.add login.others
+            ~key:their_name
+            ~data:{ id; score = Market.Price.zero }
         in
-        if_connected ~f:(fun conn ->
-          don't_wait_for begin
-            Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn order
-            >>| function
-            | Ok `Ack -> ()
-            | Error reject ->
-              schedule (Message (Log (Sexp.to_string [%sexp (reject : Protocol.Order.error)])))
-          end);
-        { model with next_order = Market.Order.Id.next model.next_order }
+        schedule
+          (waiting (Player_is_ready
+            { other = Some their_name; is_ready = false }));
+        { login with others }        
+      | Game gact ->
+        let game = apply_game_action gact ~schedule ~conn ~login login.game in
+        { login with game }
+
+    let apply_connected_action
+        (t : Connected.Action.t)
+        ~schedule
+        (conn : Connected.Model.t) : Connected.Model.t
+      =
+      match t with
+      | Login username ->
+        let logged_in =
+          { Logged_in.Model.username; others = Username.Map.empty
+          ; score = Market.Price.of_int 0
+          ; game = Waiting { not_ready = Username.Set.singleton username }
+          }
+        in
+        { conn = conn.conn; login = Some logged_in }
+      | Logged_in lact ->
+        begin match conn.login with
+        | None -> conn
+        | Some logged_in ->
+          let logged_in =
+            apply_logged_in_action lact ~schedule ~conn:conn.conn logged_in
+          in
+          { conn with login = Some logged_in }
+        end
+
+    let apply t ~schedule (model : Model.t) =
+      match t with
+      | Message msg ->
+        { model with messages = Fqueue.enqueue model.messages msg }
+      | Disconnect ->
+        { model with state = Disconnected }
+      | Start_connecting ->
+        { model with state = Connecting }
+      | Finish_connecting conn ->
+        { model with state = Connected { conn; login = None } }
+      | Connected cact ->
+        begin match model.state with
+        | Connected conn ->
+          let conn = apply_connected_action cact ~schedule conn in
+          { model with state = Connected conn }
+        | _ -> model
+        end
 
     let should_log _ = false
   end
 
-  let status_line ~(inject : Action.t -> _) (status : Status.t) =
+  let status_line
+      ~(inject : Action.t -> _)
+      (state : Model.Connection_state.t)
+    =
     let ready_button is_ready =
       Vdom.Node.button
-        [ Vdom.Attr.on_click (fun _ev -> inject (Set_ready (not is_ready)))
+        [ Vdom.Attr.on_click (fun _ev ->
+            inject (Action.waiting
+              (Player_is_ready { other = None; is_ready = not is_ready })))
         ; Vdom.Attr.id "readybutton"
         ]
         [ Vdom.Node.text (if is_ready then "Not ready" else "Ready") ]
     in
-    let status_text, ready_button =
-      match status with
+    let status_text, is_ready =
+      match state with
       | Connecting -> "Connecting", None
-      | Failed_to_connect -> "Failed_to_connect", None
-      | Connected { conn = _; is_ready } ->
-        "Connected", Some (ready_button is_ready)
+      | Connected { login = None; _ } -> "Connected", None
+      | Connected { login = Some login; _ } ->
+        begin match login.game with
+        | Waiting { not_ready } ->
+          ( "Waiting for players"
+          , Some (not (Set.mem not_ready login.username))
+          )
+        | Playing _ -> "Play!", None
+        end
       | Disconnected -> "Disconnected", None
     in
     List.filter_opt
       [ Some (Vdom.Node.text status_text)
-      ; ready_button
+      ; Option.map is_ready ~f:ready_button
       ; Some (Vdom.Node.span [Vdom.Attr.class_ "clock"]
           [Vdom.Node.text "MM:SS"])
       ]
@@ -190,7 +368,7 @@ module Player_app = struct
             ~error:"not price"
           >>| fun price ->
           input##.value := Js.string "";
-          inject (Send_order { symbol; dir; price })
+          inject (Action.playing (Send_order { symbol; dir; price }))
         with
         | Ok ev -> ev
         | Error e -> ignore e; Vdom.Event.Ignore
@@ -239,7 +417,7 @@ module Player_app = struct
         ; cells ~dir:Buy
         ])
 
-  let trades_table ~others trades =
+  let trades_table ~(others : Other_player.t Username.Map.t) trades =
     Vdom.Node.table [Vdom.Attr.id "tape"]
       (Fqueue.to_list trades
       |> List.map ~f:(fun ((traded : Market.Order.t), with_) ->
@@ -251,7 +429,7 @@ module Player_app = struct
             let attrs =
               match Map.find others cpty with
               | None -> []
-              | Some other -> [Attr.class_ (Other_player.class_ other)]
+              | Some other -> [Attr.class_ (Player_id.class_ other.id)]
             in
             td [] [span attrs [text (Market.Cpty.to_string cpty)]]
           in
@@ -278,13 +456,24 @@ module Player_app = struct
   let view (incr_model : Model.t Incr.t) ~inject =
     let open Incr.Let_syntax in
     let%map model = incr_model in
+    let market, others, trades =
+      match model.state with
+      | Connected
+          { login = Some
+            { others
+            ; game = Playing { market; trades; _ }
+            ; _ }
+          } ->
+        market, others, trades
+      | _ -> Market.Book.empty, Username.Map.empty, Fqueue.empty
+    in
     let open Vdom in
     let open Node in
     body [] [div [Attr.id "container"]
-      [ status_line ~inject model.status
+      [ status_line ~inject model.state
       ; div [Attr.id "exchange"]
-        [ market_table ~inject model.market
-        ; trades_table ~others:model.others model.trades
+        [ market_table ~inject market
+        ; trades_table ~others trades
         ; div [Attr.class_ "hands"] []
         ; div [Attr.id "historycmd"]
           [ history model.messages
@@ -298,19 +487,19 @@ module Player_app = struct
     don't_wait_for begin
       let handle_update conn : Protocol.Player_update.t -> unit =
         function
-        | Hand hand     -> schedule (Action.Hand hand)
-        | Market market -> schedule (Action.Market market)
+        | Hand hand     -> schedule (Action.playing (Hand hand))
+        | Market market -> schedule (Action.playing (Market market))
         | Broadcast (Exec (order, exec)) ->
           List.iter exec.fully_filled ~f:(fun filled_order ->
-            schedule (Trade
+            schedule (Action.playing (Trade
               ( { order with size = filled_order.size }
               , filled_order.owner
-              )));
+              ))));
           Option.iter exec.partially_filled ~f:(fun partial_fill ->
-            schedule (Trade
+            schedule (Action.playing (Trade
               ( { order with size = partial_fill.filled_by }
               , partial_fill.original_order.owner
-              )));
+              ))));
           don't_wait_for begin
             let%map () =
               Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
@@ -322,15 +511,17 @@ module Player_app = struct
             ()
           end
         | Broadcast (Player_joined username) ->
-          schedule (Player_joined username)
-        | Broadcast b -> schedule (Message (Broadcast b))
+          schedule (Action.logged_in (Player_joined username))
+        | Broadcast New_round ->
+          schedule (Action.game Start_playing)
+        | Broadcast _ -> ()
       in
-      schedule (Status Connecting);
+      schedule Start_connecting;
       Websocket_rpc_transport.connect
         (Host_and_port.create ~host:"localhost" ~port:20406)
       >>= function
       | Error () ->
-        schedule (Status Failed_to_connect);
+        schedule Disconnect;
         Deferred.unit
       | Ok transport ->
         Rpc.Connection.with_close
@@ -338,21 +529,16 @@ module Player_app = struct
           transport
           ~on_handshake_error:`Raise
           ~dispatch_queries:(fun conn ->
-            schedule (Status (Connected { conn; is_ready = false }));
-            Rpc.Pipe_rpc.dispatch_iter
+            schedule (Finish_connecting conn);
+            Rpc.Pipe_rpc.dispatch_exn
               Protocol.Login.rpc conn (Username.of_string "bmillwood")
-              ~f:(function
-                | Update update -> handle_update conn update; Continue
-                | Closed _ -> schedule (Status Disconnected); Continue)
-            >>| ok_exn
-            >>= function
-            | Error error ->
-              Error.raise_s [%message
-                "login failed"
-                  (error : Protocol.Login.error)
-              ]
-            | Ok _pipe_id -> Deferred.never ()
-          )
+            >>= fun (pipe, _pipe_metadata) ->
+            schedule (Action.connected
+              (Login (Username.of_string "bmillwood")));
+            Pipe.iter_without_pushback pipe
+              ~f:(fun update -> handle_update conn update)
+            >>| fun () ->
+            schedule Disconnect)
     end
 
   let on_display ~schedule:_ ~old:_ _new = ()
@@ -361,5 +547,5 @@ end
 
 let () =
   Start_app.simple
-    ~initial_state:Player_app.Model.initial
-    (module Player_app)
+    ~initial_state:App.Model.initial
+    (module App)
