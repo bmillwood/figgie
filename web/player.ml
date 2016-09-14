@@ -463,7 +463,7 @@ module App = struct
             { others
             ; game = Playing { market; trades; _ }
             ; _ }
-          } ->
+          ; _ } ->
         market, others, trades
       | _ -> Market.Book.empty, Username.Map.empty, Fqueue.empty
     in

@@ -1,5 +1,5 @@
 true: predicate(custom_ppx)
-true: warn(+a-4-40-42-44-48), strict_sequence
+true: warn(@a-4-40-42-44-48), strict_sequence
 true: thread,debug,annot
 
 <shared>: include
