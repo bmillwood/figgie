@@ -56,6 +56,7 @@ module Round = struct
     pot : Market.Price.t;
     mutable market : Market.Book.t;
     gold : Card.Suit.t;
+    end_time : Time_ns.t;
   }
 
   let results t =
@@ -137,7 +138,10 @@ module Round = struct
         p.username, player)
       |> Username.Map.of_alist_exn
     in
-    { players; pot = !pot; market = Market.Book.empty; gold }
+    (* Note we don't actually schedule anything to happen at this time.
+       That's done by the server, for reasons. *)
+    let end_time = Time_ns.(add (now ()) Params.length_of_round) in
+    { players; pot = !pot; market = Market.Book.empty; gold; end_time }
 
   let add_player_order t
     ~order:(sent_order : Market.Order.t)

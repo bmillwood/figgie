@@ -22,6 +22,18 @@ module Broadcast = struct
     [@@deriving bin_io, sexp]
 end
 
+module Time_remaining = struct
+  type span = Time_ns.Span.t [@@deriving bin_io]
+  let sexp_of_span = Time_ns.Span.Alternate_sexp.sexp_of_t
+  let span_of_sexp = Time_ns.Span.Alternate_sexp.t_of_sexp
+
+  type query = unit [@@deriving bin_io, sexp]
+  type response = (span, [ `Game_not_in_progress ]) Result.t
+    [@@deriving bin_io, sexp]
+  let rpc =
+    Rpc.Rpc.create ~name:"time-left" ~version:1 ~bin_query ~bin_response
+end
+
 module Player_update = struct
   type t =
     | Broadcast of Broadcast.t

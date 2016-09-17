@@ -34,6 +34,10 @@ p#status.Disconnected {
 p#status.Connected {
 	background-color: #006;
 }
+button#readybutton {
+  border: 0;
+  margin: 0 0.5em;
+}
 span.clock {
 	position: absolute;
 	right: 1em;

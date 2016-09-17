@@ -103,7 +103,7 @@ let implementations () =
   let conns = Connection_manager.create () in
   let setup_round (round : Game.Round.t) =
     don't_wait_for begin
-      Clock.after Params.length_of_round
+      Clock_ns.at round.end_time
       >>| fun () ->
       let results = Game.end_round game round in
       Connection_manager.broadcasts conns
@@ -192,6 +192,14 @@ let implementations () =
             in
             List.iter catch_up ~f:(Pipe.write_without_pushback updates_w);
             return (Ok updates_r)
+      )
+    ; Rpc.Rpc.implement Protocol.Time_remaining.rpc
+        (fun _state () ->
+          match game.phase with
+          | Waiting_for_players _ -> return (Error `Game_not_in_progress)
+          | Playing round ->
+            let span = Time_ns.diff round.end_time (Time_ns.now ()) in
+            return (Ok span)
       )
     ; for_existing_user Protocol.Is_ready.rpc
         (fun ~username is_ready ->

@@ -16,6 +16,23 @@ module Waiting = struct
 end
 
 module Playing = struct
+  module Game_clock = struct
+    type t = {
+      end_time : Time_ns.t;
+      min : int;
+      sec : int;
+      tick : (unit, unit) Clock_ns.Event.t;
+    }
+
+    let initial =
+      { end_time = Time_ns.now ()
+      ; min = 99; sec = 99
+      ; tick = Clock_ns.Event.at (Time_ns.now ())
+      }
+
+    let to_string t = sprintf "%02d:%02d" t.min t.sec
+  end
+
   module Model = struct
     type t = {
       market     : Market.Book.t;
@@ -23,6 +40,7 @@ module Playing = struct
       my_hand    : Market.Size.t Card.Hand.t;
       hands      : Partial_hand.t Username.Map.t;
       next_order : Market.Order.Id.t;
+      clock      : Game_clock.t;
     }
   end
 
@@ -34,9 +52,11 @@ module Playing = struct
       | Score of Market.Price.t
       | Send_order of {
           symbol : Card.Suit.t;
-          dir    : Market.Dir.t; 
+          dir    : Market.Dir.t;
           price  : Market.Price.t;
         }
+      | Game_ends_at of Time_ns.t sexp_opaque
+      | Tick of { min : int; sec : int }
       [@@deriving sexp_of]
   end
 end
@@ -55,7 +75,7 @@ module Game = struct
       | Start_playing
       | Round_over
       [@@deriving sexp_of]
-  end 
+  end
 end
 
 module Player_id = struct
@@ -158,8 +178,8 @@ module App = struct
         let not_ready =
           toggle not_ready (Option.value other ~default:login.username)
         in
-        begin if Option.is_none other 
-        then 
+        begin if Option.is_none other
+        then
           don't_wait_for begin
             Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn is_ready
             >>| function
@@ -176,8 +196,42 @@ module App = struct
         (round : Playing.Model.t)
       =
       match t with
-      | Market market -> { round with market }
-      | Hand my_hand  -> { round with my_hand }
+      | Market market         -> { round with market }
+      | Hand my_hand          -> { round with my_hand }
+      | Game_ends_at end_time ->
+        Clock_ns.Event.abort_if_possible round.clock.tick ();
+        let this_time = Time_ns.now () in
+        let remaining = Time_ns.diff end_time this_time in
+        let { Time_ns.Span.Parts.sign; min; sec; _ } =
+          Time_ns.Span.to_parts remaining
+        in
+        begin match sign with
+        | Pos when min > 0 || sec > 0 ->
+          schedule (playing (Tick { min; sec }));
+        | _ -> ()
+        end;
+        { round with clock = { round.clock with end_time } }
+      | Tick { min; sec } ->
+        let schedule_next_tick ~min ~sec =
+          let next_tick =
+            Time_ns.sub round.clock.end_time
+              (Time_ns.Span.create ~min ~sec ())
+          in
+          let tick = Clock_ns.Event.at next_tick in
+          upon (Clock_ns.Event.fired tick)
+            (function
+            | `Aborted () -> ()
+            | `Happened () -> schedule (playing (Tick { min; sec })));
+          { round.clock with tick }
+        in
+        let clock =
+          if sec > 0
+          then schedule_next_tick ~min ~sec:(sec - 1)
+          else if min > 0
+          then schedule_next_tick ~min:(min - 1) ~sec:59
+          else round.clock
+        in
+        { round with clock = { clock with min; sec } }
       | Trade (order, with_) ->
         let trades = Fqueue.enqueue round.trades (order, with_) in
         { round with trades }
@@ -188,7 +242,7 @@ module App = struct
           ; id = round.next_order
           ; symbol; dir; price
           ; size = Market.Size.of_int 1
-          } 
+          }
         in
         don't_wait_for begin
           Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn order
@@ -218,6 +272,7 @@ module App = struct
               Map.map login.others ~f:(fun _ ->
                 Partial_hand.create_unknown (Market.Size.of_int 10))
           ; next_order = Market.Order.Id.zero
+          ; clock = Playing.Game_clock.initial
           }
       | Playing _round, Round_over ->
         Waiting
@@ -247,7 +302,7 @@ module App = struct
         schedule
           (waiting (Player_is_ready
             { other = Some their_name; is_ready = false }));
-        { login with others }        
+        { login with others }
       | Game gact ->
         let game = apply_game_action gact ~schedule ~conn ~login login.game in
         { login with game }
@@ -324,11 +379,17 @@ module App = struct
         end
       | Disconnected -> "Disconnected", None
     in
+    let clock =
+      match state with
+      | Connected { login = Some { game = Playing { clock; _}; _ }; _ } ->
+        Some (Vdom.Node.span [Vdom.Attr.class_ "clock"]
+          [Vdom.Node.text (Playing.Game_clock.to_string clock)])
+      | _ -> None
+    in
     List.filter_opt
       [ Some (Vdom.Node.text status_text)
       ; Option.map is_ready ~f:ready_button
-      ; Some (Vdom.Node.span [Vdom.Attr.class_ "clock"]
-          [Vdom.Node.text "MM:SS"])
+      ; clock
       ]
     |> Vdom.Node.p [Vdom.Attr.id "status"; Vdom.Attr.class_ status_text]
 
@@ -513,7 +574,21 @@ module App = struct
         | Broadcast (Player_joined username) ->
           schedule (Action.logged_in (Player_joined username))
         | Broadcast New_round ->
-          schedule (Action.game Start_playing)
+          schedule (Action.game Start_playing);
+          don't_wait_for begin
+            (* Sample the time *before* we send the RPC. Then the game end
+               time we get is actually roughly "last time we can expect to
+               send an RPC and have it arrive before the game ends". *)
+            let current_time = Time_ns.now () in
+            Rpc.Rpc.dispatch_exn Protocol.Time_remaining.rpc conn ()
+            >>| function
+            | Error `Game_not_in_progress -> ()
+            | Ok remaining ->
+              let end_time = Time_ns.add current_time remaining in
+              schedule (Action.playing (Game_ends_at end_time))
+          end
+        | Broadcast (Round_over _results) ->
+          schedule (Action.game Round_over)
         | Broadcast _ -> ()
       in
       schedule Start_connecting;
