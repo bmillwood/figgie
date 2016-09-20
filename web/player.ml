@@ -15,6 +15,47 @@ module Waiting = struct
   end
 end
 
+module Player_id = struct
+  type t =
+    | Me
+    | Them of int
+    | Nobody
+    [@@deriving compare, sexp]
+
+  let equal t1 t2 = compare t1 t2 = 0
+
+  let class_ =
+    function
+    | Me -> "me"
+    | Them i -> "them" ^ Int.to_string i
+    | Nobody -> "nobody"
+end
+
+module Player = struct
+  module Persistent = struct
+    type t = {
+      id : Player_id.t;
+      username : Username.t;
+      score : Market.Price.t;
+    } [@@deriving sexp]
+
+    let nobody =
+      { id = Nobody
+      ; username = Username.of_string "[nobody]"
+      ; score = Market.Price.zero
+      }
+  end
+
+  type t = {
+    pers : Persistent.t;
+    hand : Partial_hand.t;
+  }
+
+  let with_empty_hand pers = { pers; hand = Partial_hand.empty }
+
+  let nobody = with_empty_hand Persistent.nobody
+end
+
 module Playing = struct
   module Game_clock = struct
     type t = {
@@ -35,10 +76,10 @@ module Playing = struct
 
   module Model = struct
     type t = {
+      me         : Player.t;
+      others     : Player.t Username.Map.t;
       market     : Market.Book.t;
       trades     : (Market.Order.t * Market.Cpty.t) Fqueue.t;
-      my_hand    : Market.Size.t Card.Hand.t;
-      hands      : Partial_hand.t Username.Map.t;
       next_order : Market.Order.Id.t;
       clock      : Game_clock.t;
     }
@@ -78,32 +119,19 @@ module Game = struct
   end
 end
 
-module Player_id = struct
-  type t = int
-
-  let class_ t = "them" ^ Int.to_string t
-end
-
-module Other_player = struct
-  type t = {
-    id : Player_id.t;
-    score : Market.Price.t;
-  }
-end
-
 module Logged_in = struct
   module Model = struct
     type t = {
-      username   : Username.t;
-      others     : Other_player.t Username.Map.t;
-      score      : Market.Price.t;
-      game       : Game.Model.t;
+      me     : Player.Persistent.t;
+      others : Player.Persistent.t Username.Map.t;
+      game   : Game.Model.t;
     }
   end
 
   module Action = struct
     type t =
       | Player_joined of Username.t
+      | Scores of Market.Price.t Username.Map.t
       | Game of Game.Action.t
       [@@deriving sexp_of]
   end
@@ -137,6 +165,7 @@ module App = struct
     module Message = struct
       type t =
         | Order_reject of Protocol.Order.error
+        | Chat of Username.t * string
         [@@deriving sexp_of]
     end
 
@@ -176,7 +205,7 @@ module App = struct
       | Player_is_ready { other; is_ready } ->
         let toggle = if is_ready then Set.remove else Set.add in
         let not_ready =
-          toggle not_ready (Option.value other ~default:login.username)
+          toggle not_ready (Option.value other ~default:login.me.username)
         in
         begin if Option.is_none other
         then
@@ -196,8 +225,10 @@ module App = struct
         (round : Playing.Model.t)
       =
       match t with
-      | Market market         -> { round with market }
-      | Hand my_hand          -> { round with my_hand }
+      | Market market -> { round with market }
+      | Hand hand ->
+        let hand = Partial_hand.create_known hand in
+        { round with me = { round.me with hand } }
       | Game_ends_at end_time ->
         Clock_ns.Event.abort_if_possible round.clock.tick ();
         let this_time = Time_ns.now () in
@@ -265,12 +296,14 @@ module App = struct
         Playing (apply_playing_action pact ~schedule ~conn round)
       | Waiting _wait, Start_playing ->
         Playing
-          { market  = Market.Book.empty
+          { me = { pers = login.me; hand = Partial_hand.empty }
+          ; others =
+              Map.map login.others ~f:(fun pers ->
+                { Player.pers
+                ; hand = Partial_hand.create_unknown (Market.Size.of_int 10)
+                })
+          ; market  = Market.Book.empty
           ; trades  = Fqueue.empty
-          ; my_hand = Card.Hand.create_all Market.Size.zero
-          ; hands =
-              Map.map login.others ~f:(fun _ ->
-                Partial_hand.create_unknown (Market.Size.of_int 10))
           ; next_order = Market.Order.Id.zero
           ; clock = Playing.Game_clock.initial
           }
@@ -288,21 +321,22 @@ module App = struct
       | Player_joined their_name ->
         let id =
           let rec loop n =
-            if Map.exists login.others ~f:(fun other -> n = other.id)
+            if Map.exists login.others
+              ~f:(fun other -> Player_id.equal other.id (Them n))
             then loop (n + 1)
             else n
           in
           loop 1
         in
-        let others =
-          Map.add login.others
-            ~key:their_name
-            ~data:{ id; score = Market.Price.zero }
+        let other : Player.Persistent.t =
+          { username = their_name; id = Them id; score = Market.Price.zero }
         in
+        let others = Map.add login.others ~key:their_name ~data:other in
         schedule
           (waiting (Player_is_ready
             { other = Some their_name; is_ready = false }));
         { login with others }
+      | Scores _scores -> login
       | Game gact ->
         let game = apply_game_action gact ~schedule ~conn ~login login.game in
         { login with game }
@@ -314,9 +348,11 @@ module App = struct
       =
       match t with
       | Login username ->
+        let me : Player.Persistent.t =
+          { username; id = Me; score = Market.Price.zero }
+        in
         let logged_in =
-          { Logged_in.Model.username; others = Username.Map.empty
-          ; score = Market.Price.of_int 0
+          { Logged_in.Model.me; others = Username.Map.empty
           ; game = Waiting { not_ready = Username.Set.singleton username }
           }
         in
@@ -373,7 +409,7 @@ module App = struct
         begin match login.game with
         | Waiting { not_ready } ->
           ( "Waiting for players"
-          , Some (not (Set.mem not_ready login.username))
+          , Some (not (Set.mem not_ready login.me.username))
           )
         | Playing _ -> "Play!", None
         end
@@ -478,7 +514,7 @@ module App = struct
         ; cells ~dir:Buy
         ])
 
-  let trades_table ~(others : Other_player.t Username.Map.t) trades =
+  let trades_table ~(others : Player.t Username.Map.t) trades =
     Vdom.Node.table [Vdom.Attr.id "tape"]
       (Fqueue.to_list trades
       |> List.map ~f:(fun ((traded : Market.Order.t), with_) ->
@@ -490,7 +526,7 @@ module App = struct
             let attrs =
               match Map.find others cpty with
               | None -> []
-              | Some other -> [Attr.class_ (Player_id.class_ other.id)]
+              | Some other -> [Attr.class_ (Player_id.class_ other.pers.id)]
             in
             td [] [span attrs [text (Market.Cpty.to_string cpty)]]
           in
@@ -508,6 +544,60 @@ module App = struct
             ; cpty_td with_
             ]))
 
+  let players ~me ~(others : Player.t Username.Map.t) =
+    let draw_hand ~pos (player : Player.t) =
+      let open Vdom in
+      let span_of_copies class_ n s =
+        let content =
+          let nbsp = "\xc2\xa0" in
+          if Market.Size.(equal zero) n
+          then Node.text nbsp
+          else
+            List.init (Market.Size.to_int n) ~f:(fun _ -> s)
+            |> String.concat
+            |> Node.text
+        in
+        Node.span [Attr.class_ class_] [content]
+      in
+      let ranking =
+        match
+          Map.count others
+            ~f:(fun o -> Market.Price.O.(o.pers.score > player.pers.score))
+        with
+        | 0 -> "first"
+        | 1 -> "second"
+        | 2 -> "third"
+        | _ -> "last"
+      in
+      let unknown =
+        span_of_copies "Unknown" player.hand.unknown Partial_hand.unknown_utf8
+      in
+      let open Vdom in
+      Node.div [Attr.id (pos ^ "hand")]
+        ([ Node.span [Attr.class_ (Player_id.class_ player.pers.id)]
+            [ Node.text (Username.to_string player.pers.username) ]
+        ; Node.span [Attr.class_ ranking]
+            [ Node.text (Market.Price.to_string player.pers.score) ]
+        ; Node.create "br" [] []
+        ] @ Card.Hand.foldi player.hand.known
+              ~init:[unknown]
+              ~f:(fun suit acc count ->
+                span_of_copies
+                  (Card.Suit.name suit)
+                  count
+                  (Card.Suit.to_utf8 suit)
+                :: acc))
+    in
+    match Map.data others @ List.init 3 ~f:(fun _ -> Player.nobody) with
+    | left :: mid :: right :: _ ->
+      Vdom.Node.div [Vdom.Attr.id "hands"]
+        [ draw_hand ~pos:"left" left
+        ; draw_hand ~pos:"middle" mid
+        ; draw_hand ~pos:"right" right
+        ; draw_hand ~pos:"my" me
+        ]
+    | _ -> assert false
+
   let history messages =
     Vdom.Node.ul [Vdom.Attr.id "history"]
       (List.map (Fqueue.to_list messages) ~f:(fun msg ->
@@ -517,16 +607,22 @@ module App = struct
   let view (incr_model : Model.t Incr.t) ~inject =
     let open Incr.Let_syntax in
     let%map model = incr_model in
-    let market, others, trades =
+    let me, others, exchange =
       match model.state with
-      | Connected
-          { login = Some
-            { others
-            ; game = Playing { market; trades; _ }
-            ; _ }
-          ; _ } ->
-        market, others, trades
-      | _ -> Market.Book.empty, Username.Map.empty, Fqueue.empty
+      | Connected { login = Some login; _ } ->
+        begin match login.game with
+        | Playing { me; others; market; trades; _ } ->
+          (me, others, Some (market, trades))
+        | Waiting _ ->
+          ( Player.with_empty_hand login.me
+          , Map.map login.others ~f:Player.with_empty_hand
+          , None
+          )
+        end
+      | _ -> (Player.nobody, Username.Map.empty, None)
+    in
+    let market, trades =
+      Option.value exchange ~default:(Market.Book.empty, Fqueue.empty)
     in
     let open Vdom in
     let open Node in
@@ -535,11 +631,11 @@ module App = struct
       ; div [Attr.id "exchange"]
         [ market_table ~inject market
         ; trades_table ~others trades
-        ; div [Attr.class_ "hands"] []
-        ; div [Attr.id "historycmd"]
-          [ history model.messages
-          ; input [Attr.type_ "text"; Attr.id "cmdline"] []
-          ]
+        ]
+      ; players ~me ~others
+      ; div [Attr.id "historycmd"]
+        [ history model.messages
+        ; input [Attr.type_ "text"; Attr.id "cmdline"] []
         ]
       ]
     ]
@@ -553,7 +649,8 @@ module App = struct
         | Broadcast (Exec (order, exec)) ->
           List.iter exec.fully_filled ~f:(fun filled_order ->
             schedule (Action.playing (Trade
-              ( { order with size = filled_order.size }
+              ( { order
+                  with size = filled_order.size; price = filled_order.price }
               , filled_order.owner
               ))));
           Option.iter exec.partially_filled ~f:(fun partial_fill ->
@@ -589,7 +686,12 @@ module App = struct
           end
         | Broadcast (Round_over _results) ->
           schedule (Action.game Round_over)
-        | Broadcast _ -> ()
+        | Broadcast (Scores scores) ->
+          schedule (Action.logged_in (Scores scores))
+        | Broadcast (Chat (who, msg)) ->
+          schedule (Message (Chat (who, msg)))
+        | Broadcast (Out _) -> ()
+        | Broadcast (Player_ready _) -> ()
       in
       schedule Start_connecting;
       Websocket_rpc_transport.connect

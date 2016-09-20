@@ -69,7 +69,7 @@ tr#suits td {
 .Hearts, .Diamonds {
 	color: darkred;
 }
-.None {
+.Unknown {
 	color: grey;
 }
 tr#ordersell input, tr#orderbuy input {
@@ -107,7 +107,7 @@ table#tape td.sell {
 td.price {
 	text-align: center;
 }
-div.hands .me, div.hands .them1, div.hands .them2, div.hands .them3 {
+div#hands .me, div#hands .them1, div#hands .them2, div#hands .them3, div#hands .nobody {
 	padding: 0 0.5em;
 	font-size: 0.8em;
 }
@@ -120,20 +120,20 @@ div.hands .me, div.hands .them1, div.hands .them2, div.hands .them3 {
 .second { background-color: silver; }
 .third { background-color: brown; }
 .last { background-color: #f00; color: white; }
-div.hands > div {
+div#hands > div {
 	text-align: left;
 	display: inline-block;
 	background-color: #224;
 }
-div.lefthand {
+div#lefthand {
 	display: inline-block;
 	float: left;
 	margin-left: 3em;
 }
-div.middlehand {
+div#middlehand {
 	display: inline-block;
 }
-div.righthand {
+div#righthand {
 	display: inline-block;
 	float: right;
 	margin-right: 3em;

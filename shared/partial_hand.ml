@@ -3,10 +3,14 @@ type t = {
   unknown : Market.Size.t;
 }
 
-let create_unknown size =
+let empty =
   { known = Card.Hand.create_all Market.Size.zero
-  ; unknown = size
+  ; unknown = Market.Size.zero
   }
+
+let create_unknown size = { empty with unknown = size }
+
+let create_known hand = { empty with known = hand }
 
 let selling t ~suit ~size =
   let old_size = Card.Hand.get t.known ~suit in
@@ -23,3 +27,5 @@ let bought t ~suit ~size =
   { t with known }
 
 let sold t ~suit ~size = bought t ~suit ~size:(Market.Size.neg size)
+
+let unknown_utf8 = "\xe2\x96\x88"
