@@ -62,6 +62,8 @@ module Connection_manager = struct
         conns
     )
 
+  let has_player t ~username = Hashtbl.mem t.players username
+
   let add_observer t (observer : Observer.t) =
     let elt = Doubly_linked.insert_last t.observers observer in
     don't_wait_for begin
@@ -143,30 +145,51 @@ let implementations () =
     ~implementations:
     [ Rpc.Pipe_rpc.implement Protocol.Login.rpc
         (fun (state : Connection_state.t) username ->
-          let login conn =
-            return (Game.player_join game ~username)
+          let login ?(run_if_ok=ignore) conn =
+            begin if Connection_manager.has_player conns ~username
+            then return (Ok ())
+            else begin
+              return (Game.player_join game ~username)
+              >>|? fun () ->
+              Connection_manager.broadcast conns (Player_joined username)
+            end end
             >>|? fun () ->
+            run_if_ok ();
             let updates_r, updates_w = Pipe.create () in
             let player_conn : Connection_state.Player.t =
               { username; conn; updates = updates_w }
             in
             Connection_manager.add_player_conn conns player_conn;
             state := Player player_conn;
-            let catch_up : Protocol.Player_update.t list =
-              match game.phase with
-              | Waiting_for_players _ -> []
-              | Playing _ -> []
+            let catch_up =
+              let open Protocol.Player_update in
+              [ [Broadcast (Scores (Game.scores game))]
+              ; match game.phase with
+                | Waiting_for_players waiting ->
+                  List.map (Hashtbl.data waiting.players) ~f:(fun wp ->
+                    Broadcast (Player_ready
+                      { who = wp.p.username
+                      ; is_ready = wp.is_ready
+                      }))
+                | Playing round ->
+                    [ Broadcast New_round
+                    ; Hand (Map.find_exn round.players username).hand
+                    ; Market round.market
+                    ]
+              ] |> List.concat
             in
-            List.iter catch_up ~f:(Pipe.write_without_pushback updates_w);
-            Connection_manager.broadcast conns (Player_joined username);
+            List.iter catch_up ~f:(fun update ->
+              Pipe.write_without_pushback updates_w update);
             updates_r
           in
           match !state with
           | Player _ -> return (Error `Already_logged_in)
-          | Not_logged_in conn -> login conn
+          | Not_logged_in conn ->
+            login conn
           | Observer observer ->
-            Pipe.close observer.updates;
-            login observer.conn
+            login
+              ~run_if_ok:(fun () -> Pipe.close observer.updates)
+              observer.conn
         )
     ; Rpc.Pipe_rpc.implement Protocol.Get_observer_updates.rpc
         (fun (state : Connection_state.t) () ->
