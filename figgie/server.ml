@@ -203,15 +203,13 @@ let implementations () =
       )
     ; for_existing_user Protocol.Is_ready.rpc
         (fun ~username is_ready ->
-          let broadcast waiting_for =
-            Connection_manager.broadcast conns
-              (Player_ready { who = username; is_ready; waiting_for })
-          in
+          Connection_manager.broadcast conns
+            (Player_ready { who = username; is_ready });
           return (Game.set_ready game ~username ~is_ready)
           >>|? function
-          | `Started round -> broadcast 0; setup_round round
-          | `Still_waiting wait ->
-              broadcast (Game.Waiting.waiting_for wait))
+          | `Started round -> setup_round round
+          | `Still_waiting _wait -> ()
+      )
     ; for_existing_user Protocol.Chat.rpc
         (fun ~username msg ->
           Connection_manager.broadcast conns (Chat (username, msg));
