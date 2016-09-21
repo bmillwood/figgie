@@ -128,6 +128,33 @@ module Logged_in = struct
     }
   end
 
+  let new_player (t : Model.t) ~username =
+    let id =
+      let rec loop n =
+        if Map.exists t.others
+          ~f:(fun other -> Player_id.equal other.id (Them n))
+        then loop (n + 1)
+        else n
+      in
+      loop 1
+    in
+    { Player.Persistent.username; id = Them id; score = Market.Price.zero }
+
+  let update_player (t : Model.t) ~username ~f =
+    if Username.equal t.me.username username
+    then { t with me = f t.me }
+    else
+      let others =
+        Map.update t.others username
+          ~f:(fun maybe_existing ->
+            Option.value maybe_existing ~default:(new_player t ~username)
+            |> f)
+      in
+      { t with others }
+
+  let add_new_player (t : Model.t) ~username =
+    update_player t ~username ~f:Fn.id
+
   module Action = struct
     type t =
       | Player_joined of Username.t
@@ -319,24 +346,15 @@ module App = struct
       =
       match t with
       | Player_joined their_name ->
-        let id =
-          let rec loop n =
-            if Map.exists login.others
-              ~f:(fun other -> Player_id.equal other.id (Them n))
-            then loop (n + 1)
-            else n
-          in
-          loop 1
-        in
-        let other : Player.Persistent.t =
-          { username = their_name; id = Them id; score = Market.Price.zero }
-        in
-        let others = Map.add login.others ~key:their_name ~data:other in
         schedule
           (waiting (Player_is_ready
             { other = Some their_name; is_ready = false }));
-        { login with others }
-      | Scores _scores -> login
+        Logged_in.add_new_player login ~username:their_name
+      | Scores scores ->
+        Map.fold scores ~init:login
+          ~f:(fun ~key:username ~data:score login ->
+            Logged_in.update_player login ~username
+              ~f:(fun player -> { player with score }))
       | Game gact ->
         let game = apply_game_action gact ~schedule ~conn ~login login.game in
         { login with game }
