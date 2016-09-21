@@ -447,7 +447,7 @@ module App = struct
       ]
     |> Vdom.Node.p [Vdom.Attr.id "status"; Vdom.Attr.class_ status_text]
 
-  let market_table ~(inject : Action.t -> _) (market : Market.Book.t) =
+  let market_table ~players ~(inject : Action.t -> _) (market : Market.Book.t) =
     let open Market in
     let market_depth = 3 in
     let nbsp = "\xc2\xa0" in
@@ -463,8 +463,8 @@ module App = struct
           ~buy:["A"; "S"; "D"; "F"]
       in
       let handle_keypress ~symbol ~my_hotkey:_ keyboardEvent =
-        let open Result.Monad_infix in
         match
+          let open Result.Monad_infix in
           Result.of_option
             (Option.some_if (keyboardEvent##.keyCode = 13) ())
             ~error:"not 13"
@@ -508,9 +508,14 @@ module App = struct
         let cells =
           List.map (List.take halfbook market_depth)
             ~f:(fun order ->
+              let player =
+                Map.find players order.owner
+                |> Option.value ~default:Player.nobody
+              in
+              let class_ = Player_id.class_ player.pers.id in
               Vdom.Node.td [] [
                 Vdom.Node.span
-                  [Vdom.Attr.class_ (Cpty.to_string order.owner)]
+                  [Vdom.Attr.class_ class_]
                   [Vdom.Node.text (Price.to_string order.price)]
               ])
         in
@@ -701,7 +706,7 @@ module App = struct
     body [] [div [Attr.id "container"]
       [ status_line ~inject model.state
       ; div [Attr.id "exchange"]
-        [ market_table ~inject market
+        [ market_table ~players ~inject market
         ; trades_table ~players trades
         ]
       ; player_infoboxes ~me ~others
