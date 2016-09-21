@@ -254,11 +254,13 @@ let implementations () =
           match Game.Round.add_order round ~order ~sender:username with
           | (Error _) as e -> return e
           | Ok exec ->
-            Connection_manager.broadcast conns (Exec (order, exec));
+            Connection_manager.broadcasts conns
+              [ Exec (order, exec)
+              ; Scores (Game.scores game)
+              ];
             Connection_manager.observer_updates conns
               [ Hands (Game.Round.hands round)
               ; Market round.market
-              ; Broadcast (Scores (Game.scores game))
               ];
             return (Ok `Ack))
     ; during_game Protocol.Cancel.rpc

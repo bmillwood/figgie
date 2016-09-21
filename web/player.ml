@@ -140,9 +140,20 @@ module Logged_in = struct
     in
     { Player.Persistent.username; id = Them id; score = Market.Price.zero }
 
+  let update_round_if_playing (t : Model.t) ~f =
+    match t.game with
+    | Playing round -> { t with game = Playing (f round) }
+    | Waiting _ -> t
+
+  (* this function reveals a weakness in my data model :( *)
   let update_player (t : Model.t) ~username ~f =
     if Username.equal t.me.username username
-    then { t with me = f t.me }
+    then begin
+      let new_me = f t.me in
+      { t with me = new_me }
+      |> update_round_if_playing
+        ~f:(fun round -> { round with me = { round.me with pers = new_me } })
+    end
     else
       let others =
         Map.update t.others username
@@ -151,6 +162,14 @@ module Logged_in = struct
             |> f)
       in
       { t with others }
+      |> update_round_if_playing ~f:(fun round ->
+        let new_others =
+          Map.map round.others ~f:(fun p ->
+            match Map.find others p.pers.username with
+            | Some new_pers -> { p with pers = new_pers }
+            | None -> p)
+        in
+        { round with others = new_others })
 
   let add_new_player (t : Model.t) ~username =
     update_player t ~username ~f:Fn.id
@@ -595,7 +614,7 @@ module App = struct
             ; cpty_td with_
             ]))
 
-  let player_infoboxes ~me ~(others : Player.t Username.Map.t) =
+  let player_infoboxes ~(me : Player.t) ~(others : Player.t Username.Map.t) =
     let draw_hand ~pos (player : Player.t) =
       let nbsp = "\xc2\xa0" in
       let open Vdom in
@@ -609,7 +628,7 @@ module App = struct
       in
       let ranking =
         match
-          Map.count others
+          Map.count (Map.add others ~key:me.pers.username ~data:me)
             ~f:(fun o -> Market.Price.O.(o.pers.score > player.pers.score))
         with
         | 0 -> "first"
