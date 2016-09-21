@@ -532,7 +532,7 @@ module App = struct
         ; cells ~dir:Buy
         ])
 
-  let trades_table ~(others : Player.t Username.Map.t) trades =
+  let trades_table ~(players : Player.t Username.Map.t) trades =
     Vdom.Node.table [Vdom.Attr.id "tape"]
       (Fqueue.to_list trades
       |> List.map ~f:(fun ((traded : Market.Order.t), with_) ->
@@ -542,7 +542,7 @@ module App = struct
           let open Node in
           let cpty_td cpty =
             let attrs =
-              match Map.find others cpty with
+              match Map.find players cpty with
               | None -> []
               | Some other -> [Attr.class_ (Player_id.class_ other.pers.id)]
             in
@@ -562,7 +562,7 @@ module App = struct
             ; cpty_td with_
             ]))
 
-  let players ~me ~(others : Player.t Username.Map.t) =
+  let player_infoboxes ~me ~(others : Player.t Username.Map.t) =
     let draw_hand ~pos (player : Player.t) =
       let open Vdom in
       let span_of_copies class_ n s =
@@ -618,11 +618,62 @@ module App = struct
         ]
     | _ -> assert false
 
-  let history messages =
+  let history ~players ~messages =
+    let nodes_of_message : Message.t -> _ =
+      function
+      | Chat (who, msg) ->
+        let player =
+          Map.find players who
+          |> Option.value ~default:Player.nobody
+        in
+        [ Vdom.Node.span
+            [Vdom.Attr.class_ (Player_id.class_ player.pers.id)]
+            [Vdom.Node.text (Username.to_string player.pers.username)]
+        ; Vdom.Node.text ": "
+        ; Vdom.Node.text msg
+        ]
+      | Order_reject reject ->
+        [ Vdom.Node.text
+            (Protocol.Order.sexp_of_error reject |> Sexp.to_string)
+        ]
+    in
     Vdom.Node.ul [Vdom.Attr.id "history"]
       (List.map (Fqueue.to_list messages) ~f:(fun msg ->
-        Vdom.Node.li []
-          [Vdom.Node.text (Sexp.to_string [%sexp (msg : Message.t)])]))
+        Vdom.Node.li [] (nodes_of_message msg)))
+
+  let cmdline (model : Model.t) =
+    let this_id = "cmdline" in
+    Vdom.Node.input
+      [ Vdom.Attr.type_ "text"
+      ; Vdom.Attr.id this_id
+      ; Vdom.Attr.property "disabled"
+          (Js.Unsafe.inject (Js.bool
+            (match model.state with | Connected _ -> false | _ -> true)))
+      ; Vdom.Attr.on_keypress (fun ev ->
+          match
+            let open Option.Monad_infix in
+            Option.some_if (ev##.keyCode = 13) ()
+            >>= fun () ->
+            Js.Opt.to_option ev##.target
+            >>= fun target ->
+            Js.Opt.to_option (Dom_html.CoerceTo.input target)
+          with
+          | None -> Vdom.Event.Ignore
+          | Some input ->
+            let msg = input##.value |> Js.to_string in
+            begin match model.state with
+            | Connected { conn; _ } ->
+              don't_wait_for begin
+                Rpc.Rpc.dispatch_exn Protocol.Chat.rpc conn msg
+                >>| function
+                | Error `Login_first | Ok () -> ()
+              end;
+              input##.value := Js.string ""
+            | _ -> ()
+            end;
+          Vdom.Event.Prevent_default)
+      ]
+      []
 
   let view (incr_model : Model.t Incr.t) ~inject =
     let open Incr.Let_syntax in
@@ -641,6 +692,7 @@ module App = struct
         end
       | _ -> (Player.nobody, Username.Map.empty, None)
     in
+    let players = Map.add others ~key:me.pers.username ~data:me in
     let market, trades =
       Option.value exchange ~default:(Market.Book.empty, Fqueue.empty)
     in
@@ -650,12 +702,12 @@ module App = struct
       [ status_line ~inject model.state
       ; div [Attr.id "exchange"]
         [ market_table ~inject market
-        ; trades_table ~others trades
+        ; trades_table ~players trades
         ]
-      ; players ~me ~others
+      ; player_infoboxes ~me ~others
       ; div [Attr.id "historycmd"]
-        [ history model.messages
-        ; input [Attr.type_ "text"; Attr.id "cmdline"] []
+        [ history ~players ~messages:model.messages
+        ; cmdline model
         ]
       ]
     ]

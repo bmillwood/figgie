@@ -163,3 +163,6 @@ input#cmdline {
 	color: white;
 	width: 100%;
 }
+input#cmdline:disabled {
+	background-color: #002;
+}
