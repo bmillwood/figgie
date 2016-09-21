@@ -252,7 +252,23 @@ module App = struct
         (round : Playing.Model.t)
       =
       match t with
-      | Market market -> { round with market }
+      | Market market ->
+        let others =
+          Map.map round.others ~f:(fun player ->
+            let hand =
+              Card.Hand.foldi market ~init:player.hand
+                ~f:(fun suit hand book ->
+                  let size =
+                    List.sum (module Market.Size) book.sell ~f:(fun order ->
+                      if Username.equal order.owner player.pers.username
+                      then order.size
+                      else Market.Size.zero)
+                  in
+                  Partial_hand.selling hand ~suit ~size)
+            in
+            { player with hand })
+        in
+        { round with market; others }
       | Hand hand ->
         let hand = Partial_hand.create_known hand in
         { round with me = { round.me with hand } }
@@ -292,7 +308,19 @@ module App = struct
         { round with clock = { clock with min; sec } }
       | Trade (order, with_) ->
         let trades = Fqueue.enqueue round.trades (order, with_) in
-        { round with trades }
+        let others =
+          Map.map round.others ~f:(fun player ->
+            let traded dir =
+              Partial_hand.traded
+                player.hand ~suit:order.symbol ~size:order.size ~dir
+            in
+            if Username.equal player.pers.username order.owner
+            then { player with hand = traded order.dir }
+            else if Username.equal player.pers.username with_
+            then { player with hand = traded (Market.Dir.other order.dir) }
+            else player)
+        in
+        { round with trades; others }
       | Score _ -> round
       | Send_order { symbol; dir; price } ->
         let order =
@@ -569,16 +597,13 @@ module App = struct
 
   let player_infoboxes ~me ~(others : Player.t Username.Map.t) =
     let draw_hand ~pos (player : Player.t) =
+      let nbsp = "\xc2\xa0" in
       let open Vdom in
       let span_of_copies class_ n s =
         let content =
-          let nbsp = "\xc2\xa0" in
-          if Market.Size.(equal zero) n
-          then Node.text nbsp
-          else
-            List.init (Market.Size.to_int n) ~f:(fun _ -> s)
-            |> String.concat
-            |> Node.text
+          List.init (Market.Size.to_int n) ~f:(fun _ -> s)
+          |> String.concat
+          |> Node.text
         in
         Node.span [Attr.class_ class_] [content]
       in
@@ -596,20 +621,26 @@ module App = struct
         span_of_copies "Unknown" player.hand.unknown Partial_hand.unknown_utf8
       in
       let open Vdom in
-      Node.div [Attr.id (pos ^ "hand")]
-        ([ Node.span [Attr.class_ (Player_id.class_ player.pers.id)]
-            [ Node.text (Username.to_string player.pers.username) ]
-        ; Node.span [Attr.class_ ranking]
-            [ Node.text (Market.Price.to_string player.pers.score) ]
-        ; Node.create "br" [] []
-        ] @ Card.Hand.foldi player.hand.known
-              ~init:[unknown]
+      List.concat
+        [ [ Node.span [Attr.class_ (Player_id.class_ player.pers.id)]
+              [ Node.text (Username.to_string player.pers.username) ]
+          ; Node.span [Attr.class_ ranking]
+              [ Node.text (Market.Price.to_string player.pers.score) ]
+          ; Node.create "br" [] []
+          ; Node.text nbsp
+          ]
+        ; Card.Hand.foldi player.hand.known
+              ~init:[]
               ~f:(fun suit acc count ->
                 span_of_copies
                   (Card.Suit.name suit)
                   count
                   (Card.Suit.to_utf8 suit)
-                :: acc))
+                :: acc)
+          |> List.rev
+        ; [unknown]
+        ]
+      |> Node.div [Attr.id (pos ^ "hand")]
     in
     match Map.data others @ List.init 3 ~f:(fun _ -> Player.nobody) with
     | left :: mid :: right :: _ ->

@@ -28,4 +28,7 @@ let bought t ~suit ~size =
 
 let sold t ~suit ~size = bought t ~suit ~size:(Market.Size.neg size)
 
+let traded t ~suit ~size ~dir =
+  Market.Dir.fold dir ~buy:bought ~sell:sold t ~suit ~size
+
 let unknown_utf8 = "\xe2\x96\x88"
