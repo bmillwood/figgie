@@ -591,9 +591,11 @@ module App = struct
     match Map.data others @ List.init 3 ~f:(fun _ -> Player.nobody) with
     | left :: mid :: right :: _ ->
       Vdom.Node.div [Vdom.Attr.id "hands"]
-        [ draw_hand ~pos:"left" left
-        ; draw_hand ~pos:"middle" mid
-        ; draw_hand ~pos:"right" right
+        [ Vdom.Node.div [Vdom.Attr.id "otherhands"]
+          [ draw_hand ~pos:"left" left
+          ; draw_hand ~pos:"middle" mid
+          ; draw_hand ~pos:"right" right
+          ]
         ; draw_hand ~pos:"my" me
         ]
     | _ -> assert false

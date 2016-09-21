@@ -120,30 +120,24 @@ div#hands .me, div#hands .them1, div#hands .them2, div#hands .them3, div#hands .
 .second { background-color: silver; }
 .third { background-color: brown; }
 .last { background-color: #f00; color: white; }
-div#hands > div {
+div#otherhands > div, div#myhand {
 	text-align: left;
 	display: inline-block;
 	background-color: #224;
 }
 div#lefthand {
-	display: inline-block;
 	float: left;
 	margin-left: 3em;
 }
 div#middlehand {
-	display: inline-block;
 }
 div#righthand {
-	display: inline-block;
 	float: right;
 	margin-right: 3em;
 }
 div#myhand {
-	display: inline-block;
 	margin-top: 0.5em;
-	clear: both;
 	font-size: 2em;
-	background-color: #224;
 }
 div#historycmd {
 	width: 40em;
