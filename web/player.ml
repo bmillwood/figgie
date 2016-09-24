@@ -62,23 +62,6 @@ module Player = struct
 end
 
 module Playing = struct
-  module Game_clock = struct
-    type t = {
-      end_time : Time_ns.t;
-      min : int;
-      sec : int;
-      tick : (unit, unit) Clock_ns.Event.t;
-    }
-
-    let initial =
-      { end_time = Time_ns.now ()
-      ; min = 99; sec = 99
-      ; tick = Clock_ns.Event.at (Time_ns.now ())
-      }
-
-    let to_string t = sprintf "%02d:%02d" t.min t.sec
-  end
-
   module Model = struct
     type t = {
       me         : Player.t;
@@ -86,7 +69,7 @@ module Playing = struct
       market     : Market.Book.t;
       trades     : (Market.Order.t * Market.Cpty.t) Fqueue.t;
       next_order : Market.Order.Id.t;
-      clock      : Game_clock.t;
+      clock      : Countdown.Model.t option;
     }
   end
 
@@ -101,8 +84,8 @@ module Playing = struct
           dir    : Market.Dir.t;
           price  : Market.Price.t;
         }
-      | Game_ends_at of Time_ns.t sexp_opaque
-      | Tick of { min : int; sec : int }
+      | Set_clock of Time_ns.t sexp_opaque
+      | Clock of Countdown.Action.t
       [@@deriving sexp_of]
   end
 end
@@ -252,6 +235,7 @@ module App = struct
     let game gact      = logged_in (Game gact)
     let waiting wact   = game (Waiting wact)
     let playing pact   = game (Playing pact)
+    let clock cdact    = playing (Clock cdact)
 
     let apply_waiting_action
         (t : Waiting.Action.t)
@@ -299,40 +283,21 @@ module App = struct
       | Hand hand ->
         let hand = Partial_hand.create_known hand in
         { round with me = { round.me with hand } }
-      | Game_ends_at end_time ->
-        Clock_ns.Event.abort_if_possible round.clock.tick ();
-        let this_time = Time_ns.now () in
-        let remaining = Time_ns.diff end_time this_time in
-        let { Time_ns.Span.Parts.sign; min; sec; _ } =
-          Time_ns.Span.to_parts remaining
-        in
-        begin match sign with
-        | Pos when min > 0 || sec > 0 ->
-          schedule (playing (Tick { min; sec }));
-        | _ -> ()
-        end;
-        { round with clock = { round.clock with end_time } }
-      | Tick { min; sec } ->
-        let schedule_next_tick ~min ~sec =
-          let next_tick =
-            Time_ns.sub round.clock.end_time
-              (Time_ns.Span.create ~min ~sec ())
-          in
-          let tick = Clock_ns.Event.at next_tick in
-          upon (Clock_ns.Event.fired tick)
-            (function
-            | `Aborted () -> ()
-            | `Happened () -> schedule (playing (Tick { min; sec })));
-          { round.clock with tick }
-        in
+      | Set_clock end_time ->
         let clock =
-          if sec > 0
-          then schedule_next_tick ~min ~sec:(sec - 1)
-          else if min > 0
-          then schedule_next_tick ~min:(min - 1) ~sec:59
-          else round.clock
+          Countdown.of_end_time
+            ~schedule:(fun cdact -> schedule (clock cdact))
+            end_time
         in
-        { round with clock = { clock with min; sec } }
+        { round with clock = Some clock }
+      | Clock cdact ->
+        let clock =
+          Option.map round.clock ~f:(fun c ->
+            Countdown.Action.apply cdact
+              ~schedule:(fun cdact -> schedule (clock cdact))
+              c)
+        in
+        { round with clock }
       | Trade (order, with_) ->
         let trades = Fqueue.enqueue round.trades (order, with_) in
         let others =
@@ -387,7 +352,7 @@ module App = struct
           ; market  = Market.Book.empty
           ; trades  = Fqueue.empty
           ; next_order = Market.Order.Id.zero
-          ; clock = Playing.Game_clock.initial
+          ; clock = None
           }
       | Playing _round, Round_over ->
         Waiting { ready = Username.Set.empty }
@@ -453,7 +418,7 @@ module App = struct
           | Error `Game_not_in_progress -> ()
           | Ok remaining ->
             let end_time = Time_ns.add current_time remaining in
-            schedule (playing (Game_ends_at end_time))
+            schedule (playing (Set_clock end_time))
         end
       | Broadcast (Round_over _results) ->
         schedule (game Round_over)
@@ -582,8 +547,9 @@ module App = struct
     let clock =
       match state with
       | Connected { login = Some { game = Playing { clock; _}; _ }; _ } ->
-        Some (Vdom.Node.span [Vdom.Attr.class_ "clock"]
-          [Vdom.Node.text (Playing.Game_clock.to_string clock)])
+        Option.map clock ~f:(fun clock ->
+          (Vdom.Node.span [Vdom.Attr.class_ "clock"]
+            [Vdom.Node.text (Countdown.Model.to_string clock)]))
       | _ -> None
     in
     Vdom.Node.p [Vdom.Attr.id "status"; Vdom.Attr.class_ class_]
