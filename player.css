@@ -9,6 +9,19 @@ div#container {
 	background-color: #002;
 	text-align: center;
 }
+input {
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+input#connectTo {
+	margin-left: 0.5em;
+	padding-left: 0.2em;
+	background-color: #ccc;
+}
+input#login {
+	width: 7em;
+}
 .me {
 	color: #000;
 	background-color: #99f;
@@ -28,15 +41,23 @@ p#status {
 	font-size: large;
 	text-align: left;
 }
-p#status.Disconnected {
-	background-color: #802;
+p#status.Disconnected, p#status.Connecting {
+	background-color: #445;
 }
-p#status.Connected {
+p#status.Connected, p#status.LoggedIn {
 	background-color: #006;
 }
+p#status.ConnectionFailed {
+	background-color: #602;
+}
 button#readybutton {
-  border: 0;
-  margin: 0 0.5em;
+	border: 0;
+	margin: 0.2em 0.5em;
+	color: white;
+	background-color: #004;
+}
+button#readybutton:hover {
+	background-color: #006;
 }
 span.clock {
 	position: absolute;
@@ -107,11 +128,11 @@ table#tape td.sell {
 td.price {
 	text-align: center;
 }
-div#hands .me, div#hands .them1, div#hands .them2, div#hands .them3, div#hands .nobody {
+div#infoboxes .name {
 	padding: 0 0.5em;
 	font-size: 0.8em;
 }
-.first, .second, .third, .last {
+.score {
 	float: right;
 	color: black;
 	font-size: 0.8em;
@@ -120,22 +141,22 @@ div#hands .me, div#hands .them1, div#hands .them2, div#hands .them3, div#hands .
 .second { background-color: silver; }
 .third { background-color: brown; }
 .last { background-color: #f00; color: white; }
-div#otherhands > div, div#myhand {
+div#others > div, div.myself {
 	text-align: left;
 	display: inline-block;
 	background-color: #224;
 }
-div#lefthand {
+div#others > .left {
 	float: left;
 	margin-left: 3em;
 }
-div#middlehand {
+div#others > .middle {
 }
-div#righthand {
+div#others > .right {
 	float: right;
 	margin-right: 3em;
 }
-div#myhand {
+div.myself {
 	margin-top: 0.5em;
 	font-size: 2em;
 }
@@ -164,5 +185,5 @@ input#cmdline {
 	width: 100%;
 }
 input#cmdline:disabled {
-	background-color: #002;
+	background-color: #223;
 }

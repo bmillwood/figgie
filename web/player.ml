@@ -5,14 +5,19 @@ open Incr_dom.Std
 
 module Waiting = struct
   module Model = struct
-    type t = { not_ready : Username.Set.t }
+    type t = { ready : Username.Set.t }
   end
 
   module Action = struct
     type t =
-      | Player_is_ready of { other : Username.t option; is_ready : bool }
+      | I'm_ready of bool
+      | Player_is_ready of { other : Username.t; is_ready : bool }
       [@@deriving sexp_of]
   end
+
+  let set_player_readiness (t : Model.t) ~username ~is_ready =
+    let apply = if is_ready then Set.add else Set.remove in
+    { Model.ready = apply t.ready username }
 end
 
 module Player_id = struct
@@ -187,13 +192,15 @@ module Connected = struct
   module Model = struct
     type t = {
       conn : Rpc.Connection.t;
+      host_and_port : Host_and_port.t;
       login : Logged_in.Model.t option;
     }
   end
 
   module Action = struct
     type t =
-      | Login of Username.t
+      | Start_login of Username.t
+      | Finish_login of Username.t
       | Logged_in of Logged_in.Action.t
       [@@deriving sexp_of]
   end
@@ -203,9 +210,10 @@ module App = struct
   module Model = struct
     module Connection_state = struct
       type t =
-        | Connecting
-        | Connected of Connected.Model.t
         | Disconnected
+        | Connecting of Host_and_port.t
+        | Connected of Connected.Model.t
+        | Connection_failed
     end
 
     module Message = struct
@@ -230,9 +238,12 @@ module App = struct
   module Action = struct
     type t =
       | Message of Message.t
-      | Disconnect
-      | Start_connecting
-      | Finish_connecting of Rpc.Connection.t
+      | Start_connecting of Host_and_port.t
+      | Finish_connecting of
+        { host_and_port : Host_and_port.t
+        ; conn : Rpc.Connection.t
+        }
+      | Connection_failed
       | Connected of Connected.Action.t
       [@@deriving sexp_of]
 
@@ -245,25 +256,22 @@ module App = struct
     let apply_waiting_action
         (t : Waiting.Action.t)
         ~schedule:_ ~conn ~(login : Logged_in.Model.t)
-        ({ not_ready } : Waiting.Model.t)
+        (waiting : Waiting.Model.t)
       =
       match t with
-      | Player_is_ready { other; is_ready } ->
-        let toggle = if is_ready then Set.remove else Set.add in
-        let not_ready =
-          toggle not_ready (Option.value other ~default:login.me.username)
-        in
-        begin if Option.is_none other
-        then
-          don't_wait_for begin
-            Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn is_ready
-            >>| function
-            | Ok () -> ()
-            | Error `Already_playing -> ()
-            | Error `Login_first -> ()
-          end
+      | I'm_ready readiness ->
+        don't_wait_for begin
+          Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn readiness
+          >>| function
+          | Ok () -> ()
+          | Error `Already_playing -> ()
+          | Error `Login_first -> ()
         end;
-        { Waiting.Model.not_ready }
+        Waiting.set_player_readiness waiting
+          ~username:login.me.username
+          ~is_ready:readiness
+      | Player_is_ready { other; is_ready } ->
+        Waiting.set_player_readiness waiting ~username:other ~is_ready
 
     let apply_playing_action
         (t : Playing.Action.t)
@@ -382,8 +390,7 @@ module App = struct
           ; clock = Playing.Game_clock.initial
           }
       | Playing _round, Round_over ->
-        Waiting
-          { not_ready = Username.Set.of_list (Map.keys login.others) }
+        Waiting { ready = Username.Set.empty }
       | _ -> game
 
     let apply_logged_in_action
@@ -395,7 +402,7 @@ module App = struct
       | Player_joined their_name ->
         schedule
           (waiting (Player_is_ready
-            { other = Some their_name; is_ready = false }));
+            { other = their_name; is_ready = false }));
         Logged_in.add_new_player login ~username:their_name
       | Scores scores ->
         Map.fold scores ~init:login
@@ -406,22 +413,84 @@ module App = struct
         let game = apply_game_action gact ~schedule ~conn ~login login.game in
         { login with game }
 
+    let handle_update ~schedule conn : Protocol.Player_update.t -> unit =
+      function
+      | Hand hand     -> schedule (playing (Hand hand))
+      | Market market -> schedule (playing (Market market))
+      | Broadcast (Exec (order, exec)) ->
+        List.iter exec.fully_filled ~f:(fun filled_order ->
+          schedule (playing (Trade
+            ( { order
+                with size = filled_order.size; price = filled_order.price }
+            , filled_order.owner
+            ))));
+        Option.iter exec.partially_filled ~f:(fun partial_fill ->
+          schedule (playing (Trade
+            ( { order with size = partial_fill.filled_by }
+            , partial_fill.original_order.owner
+            ))));
+        don't_wait_for begin
+          let%map () =
+            Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
+            >>| Protocol.playing_exn
+          and () =
+            Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Hand
+            >>| Protocol.playing_exn
+          in
+          ()
+        end
+      | Broadcast (Player_joined username) ->
+        schedule (logged_in (Player_joined username))
+      | Broadcast New_round ->
+        schedule (game Start_playing);
+        don't_wait_for begin
+          (* Sample the time *before* we send the RPC. Then the game end
+             time we get is actually roughly "last time we can expect to
+             send an RPC and have it arrive before the game ends". *)
+          let current_time = Time_ns.now () in
+          Rpc.Rpc.dispatch_exn Protocol.Time_remaining.rpc conn ()
+          >>| function
+          | Error `Game_not_in_progress -> ()
+          | Ok remaining ->
+            let end_time = Time_ns.add current_time remaining in
+            schedule (playing (Game_ends_at end_time))
+        end
+      | Broadcast (Round_over _results) ->
+        schedule (game Round_over)
+      | Broadcast (Scores scores) ->
+        schedule (logged_in (Scores scores))
+      | Broadcast (Chat (who, msg)) ->
+        schedule (Message (Chat (who, msg)))
+      | Broadcast (Out _) -> ()
+      | Broadcast (Player_ready _) -> ()
+
     let apply_connected_action
         (t : Connected.Action.t)
         ~schedule
         (conn : Connected.Model.t) : Connected.Model.t
       =
       match t with
-      | Login username ->
+      | Start_login username ->
+        don't_wait_for begin
+          Rpc.Pipe_rpc.dispatch_exn Protocol.Login.rpc conn.conn username
+          >>= fun (pipe, _pipe_metadata) ->
+          schedule (connected (Finish_login username));
+          Pipe.iter_without_pushback pipe
+            ~f:(fun update -> handle_update ~schedule conn.conn update)
+          >>| fun () ->
+          schedule Connection_failed
+        end;
+        conn
+      | Finish_login username ->
         let me : Player.Persistent.t =
           { username; id = Me; score = Market.Price.zero }
         in
         let logged_in =
           { Logged_in.Model.me; others = Username.Map.empty
-          ; game = Waiting { not_ready = Username.Set.singleton username }
+          ; game = Waiting { ready = Username.Set.empty }
           }
         in
-        { conn = conn.conn; login = Some logged_in }
+        { conn with login = Some logged_in }
       | Logged_in lact ->
         begin match conn.login with
         | None -> conn
@@ -436,12 +505,30 @@ module App = struct
       match t with
       | Message msg ->
         { model with messages = Fqueue.enqueue model.messages msg }
-      | Disconnect ->
-        { model with state = Disconnected }
-      | Start_connecting ->
-        { model with state = Connecting }
-      | Finish_connecting conn ->
-        { model with state = Connected { conn; login = None } }
+      | Start_connecting host_and_port ->
+        let host, port = Host_and_port.tuple host_and_port in
+        don't_wait_for begin
+          Websocket_rpc_transport.connect (Host_and_port.create ~host ~port)
+          >>= function
+          | Error () ->
+            schedule Connection_failed;
+            Deferred.unit
+          | Ok transport ->
+            Rpc.Connection.create
+              ~connection_state:ignore
+              transport
+            >>| function
+            | Error exn ->
+              ignore exn;
+              schedule Connection_failed
+            | Ok conn ->
+              schedule (Finish_connecting { host_and_port; conn })
+        end;
+        { model with state = Connecting host_and_port }
+      | Finish_connecting { host_and_port; conn } ->
+        { model with state = Connected { host_and_port; conn; login = None } }
+      | Connection_failed ->
+        { model with state = Connection_failed }
       | Connected cact ->
         begin match model.state with
         | Connected conn ->
@@ -457,28 +544,40 @@ module App = struct
       ~(inject : Action.t -> _)
       (state : Model.Connection_state.t)
     =
-    let ready_button is_ready =
-      Vdom.Node.button
-        [ Vdom.Attr.on_click (fun _ev ->
-            inject (Action.waiting
-              (Player_is_ready { other = None; is_ready = not is_ready })))
-        ; Vdom.Attr.id "readybutton"
-        ]
-        [ Vdom.Node.text (if is_ready then "Not ready" else "Ready") ]
-    in
-    let status_text, is_ready =
+    let class_, status =
+      let textf fmt = ksprintf (fun s -> Vdom.Node.text s) fmt in
       match state with
-      | Connecting -> "Connecting", None
-      | Connected { login = None; _ } -> "Connected", None
+      | Connecting host_and_port ->
+        ( "Connecting"
+        , [textf !"Connecting to %{Host_and_port}" host_and_port]
+        )
+      | Connected { login = None; host_and_port; conn = _ } ->
+        ( "Connected"
+        , [textf !"Connected to %{Host_and_port}" host_and_port]
+        )
       | Connected { login = Some login; _ } ->
-        begin match login.game with
-        | Waiting { not_ready } ->
-          ( "Waiting for players"
-          , Some (not (Set.mem not_ready login.me.username))
-          )
-        | Playing _ -> "Play!", None
-        end
-      | Disconnected -> "Disconnected", None
+        ( "LoggedIn"
+        , begin match login.game with
+          | Waiting _ -> [textf "Waiting for players"]
+          | Playing _ -> [textf "Play!"]
+          end
+        )
+      | Connection_failed ->
+        ( "ConnectionFailed"
+        , [textf "Connection failed"]
+        )
+      | Disconnected ->
+        ( "Disconnected"
+        , [ textf "Connect to:"
+          ; Widget.textbox ~id:"connectTo"
+              ~placeholder:"host:port" ~clear_on_submit:false
+              ~f:(fun hps ->
+                match Host_and_port.of_string hps with
+                | exception _ -> Vdom.Event.Ignore
+                | host_and_port -> inject (Start_connecting host_and_port))
+              []
+          ]
+        )
     in
     let clock =
       match state with
@@ -487,12 +586,8 @@ module App = struct
           [Vdom.Node.text (Playing.Game_clock.to_string clock)])
       | _ -> None
     in
-    List.filter_opt
-      [ Some (Vdom.Node.text status_text)
-      ; Option.map is_ready ~f:ready_button
-      ; clock
-      ]
-    |> Vdom.Node.p [Vdom.Attr.id "status"; Vdom.Attr.class_ status_text]
+    Vdom.Node.p [Vdom.Attr.id "status"; Vdom.Attr.class_ class_]
+      (status @ Option.to_list clock)
 
   let market_table ~players ~(inject : Action.t -> _) (market : Market.Book.t) =
     let open Market in
@@ -509,42 +604,15 @@ module App = struct
           ~sell:["Q"; "W"; "E"; "R"]
           ~buy:["A"; "S"; "D"; "F"]
       in
-      let handle_keypress ~symbol ~my_hotkey:_ keyboardEvent =
-        match
-          let open Result.Monad_infix in
-          Result.of_option
-            (Option.some_if (keyboardEvent##.keyCode = 13) ())
-            ~error:"not 13"
-          >>= fun () ->
-          Result.of_option
-            (Js.Opt.to_option keyboardEvent##.target)
-            ~error:"no target"
-          >>= fun target ->
-          Result.of_option
-            (Js.Opt.to_option (Dom_html.CoerceTo.input target))
-            ~error:"target is not input"
-          >>= fun input ->
-          Result.of_option
-            (Option.try_with (fun () ->
-              Market.Price.of_string (Js.to_string input##.value)))
-            ~error:"not price"
-          >>| fun price ->
-          input##.value := Js.string "";
-          inject (Action.playing (Send_order { symbol; dir; price }))
-        with
-        | Ok ev -> ev
-        | Error e -> ignore e; Vdom.Event.Ignore
-      in
       Vdom.Node.tr [Vdom.Attr.id ("order" ^ Dir.to_string dir)]
         (List.map2_exn Card.Suit.all keys ~f:(fun symbol key ->
           Vdom.Node.td [] [
-            Vdom.Node.input
-              [ Vdom.Attr.type_ "text"
-              ; Vdom.Attr.id (id symbol)
-              ; Vdom.Attr.placeholder key
-              ; Vdom.Attr.on_keypress
-                (handle_keypress ~symbol ~my_hotkey:key)
-              ]
+            Widget.textbox ~id:(id symbol) ~placeholder:key
+              ~f:(fun price_s ->
+                match Market.Price.of_string price_s with
+                | exception _ -> Vdom.Event.Ignore
+                | price ->
+                  inject (Action.playing (Send_order { symbol; dir; price })))
               []
           ]
         ))
@@ -614,64 +682,149 @@ module App = struct
             ; cpty_td with_
             ]))
 
-  let player_infoboxes ~(me : Player.t) ~(others : Player.t Username.Map.t) =
-    let draw_hand ~pos (player : Player.t) =
-      let nbsp = "\xc2\xa0" in
-      let open Vdom in
-      let span_of_copies class_ n s =
-        let content =
-          List.init (Market.Size.to_int n) ~f:(fun _ -> s)
-          |> String.concat
-          |> Node.text
+  module Infobox = struct
+    module Position = struct
+      type t = | Me | Left | Middle | Right
+
+      let attr t =
+        let class_ =
+          match t with
+          | Me -> "myself"
+          | Left -> "left"
+          | Middle -> "middle"
+          | Right -> "right"
         in
-        Node.span [Attr.class_ class_] [content]
+        Vdom.Attr.class_ class_
+    end
+  end
+
+  let infobox ~pos ~name ~score ~info =
+    let open Vdom in
+    Node.div [Infobox.Position.attr pos]
+      ([ [name]
+      ; Option.to_list score
+      ; [Node.create "br" [] []]
+      ; info
+      ] |> List.concat)
+
+  let infoboxes = Vdom.Node.div [Vdom.Attr.id "infoboxes"]
+
+  let login_infoboxes ~inject =
+    let login_textbox =
+      Widget.textbox ~id:"login" ~placeholder:"username"
+        ~f:(fun user ->
+          inject (Action.connected (Start_login (Username.of_string user))))
+        [Vdom.Attr.class_ "name me"]
+    in
+    infoboxes
+      [infobox ~pos:Me ~name:login_textbox ~score:None ~info:[]]
+
+  let player_infobox ~pos ~(pers : Player.Persistent.t) ~ranking ~info =
+    let score =
+      Vdom.Node.span
+        [Vdom.Attr.class_ (sprintf "score %s" ranking)]
+        [Vdom.Node.text (Market.Price.to_string pers.score)]
+    in
+    let name =
+      let class_ = sprintf "name %s" (Player_id.class_ pers.id) in
+      Vdom.Node.span
+        [ Vdom.Attr.class_ class_ ]
+        [ Vdom.Node.text (Username.to_string pers.username) ]
+    in
+    infobox ~pos ~name ~score:(Some score) ~info
+
+  let player_infoboxes ~others ~me =
+    let (my_pers : Player.Persistent.t), _ = me in
+    let players = Map.add others ~key:my_pers.username ~data:me in
+    let nobody = Player.Persistent.nobody, [] in
+    match Map.data others @ List.init 3 ~f:(fun _ -> nobody) with
+    | left :: middle :: right :: _ ->
+      let p ~pos ((pers : Player.Persistent.t), info) =
+        let better_players =
+          Map.count players ~f:(fun (o, _) ->
+            Market.Price.O.(o.score > pers.score))
+        in
+        let ranking =
+          match better_players with
+          | 0 -> "first"
+          | 1 -> "second"
+          | 2 -> "third"
+          | _ -> "last"
+        in
+        player_infobox ~pos ~pers ~ranking ~info
       in
-      let ranking =
-        match
-          Map.count (Map.add others ~key:me.pers.username ~data:me)
-            ~f:(fun o -> Market.Price.O.(o.pers.score > player.pers.score))
-        with
-        | 0 -> "first"
-        | 1 -> "second"
-        | 2 -> "third"
-        | _ -> "last"
+      infoboxes
+        [ Vdom.Node.div [Vdom.Attr.id "others"]
+          [ p ~pos:Left   left
+          ; p ~pos:Middle middle
+          ; p ~pos:Right  right
+          ]
+        ; p ~pos:Me me
+        ]
+    | _ -> assert false
+
+  let waiting_infoboxes ~inject
+      ~(me : Player.Persistent.t)
+      ~(others : Player.Persistent.t Username.Map.t)
+      (waiting : Waiting.Model.t)
+    =
+    let others =
+      Map.map others ~f:(fun o ->
+        let ready_text =
+          if Set.mem waiting.ready o.username
+          then "[ready]"
+          else "[not ready]"
+        in
+        (o, [Vdom.Node.text ready_text]))
+    in
+    let ready_button =
+      let is_ready = Set.mem waiting.ready me.username in
+      let text, set_it_to =
+        if is_ready
+        then "I'm not ready!", false
+        else "I'm ready!", true
+      in
+      Vdom.Node.button
+        [ Vdom.Attr.id "readyButton"
+        ; Vdom.Attr.on_click (fun _mouseEvent ->
+            inject (Action.waiting (I'm_ready set_it_to)))
+        ]
+        [ Vdom.Node.text text ]
+    in
+    player_infoboxes
+      ~others
+      ~me:(me, [ready_button])
+
+  let playing_infoboxes { Playing.Model.me; others; _ } =
+    let open Vdom in
+    let span_of_copies class_ n s =
+      let content =
+        List.init (Market.Size.to_int n) ~f:(fun _ -> s)
+        |> String.concat
+        |> Node.text
+      in
+      Node.span [Attr.class_ class_] [content]
+    in
+    let draw_hand (player : Player.t) =
+      let known =
+        Card.Hand.foldi player.hand.known
+          ~init:[]
+          ~f:(fun suit acc count ->
+            span_of_copies
+              (Card.Suit.name suit)
+              count
+              (Card.Suit.to_utf8 suit)
+              :: acc)
+          |> List.rev
       in
       let unknown =
         span_of_copies "Unknown" player.hand.unknown Partial_hand.unknown_utf8
       in
-      let open Vdom in
-      List.concat
-        [ [ Node.span [Attr.class_ (Player_id.class_ player.pers.id)]
-              [ Node.text (Username.to_string player.pers.username) ]
-          ; Node.span [Attr.class_ ranking]
-              [ Node.text (Market.Price.to_string player.pers.score) ]
-          ; Node.create "br" [] []
-          ; Node.text nbsp
-          ]
-        ; Card.Hand.foldi player.hand.known
-              ~init:[]
-              ~f:(fun suit acc count ->
-                span_of_copies
-                  (Card.Suit.name suit)
-                  count
-                  (Card.Suit.to_utf8 suit)
-                :: acc)
-          |> List.rev
-        ; [unknown]
-        ]
-      |> Node.div [Attr.id (pos ^ "hand")]
+      (player.pers, known @ [unknown])
     in
-    match Map.data others @ List.init 3 ~f:(fun _ -> Player.nobody) with
-    | left :: mid :: right :: _ ->
-      Vdom.Node.div [Vdom.Attr.id "hands"]
-        [ Vdom.Node.div [Vdom.Attr.id "otherhands"]
-          [ draw_hand ~pos:"left" left
-          ; draw_hand ~pos:"middle" mid
-          ; draw_hand ~pos:"right" right
-          ]
-        ; draw_hand ~pos:"my" me
-        ]
-    | _ -> assert false
+    player_infoboxes
+      ~others:(Map.map others ~f:draw_hand)
+      ~me:(draw_hand me)
 
   let history ~players ~messages =
     let nodes_of_message : Message.t -> _ =
@@ -698,41 +851,39 @@ module App = struct
 
   let cmdline (model : Model.t) =
     let this_id = "cmdline" in
-    Vdom.Node.input
-      [ Vdom.Attr.type_ "text"
-      ; Vdom.Attr.id this_id
-      ; Vdom.Attr.property "disabled"
+    Widget.textbox ~id:this_id
+      ~f:(fun msg ->
+        begin match model.state with
+        | Connected { conn; _ } ->
+          don't_wait_for begin
+            Rpc.Rpc.dispatch_exn Protocol.Chat.rpc conn msg
+            >>| function
+            | Error `Login_first | Ok () -> ()
+          end
+        | _ -> ()
+        end;
+        Vdom.Event.Ignore)
+      [ Vdom.Attr.property "disabled"
           (Js.Unsafe.inject (Js.bool
             (match model.state with | Connected _ -> false | _ -> true)))
-      ; Vdom.Attr.on_keypress (fun ev ->
-          match
-            let open Option.Monad_infix in
-            Option.some_if (ev##.keyCode = 13) ()
-            >>= fun () ->
-            Js.Opt.to_option ev##.target
-            >>= fun target ->
-            Js.Opt.to_option (Dom_html.CoerceTo.input target)
-          with
-          | None -> Vdom.Event.Ignore
-          | Some input ->
-            let msg = input##.value |> Js.to_string in
-            begin match model.state with
-            | Connected { conn; _ } ->
-              don't_wait_for begin
-                Rpc.Rpc.dispatch_exn Protocol.Chat.rpc conn msg
-                >>| function
-                | Error `Login_first | Ok () -> ()
-              end;
-              input##.value := Js.string ""
-            | _ -> ()
-            end;
-          Vdom.Event.Prevent_default)
       ]
-      []
 
   let view (incr_model : Model.t Incr.t) ~inject =
     let open Incr.Let_syntax in
     let%map model = incr_model in
+    let infoboxes =
+      match model.state with
+      | Connected { login = None; _ } ->
+          login_infoboxes ~inject
+      | Connected { login = Some login; _ } ->
+        begin match login.game with
+        | Playing playing ->
+          playing_infoboxes playing
+        | Waiting waiting ->
+          waiting_infoboxes ~inject ~me:login.me ~others:login.others waiting
+        end
+      | _ -> infoboxes []
+    in
     let me, others, exchange =
       match model.state with
       | Connected { login = Some login; _ } ->
@@ -759,7 +910,7 @@ module App = struct
         [ market_table ~players ~inject market
         ; trades_table ~players trades
         ]
-      ; player_infoboxes ~me ~others
+      ; infoboxes
       ; div [Attr.id "historycmd"]
         [ history ~players ~messages:model.messages
         ; cmdline model
@@ -767,84 +918,7 @@ module App = struct
       ]
     ]
 
-  let on_startup ~schedule _model =
-    don't_wait_for begin
-      let handle_update conn : Protocol.Player_update.t -> unit =
-        function
-        | Hand hand     -> schedule (Action.playing (Hand hand))
-        | Market market -> schedule (Action.playing (Market market))
-        | Broadcast (Exec (order, exec)) ->
-          List.iter exec.fully_filled ~f:(fun filled_order ->
-            schedule (Action.playing (Trade
-              ( { order
-                  with size = filled_order.size; price = filled_order.price }
-              , filled_order.owner
-              ))));
-          Option.iter exec.partially_filled ~f:(fun partial_fill ->
-            schedule (Action.playing (Trade
-              ( { order with size = partial_fill.filled_by }
-              , partial_fill.original_order.owner
-              ))));
-          don't_wait_for begin
-            let%map () =
-              Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
-              >>| Protocol.playing_exn
-            and () =
-              Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Hand
-              >>| Protocol.playing_exn
-            in
-            ()
-          end
-        | Broadcast (Player_joined username) ->
-          schedule (Action.logged_in (Player_joined username))
-        | Broadcast New_round ->
-          schedule (Action.game Start_playing);
-          don't_wait_for begin
-            (* Sample the time *before* we send the RPC. Then the game end
-               time we get is actually roughly "last time we can expect to
-               send an RPC and have it arrive before the game ends". *)
-            let current_time = Time_ns.now () in
-            Rpc.Rpc.dispatch_exn Protocol.Time_remaining.rpc conn ()
-            >>| function
-            | Error `Game_not_in_progress -> ()
-            | Ok remaining ->
-              let end_time = Time_ns.add current_time remaining in
-              schedule (Action.playing (Game_ends_at end_time))
-          end
-        | Broadcast (Round_over _results) ->
-          schedule (Action.game Round_over)
-        | Broadcast (Scores scores) ->
-          schedule (Action.logged_in (Scores scores))
-        | Broadcast (Chat (who, msg)) ->
-          schedule (Message (Chat (who, msg)))
-        | Broadcast (Out _) -> ()
-        | Broadcast (Player_ready _) -> ()
-      in
-      schedule Start_connecting;
-      Websocket_rpc_transport.connect
-        (Host_and_port.create ~host:"localhost" ~port:20406)
-      >>= function
-      | Error () ->
-        schedule Disconnect;
-        Deferred.unit
-      | Ok transport ->
-        Rpc.Connection.with_close
-          ~connection_state:(fun _ -> ())
-          transport
-          ~on_handshake_error:`Raise
-          ~dispatch_queries:(fun conn ->
-            schedule (Finish_connecting conn);
-            Rpc.Pipe_rpc.dispatch_exn
-              Protocol.Login.rpc conn (Username.of_string "bmillwood")
-            >>= fun (pipe, _pipe_metadata) ->
-            schedule (Action.connected
-              (Login (Username.of_string "bmillwood")));
-            Pipe.iter_without_pushback pipe
-              ~f:(fun update -> handle_update conn update)
-            >>| fun () ->
-            schedule Disconnect)
-    end
-
+  let on_startup ~schedule:_ _model = ()
   let on_display ~schedule:_ ~old:_ _new = ()
   let update_visibility model = model
 end
