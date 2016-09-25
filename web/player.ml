@@ -3,6 +3,21 @@ open Async_kernel.Std
 open Async_rpc_kernel.Std
 open Incr_dom.Std
 
+(* only bother putting an id in here if it is referred to
+   in more than one place *)
+module Ids = struct
+  let login = "login"
+  let ready_button = "readyButton"
+end
+
+let focus_input ~element_id =
+  let (>>>) t f = Option.iter t ~f in
+  Option.try_with (fun () -> Dom_html.getElementById element_id)
+  >>> fun elt ->
+  Js.Opt.to_option (Dom_html.CoerceTo.input elt)
+  >>> fun input ->
+  input##focus
+
 module Waiting = struct
   module Model = struct
     type t = { ready : Username.Set.t }
@@ -762,7 +777,7 @@ module App = struct
         else "I'm ready!", true
       in
       Vdom.Node.button
-        [ Vdom.Attr.id "readyButton"
+        [ Vdom.Attr.id Ids.ready_button
         ; Vdom.Attr.on_click (fun _mouseEvent ->
             inject (Action.waiting (I'm_ready set_it_to)))
         ]
@@ -899,7 +914,16 @@ module App = struct
     Option.iter (List.Assoc.find Url.Current.arguments "autoconnect")
       ~f:(fun v -> schedule (Action.Start_connecting (parse_host_and_port v)))
 
-  let on_display ~schedule:_ ~old:_ _new = ()
+  let on_display ~schedule:_ ~(old : Model.t) (new_ : Model.t) =
+  match old.state, new_.state with
+  | Connecting _, Connected _ ->
+    focus_input ~element_id:Ids.login
+  | Connected { login = None; _ }, Connected { login = Some _; _ } ->
+    (* would like to focus ready button here, but buttonElement doesn't
+       seem to have a focus method *)
+    ()
+  | _ -> ()
+
   let update_visibility model = model
 end
 
