@@ -1,6 +1,9 @@
 open Core_kernel.Std
 open Async_rpc_kernel.Std
 
+let default_async_rpc_port = 58828
+let default_websocket_port = 58829
+
 module Round_results = struct
   type t = {
     gold : Card.Suit.t;

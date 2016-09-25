@@ -1,7 +1,7 @@
 open Core_kernel.Std
 open Incr_dom.Std
 
-let textbox ?id ?placeholder ?(clear_on_submit=true) ~f attrs =
+let textbox ?id ?placeholder ?initial_value ?(clear_on_submit=true) ~f attrs =
   let handle_keypress keyboardEvent =
     match
       let open Option.Monad_infix in
@@ -31,5 +31,6 @@ let textbox ?id ?placeholder ?(clear_on_submit=true) ~f attrs =
     |> add Vdom.Attr.on_keypress (Some handle_keypress)
     |> add Vdom.Attr.id id
     |> add Vdom.Attr.placeholder placeholder
+    |> add Vdom.Attr.value initial_value
   in
   Vdom.Node.input attrs []

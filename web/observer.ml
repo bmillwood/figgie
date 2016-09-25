@@ -224,7 +224,9 @@ module Observer_app = struct
       in
       schedule (Set_connection_status Connecting);
       Websocket_rpc_transport.connect
-        (Host_and_port.create ~host:"localhost" ~port:20406)
+        (Host_and_port.create
+          ~host:"localhost"
+          ~port:Protocol.default_websocket_port)
       >>= function
       | Error () ->
         schedule (Set_connection_status Failed_to_connect);

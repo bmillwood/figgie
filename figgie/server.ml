@@ -315,11 +315,13 @@ let command =
     ~summary:"Figgie server"
     [%map_open
       let tcp_port =
-        flag "-tcp-port" (optional_with_default 10203 int)
-          ~doc:"N port to listen on for TCP clients"
+        flag "-tcp-port"
+          (optional_with_default Protocol.default_async_rpc_port int)
+          ~doc:"N port to listen on for Async-RPC clients"
       and web_port =
-        flag "-web-port" (optional_with_default 20406 int)
-          ~doc:"N port to listen on for JS clients"
+        flag "-web-port"
+          (optional_with_default Protocol.default_websocket_port int)
+          ~doc:"N port to listen on for websocket clients"
       and log_level =
         flag "-log-level" (optional_with_default `Info Log.Level.arg)
           ~doc:"LEVEL Error, Info, or Debug"

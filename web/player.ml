@@ -505,6 +505,14 @@ module App = struct
     let should_log _ = false
   end
 
+  let parse_host_and_port hps =
+    match Host_and_port.of_string hps with
+    | exception _ ->
+      Host_and_port.create
+        ~host:hps
+        ~port:Protocol.default_websocket_port
+    | host_and_port -> host_and_port
+
   let status_line
       ~(inject : Action.t -> _)
       (state : Model.Connection_state.t)
@@ -532,14 +540,16 @@ module App = struct
         , [textf "Connection failed"]
         )
       | Disconnected ->
+        let address_from_query_string =
+          List.Assoc.find Url.Current.arguments ~equal:String.equal "address"
+        in
         ( "Disconnected"
         , [ textf "Connect to:"
           ; Widget.textbox ~id:"connectTo"
-              ~placeholder:"host:port" ~clear_on_submit:false
+              ?initial_value:address_from_query_string
+              ~placeholder:"host[:port]" ~clear_on_submit:false
               ~f:(fun hps ->
-                match Host_and_port.of_string hps with
-                | exception _ -> Vdom.Event.Ignore
-                | host_and_port -> inject (Start_connecting host_and_port))
+                inject (Start_connecting (parse_host_and_port hps)))
               []
           ]
         )
@@ -676,8 +686,9 @@ module App = struct
   let infoboxes = Vdom.Node.div [Vdom.Attr.id "infoboxes"]
 
   let login_infoboxes ~inject =
+    let initial_value = List.Assoc.find Url.Current.arguments "username" in
     let login_textbox =
-      Widget.textbox ~id:"login" ~placeholder:"username"
+      Widget.textbox ~id:Ids.login ~placeholder:"username" ?initial_value
         ~f:(fun user ->
           inject (Action.connected (Start_login (Username.of_string user))))
         [Vdom.Attr.class_ "name me"]
@@ -884,7 +895,10 @@ module App = struct
       ]
     ]
 
-  let on_startup ~schedule:_ _model = ()
+  let on_startup ~schedule _model =
+    Option.iter (List.Assoc.find Url.Current.arguments "autoconnect")
+      ~f:(fun v -> schedule (Action.Start_connecting (parse_host_and_port v)))
+
   let on_display ~schedule:_ ~old:_ _new = ()
   let update_visibility model = model
 end
