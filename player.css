@@ -2,7 +2,7 @@ body {
 	color: white;
 	background-color: #001;
 }
-div#container {
+#container {
 	width: 45em;
 	margin: auto;
 	padding-bottom: 1em;
@@ -14,6 +14,7 @@ input {
 	padding: 0;
 	border: 0;
 }
+
 input#connectTo {
 	margin-left: 0.5em;
 	padding-left: 0.2em;
@@ -22,34 +23,26 @@ input#connectTo {
 input#login {
 	width: 7em;
 }
-.me {
-	color: #000;
-	background-color: #99f;
-}
-.them1 {
-	color: #ff6;
-}
-.them2 {
-	color: #6ff;
-}
-.them3 {
-	color: #f6f;
-}
-p#status {
+
+.me    { color: #000; background-color: #99f; }
+.them1 { color: #ff6; }
+.them2 { color: #6ff; }
+.them3 { color: #f6f; }
+
+.Spades, .Clubs    { color: black;   }
+.Hearts, .Diamonds { color: darkred; }
+.Unknown           { color: grey;    }
+
+#status {
 	position: relative;
 	padding: 0.1em 0.5em;
 	font-size: large;
 	text-align: left;
 }
-p#status.Disconnected, p#status.Connecting {
-	background-color: #445;
-}
-p#status.Connected, p#status.LoggedIn {
-	background-color: #006;
-}
-p#status.ConnectionFailed {
-	background-color: #602;
-}
+#status.Disconnected, #status.Connecting { background-color: #445; }
+#status.Connected,    #status.LoggedIn   { background-color: #006; }
+#status.ConnectionFailed                  { background-color: #602; }
+
 button#readybutton {
 	border: 0;
 	margin: 0.2em 0.5em;
@@ -59,14 +52,17 @@ button#readybutton {
 button#readybutton:hover {
 	background-color: #006;
 }
-span.clock {
+
+.clock {
 	position: absolute;
 	right: 1em;
 }
-div#exchange {
+
+#exchange {
 	padding-bottom: 0.5em;
 	text-align: center;
 }
+
 table#market {
 	display: inline-block;
 }
@@ -75,24 +71,10 @@ table#market td {
 	font-size: 18pt;
 	text-align: center;
 }
-tr.sell td, tr#ordersell td {
-	background-color: #313;
-}
-tr.buy td, tr#orderbuy td {
-	background-color: #133;
-}
-tr#suits td {
-	background-color: #224;
-}
-.Spades, .Clubs {
-	color: black;
-}
-.Hearts, .Diamonds {
-	color: darkred;
-}
-.Unknown {
-	color: grey;
-}
+tr.sell  td { background-color: #313; }
+tr.buy   td { background-color: #133; }
+tr#suits td { background-color: #224; }
+
 tr#ordersell input, tr#orderbuy input {
 	width: 2em;
 	margin: 0;
@@ -102,13 +84,11 @@ tr#ordersell input, tr#orderbuy input {
 	text-align: center;
 	font-size: 18pt;
 }
-tr#ordersell input {
-	background-color: #535;
-}
-tr#orderbuy input {
-	background-color: #355;
-}
-table#tape {
+tr#ordersell input { background-color: #535; }
+tr#orderbuy  input { background-color: #355; }
+
+#tape {
+	position: relative;
 	display: inline-block;
 	height: 18em;
 	min-width: 15em;
@@ -116,18 +96,13 @@ table#tape {
 	overflow-y: scroll;
 	background-color: #224;
 }
-table#tape td {
+#tape td {
 	padding: 0 0.2em;
 }
-table#tape td.buy {
-	color: #0f4;
-}
-table#tape td.sell {
-	color: #f04;
-}
-td.price {
-	text-align: center;
-}
+#tape .buy  { color: #0f4; }
+#tape .sell { color: #f04; }
+#tape .price { text-align: center; }
+
 div#infoboxes .name {
 	padding: 0 0.5em;
 	font-size: 0.8em;
@@ -137,10 +112,10 @@ div#infoboxes .name {
 	color: black;
 	font-size: 0.8em;
 }
-.first { background-color: gold; }
+.first  { background-color: gold; }
 .second { background-color: silver; }
-.third { background-color: brown; }
-.last { background-color: #f00; color: white; }
+.third  { background-color: brown; }
+.last   { background-color: #f00; color: white; }
 div#others > div, div.myself {
 	text-align: left;
 	display: inline-block;
@@ -160,6 +135,7 @@ div.myself {
 	margin-top: 0.5em;
 	font-size: 2em;
 }
+
 div#historycmd {
 	width: 40em;
 	display: inline-block;

@@ -589,13 +589,14 @@ module App = struct
         Vdom.Node.td [] [Vdom.Node.text nbsp])
     in
     let input_row ~dir =
-      let id symbol = "order" ^ Dir.to_string dir ^ Card.Suit.name symbol in
+      let dir_s = Dir.to_string dir in
+      let id symbol = "order" ^ dir_s ^ Card.Suit.name symbol in
       let keys =
         Dir.fold dir
           ~sell:["Q"; "W"; "E"; "R"]
           ~buy:["A"; "S"; "D"; "F"]
       in
-      Vdom.Node.tr [Vdom.Attr.id ("order" ^ Dir.to_string dir)]
+      Vdom.Node.tr [Vdom.Attr.id ("order" ^ dir_s); Vdom.Attr.class_ dir_s]
         (List.map2_exn Card.Suit.all keys ~f:(fun symbol key ->
           Vdom.Node.td [] [
             Widget.textbox ~id:(id symbol) ~placeholder:key
