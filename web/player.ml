@@ -2,6 +2,9 @@ open Core_kernel.Std
 open Async_kernel.Std
 open Async_rpc_kernel.Std
 open Incr_dom.Std
+open Vdom
+
+open Market
 
 (* only bother putting an id in here if it is referred to
    in more than one place *)
@@ -56,13 +59,13 @@ module Player = struct
     type t = {
       id : Player_id.t;
       username : Username.t;
-      score : Market.Price.t;
+      score : Price.t;
     } [@@deriving sexp]
 
     let nobody =
       { id = Nobody
       ; username = Username.of_string "[nobody]"
-      ; score = Market.Price.zero
+      ; score = Price.zero
       }
   end
 
@@ -81,25 +84,25 @@ module Playing = struct
     type t = {
       me         : Player.t;
       others     : Player.t Username.Map.t;
-      market     : Market.Book.t;
-      trades     : (Market.Order.t * Market.Cpty.t) Fqueue.t;
-      next_order : Market.Order.Id.t;
+      market     : Book.t;
+      trades     : (Order.t * Cpty.t) Fqueue.t;
+      next_order : Order.Id.t;
       clock      : Countdown.Model.t option;
     }
   end
 
   module Action = struct
     type t =
-      | Market of Market.Book.t
-      | Hand of Market.Size.t Card.Hand.t
-      | Trade of Market.Order.t * Market.Cpty.t
-      | Score of Market.Price.t
+      | Market of Book.t
+      | Hand of Size.t Card.Hand.t
+      | Trade of Order.t * Cpty.t
+      | Score of Price.t
       | Send_order of {
           symbol : Card.Suit.t;
-          dir    : Market.Dir.t;
-          price  : Market.Price.t;
+          dir    : Dir.t;
+          price  : Price.t;
         }
-      | Send_cancel of Market.Order.Id.t
+      | Send_cancel of Order.Id.t
       | Set_clock of Time_ns.t sexp_opaque
       | Clock of Countdown.Action.t
       [@@deriving sexp_of]
@@ -142,7 +145,7 @@ module Logged_in = struct
       in
       loop 1
     in
-    { Player.Persistent.username; id = Them id; score = Market.Price.zero }
+    { Player.Persistent.username; id = Them id; score = Price.zero }
 
   let update_round_if_playing (t : Model.t) ~f =
     match t.game with
@@ -181,7 +184,7 @@ module Logged_in = struct
   module Action = struct
     type t =
       | Player_joined of Username.t
-      | Scores of Market.Price.t Username.Map.t
+      | Scores of Price.t Username.Map.t
       | Game of Game.Action.t
       [@@deriving sexp_of]
   end
@@ -287,10 +290,10 @@ module App = struct
               Card.Hand.foldi market ~init:player.hand
                 ~f:(fun suit hand book ->
                   let size =
-                    List.sum (module Market.Size) book.sell ~f:(fun order ->
+                    List.sum (module Size) book.sell ~f:(fun order ->
                       if Username.equal order.owner player.pers.username
                       then order.size
-                      else Market.Size.zero)
+                      else Size.zero)
                   in
                   Partial_hand.selling hand ~suit ~size)
             in
@@ -326,17 +329,17 @@ module App = struct
             if Username.equal player.pers.username order.owner
             then { player with hand = traded order.dir }
             else if Username.equal player.pers.username with_
-            then { player with hand = traded (Market.Dir.other order.dir) }
+            then { player with hand = traded (Dir.other order.dir) }
             else player)
         in
         { round with trades; others }
       | Score _ -> round
       | Send_order { symbol; dir; price } ->
         let order =
-          { Market.Order.owner = round.me.pers.username
+          { Order.owner = round.me.pers.username
           ; id = round.next_order
           ; symbol; dir; price
-          ; size = Market.Size.of_int 1
+          ; size = Size.of_int 1
           }
         in
         don't_wait_for begin
@@ -345,7 +348,7 @@ module App = struct
           | Ok `Ack -> ()
           | Error reject -> schedule (Message (Order_reject reject))
         end;
-        let next_order = Market.Order.Id.next round.next_order in
+        let next_order = Order.Id.next round.next_order in
         { round with next_order }
       | Send_cancel oid ->
         don't_wait_for begin
@@ -372,11 +375,11 @@ module App = struct
           ; others =
               Map.map login.others ~f:(fun pers ->
                 { Player.pers
-                ; hand = Partial_hand.create_unknown (Market.Size.of_int 10)
+                ; hand = Partial_hand.create_unknown (Size.of_int 10)
                 })
-          ; market  = Market.Book.empty
+          ; market  = Book.empty
           ; trades  = Fqueue.empty
-          ; next_order = Market.Order.Id.zero
+          ; next_order = Order.Id.zero
           ; clock = None
           }
       | Playing _round, Round_over ->
@@ -477,7 +480,7 @@ module App = struct
         conn
       | Finish_login username ->
         let me : Player.Persistent.t =
-          { username; id = Me; score = Market.Price.zero }
+          { username; id = Me; score = Price.zero }
         in
         let logged_in =
           { Logged_in.Model.me; others = Username.Map.empty
@@ -547,7 +550,7 @@ module App = struct
       (state : Model.Connection_state.t)
     =
     let class_, status =
-      let textf fmt = ksprintf (fun s -> Vdom.Node.text s) fmt in
+      let textf fmt = ksprintf (fun s -> Node.text s) fmt in
       match state with
       | Connecting host_and_port ->
         ( "Connecting"
@@ -587,20 +590,19 @@ module App = struct
       match state with
       | Connected { login = Some { game = Playing { clock; _}; _ }; _ } ->
         Option.map clock ~f:(fun clock ->
-          (Vdom.Node.span [Vdom.Attr.class_ "clock"]
-            [Vdom.Node.text (Countdown.Model.to_string clock)]))
+          (Node.span [Attr.class_ "clock"]
+            [Node.text (Countdown.Model.to_string clock)]))
       | _ -> None
     in
-    Vdom.Node.p [Vdom.Attr.id "status"; Vdom.Attr.class_ class_]
+    Node.p [Attr.id "status"; Attr.class_ class_]
       (status @ Option.to_list clock)
 
-  let market_table ~players ~(inject : Action.t -> _) (market : Market.Book.t) =
-    let open Market in
+  let market_table ~players ~(inject : Action.t -> _) (market : Book.t) =
     let market_depth = 3 in
     let nbsp = "\xc2\xa0" in
     let empty_cells =
       List.init market_depth ~f:(fun _ ->
-        Vdom.Node.td [] [Vdom.Node.text nbsp])
+        Node.td [] [Node.text nbsp])
     in
     let input_row ~dir =
       let dir_s = Dir.to_string dir in
@@ -610,13 +612,13 @@ module App = struct
           ~sell:["Q"; "W"; "E"; "R"]
           ~buy:["A"; "S"; "D"; "F"]
       in
-      Vdom.Node.tr [Vdom.Attr.id ("order" ^ dir_s); Vdom.Attr.class_ dir_s]
+      Node.tr [Attr.id ("order" ^ dir_s); Attr.class_ dir_s]
         (List.map2_exn Card.Suit.all keys ~f:(fun symbol key ->
-          Vdom.Node.td [] [
+          Node.td [] [
             Widget.textbox ~id:(id symbol) ~placeholder:key
               ~f:(fun price_s ->
-                match Market.Price.of_string price_s with
-                | exception _ -> Vdom.Event.Ignore
+                match Price.of_string price_s with
+                | exception _ -> Event.Ignore
                 | price ->
                   inject (Action.playing (Send_order { symbol; dir; price })))
               []
@@ -634,26 +636,26 @@ module App = struct
                 |> Option.value ~default:Player.nobody
               in
               let class_ = Player_id.class_ player.pers.id in
-              Vdom.Node.td [] [
-                Vdom.Node.span
-                  [Vdom.Attr.class_ class_]
-                  [Vdom.Node.text (Price.to_string order.price)]
+              Node.td [] [
+                Node.span
+                  [Attr.class_ class_]
+                  [Node.text (Price.to_string order.price)]
               ])
         in
         List.take (cells @ empty_cells) market_depth)
       |> List.transpose_exn
       |> Dir.fold dir ~buy:Fn.id ~sell:List.rev
       |> List.map ~f:(fun row ->
-          Vdom.Node.tr [Vdom.Attr.class_ (Dir.to_string dir)] row)
+          Node.tr [Attr.class_ (Dir.to_string dir)] row)
     in
-    Vdom.Node.table [Vdom.Attr.id "market"]
+    Node.table [Attr.id "market"]
       (List.concat
         [ cells ~dir:Sell
         ; [input_row ~dir:Sell]
-        ; [Vdom.Node.tr [Vdom.Attr.id "suits"]
+        ; [Node.tr [Attr.id "suits"]
             (List.map Card.Suit.all ~f:(fun suit ->
-              Vdom.Node.td [Vdom.Attr.class_ (Card.Suit.name suit)]
-                [Vdom.Node.text (Card.Suit.to_utf8 suit)]))]
+              Node.td [Attr.class_ (Card.Suit.name suit)]
+                [Node.text (Card.Suit.to_utf8 suit)]))]
         ; [input_row ~dir:Buy]
         ; cells ~dir:Buy
         ])
@@ -661,11 +663,10 @@ module App = struct
   let tape_table
       ~(my_username : Username.t)
       ~(players : Player.t Username.Map.t)
-      (market : Market.Book.t)
+      (market : Book.t)
       trades
       =
-    let open Vdom in
-    let row_of_order ~include_oid ~traded_with (trade : Market.Order.t) =
+    let row_of_order ~include_oid ~traded_with (trade : Order.t) =
       let person_td username =
         let attrs =
           match Map.find players username with
@@ -677,15 +678,15 @@ module App = struct
       in
       [ Node.td [Attr.class_ "oid"]
           (if include_oid
-          then [Node.text (Market.Order.Id.to_string trade.id)]
+          then [Node.text (Order.Id.to_string trade.id)]
           else [])
       ; person_td trade.owner
-      ; Node.td [Attr.class_ (Market.Dir.to_string trade.dir)]
-          [Node.text (Market.Dir.fold trade.dir ~buy:"B" ~sell:"S")]
+      ; Node.td [Attr.class_ (Dir.to_string trade.dir)]
+          [Node.text (Dir.fold trade.dir ~buy:"B" ~sell:"S")]
       ; begin let size_n =
-          if Market.Size.equal trade.size (Market.Size.of_int 1)
+          if Size.equal trade.size (Size.of_int 1)
           then []
-          else [Node.text (Market.Size.to_string trade.size)]
+          else [Node.text (Size.to_string trade.size)]
         in
         Node.td []
           (size_n
@@ -694,7 +695,7 @@ module App = struct
             ])
         end
       ; Node.td [Attr.class_ "price"]
-          [Node.text (Market.Price.to_string trade.price)]
+          [Node.text (Price.to_string trade.price)]
       ; match traded_with with
         | None -> Node.td [] []
         | Some username -> person_td username
@@ -703,7 +704,7 @@ module App = struct
     in
     let trades =
       Fqueue.to_list trades
-      |> List.map ~f:(fun ((traded : Market.Order.t), with_) ->
+      |> List.map ~f:(fun ((traded : Order.t), with_) ->
           row_of_order ~include_oid:false ~traded_with:(Some with_) traded)
     in
     let open_orders =
@@ -718,10 +719,9 @@ module App = struct
     Node.table [Attr.id "tape"] (trades @ open_orders)
 
   let cxl_by_id ~inject =
-    let open Vdom in
     [ Widget.textbox ~id:"cxl" ~placeholder:"X" ~f:(fun oid ->
-        match Market.Order.Id.of_string oid with
-        | exception _ -> Vdom.Event.Ignore
+        match Order.Id.of_string oid with
+        | exception _ -> Event.Ignore
         | oid -> inject (Action.playing (Send_cancel oid)))
         []
     ; Node.span [Attr.id "cxlhelp"] [Node.text "cancel by id"]
@@ -739,12 +739,11 @@ module App = struct
           | Middle -> "middle"
           | Right -> "right"
         in
-        Vdom.Attr.class_ class_
+        Attr.class_ class_
     end
   end
 
   let infobox ~pos ~name ~score ~info =
-    let open Vdom in
     Node.div [Infobox.Position.attr pos]
       ([ [name]
       ; Option.to_list score
@@ -752,7 +751,7 @@ module App = struct
       ; info
       ] |> List.concat)
 
-  let infoboxes = Vdom.Node.div [Vdom.Attr.id "infoboxes"]
+  let infoboxes = Node.div [Attr.id "infoboxes"]
 
   let login_infoboxes ~inject =
     let initial_value = List.Assoc.find Url.Current.arguments "username" in
@@ -760,22 +759,22 @@ module App = struct
       Widget.textbox ~id:Ids.login ~placeholder:"username" ?initial_value
         ~f:(fun user ->
           inject (Action.connected (Start_login (Username.of_string user))))
-        [Vdom.Attr.class_ "name me"]
+        [Attr.class_ "name me"]
     in
     infoboxes
       [infobox ~pos:Me ~name:login_textbox ~score:None ~info:[]]
 
   let player_infobox ~pos ~(pers : Player.Persistent.t) ~ranking ~info =
     let score =
-      Vdom.Node.span
-        [Vdom.Attr.class_ (sprintf "score %s" ranking)]
-        [Vdom.Node.text (Market.Price.to_string pers.score)]
+      Node.span
+        [Attr.class_ (sprintf "score %s" ranking)]
+        [Node.text (Price.to_string pers.score)]
     in
     let name =
       let class_ = sprintf "name %s" (Player_id.class_ pers.id) in
-      Vdom.Node.span
-        [ Vdom.Attr.class_ class_ ]
-        [ Vdom.Node.text (Username.to_string pers.username) ]
+      Node.span
+        [ Attr.class_ class_ ]
+        [ Node.text (Username.to_string pers.username) ]
     in
     infobox ~pos ~name ~score:(Some score) ~info
 
@@ -788,7 +787,7 @@ module App = struct
       let p ~pos ((pers : Player.Persistent.t), info) =
         let better_players =
           Map.count players ~f:(fun (o, _) ->
-            Market.Price.O.(o.score > pers.score))
+            Price.O.(o.score > pers.score))
         in
         let ranking =
           match better_players with
@@ -800,7 +799,7 @@ module App = struct
         player_infobox ~pos ~pers ~ranking ~info
       in
       infoboxes
-        [ Vdom.Node.div [Vdom.Attr.id "others"]
+        [ Node.div [Attr.id "others"]
           [ p ~pos:Left   left
           ; p ~pos:Middle middle
           ; p ~pos:Right  right
@@ -821,7 +820,7 @@ module App = struct
           then "[ready]"
           else "[not ready]"
         in
-        (o, [Vdom.Node.text ready_text]))
+        (o, [Node.text ready_text]))
     in
     let ready_button =
       let is_ready = Set.mem waiting.ready me.username in
@@ -830,22 +829,21 @@ module App = struct
         then "I'm not ready!", false
         else "I'm ready!", true
       in
-      Vdom.Node.button
-        [ Vdom.Attr.id Ids.ready_button
-        ; Vdom.Attr.on_click (fun _mouseEvent ->
+      Node.button
+        [ Attr.id Ids.ready_button
+        ; Attr.on_click (fun _mouseEvent ->
             inject (Action.waiting (I'm_ready set_it_to)))
         ]
-        [ Vdom.Node.text text ]
+        [ Node.text text ]
     in
     player_infoboxes
       ~others
       ~me:(me, [ready_button])
 
   let playing_infoboxes { Playing.Model.me; others; _ } =
-    let open Vdom in
     let span_of_copies class_ n s =
       let content =
-        List.init (Market.Size.to_int n) ~f:(fun _ -> s)
+        List.init (Size.to_int n) ~f:(fun _ -> s)
         |> String.concat
         |> Node.text
       in
@@ -880,24 +878,24 @@ module App = struct
           Map.find players who
           |> Option.value ~default:Player.nobody
         in
-        [ Vdom.Node.span
-            [Vdom.Attr.class_ (Player_id.class_ player.pers.id)]
-            [Vdom.Node.text (Username.to_string player.pers.username)]
-        ; Vdom.Node.text ": "
-        ; Vdom.Node.text msg
+        [ Node.span
+            [Attr.class_ (Player_id.class_ player.pers.id)]
+            [Node.text (Username.to_string player.pers.username)]
+        ; Node.text ": "
+        ; Node.text msg
         ]
       | Order_reject reject ->
-        [ Vdom.Node.text
+        [ Node.text
             (Protocol.Order.sexp_of_error reject |> Sexp.to_string)
         ]
       | Cancel_reject reject ->
-        [ Vdom.Node.text
+        [ Node.text
             (Protocol.Cancel.sexp_of_error reject |> Sexp.to_string)
         ]
     in
-    Vdom.Node.ul [Vdom.Attr.id "history"]
+    Node.ul [Attr.id "history"]
       (List.map (Fqueue.to_list messages) ~f:(fun msg ->
-        Vdom.Node.li [] (nodes_of_message msg)))
+        Node.li [] (nodes_of_message msg)))
 
   let cmdline (model : Model.t) =
     let this_id = "cmdline" in
@@ -912,8 +910,8 @@ module App = struct
           end
         | _ -> ()
         end;
-        Vdom.Event.Ignore)
-      [ Vdom.Attr.property "disabled"
+        Event.Ignore)
+      [ Attr.property "disabled"
           (Js.Unsafe.inject (Js.bool
             (match model.state with | Connected _ -> false | _ -> true)))
       ]
@@ -950,11 +948,10 @@ module App = struct
     in
     let players = Map.add others ~key:me.pers.username ~data:me in
     let market, trades =
-      Option.value exchange ~default:(Market.Book.empty, Fqueue.empty)
+      Option.value exchange ~default:(Book.empty, Fqueue.empty)
     in
     let my_username = me.pers.username in
-    let market_help = Vdom.Node.text "" in
-    let open Vdom in
+    let market_help = Node.text "" in
     let open Node in
     body [] [div [Attr.id "container"]
       [ status_line ~inject model.state
@@ -981,14 +978,14 @@ module App = struct
       ~f:(fun v -> schedule (Action.Start_connecting (parse_host_and_port v)))
 
   let on_display ~schedule:_ ~(old : Model.t) (new_ : Model.t) =
-  match old.state, new_.state with
-  | Connecting _, Connected _ ->
-    focus_input ~element_id:Ids.login
-  | Connected { login = None; _ }, Connected { login = Some _; _ } ->
-    (* would like to focus ready button here, but buttonElement doesn't
-       seem to have a focus method *)
-    ()
-  | _ -> ()
+    match old.state, new_.state with
+    | Connecting _, Connected _ ->
+      focus_input ~element_id:Ids.login
+    | Connected { login = None; _ }, Connected { login = Some _; _ } ->
+      (* would like to focus ready button here, but buttonElement doesn't
+         seem to have a focus method *)
+      ()
+    | _ -> ()
 
   let update_visibility model = model
 end
