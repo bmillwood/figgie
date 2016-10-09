@@ -99,6 +99,7 @@ module Playing = struct
           dir    : Market.Dir.t;
           price  : Market.Price.t;
         }
+      | Send_cancel of Market.Order.Id.t
       | Set_clock of Time_ns.t sexp_opaque
       | Clock of Countdown.Action.t
       [@@deriving sexp_of]
@@ -217,6 +218,7 @@ module App = struct
     module Message = struct
       type t =
         | Order_reject of Protocol.Order.error
+        | Cancel_reject of Protocol.Cancel.error
         | Chat of Username.t * string
         [@@deriving sexp_of]
     end
@@ -345,6 +347,14 @@ module App = struct
         end;
         let next_order = Market.Order.Id.next round.next_order in
         { round with next_order }
+      | Send_cancel oid ->
+        don't_wait_for begin
+          Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn oid
+          >>| function
+          | Ok `Ack -> ()
+          | Error reject -> schedule (Message (Cancel_reject reject))
+        end;
+        round
 
     let apply_game_action
         (t : Game.Action.t)
@@ -441,7 +451,11 @@ module App = struct
         schedule (logged_in (Scores scores))
       | Broadcast (Chat (who, msg)) ->
         schedule (Message (Chat (who, msg)))
-      | Broadcast (Out _) -> ()
+      | Broadcast (Out _) ->
+        don't_wait_for begin
+          Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
+          >>| Protocol.playing_exn
+        end
       | Broadcast (Player_ready _) -> ()
 
     let apply_connected_action
@@ -644,35 +658,74 @@ module App = struct
         ; cells ~dir:Buy
         ])
 
-  let trades_table ~(players : Player.t Username.Map.t) trades =
-    Vdom.Node.table [Vdom.Attr.id "tape"]
-      (Fqueue.to_list trades
+  let tape_table
+      ~(my_username : Username.t)
+      ~(players : Player.t Username.Map.t)
+      (market : Market.Book.t)
+      trades
+      =
+    let open Vdom in
+    let row_of_order ~include_oid ~traded_with (trade : Market.Order.t) =
+      let person_td username =
+        let attrs =
+          match Map.find players username with
+          | None -> []
+          | Some other -> [Attr.class_ (Player_id.class_ other.pers.id)]
+        in
+        Node.td []
+          [Node.span attrs [Node.text (Username.to_string username)]]
+      in
+      [ Node.td [Attr.class_ "oid"]
+          (if include_oid
+          then [Node.text (Market.Order.Id.to_string trade.id)]
+          else [])
+      ; person_td trade.owner
+      ; Node.td [Attr.class_ (Market.Dir.to_string trade.dir)]
+          [Node.text (Market.Dir.fold trade.dir ~buy:"B" ~sell:"S")]
+      ; begin let size_n =
+          if Market.Size.equal trade.size (Market.Size.of_int 1)
+          then []
+          else [Node.text (Market.Size.to_string trade.size)]
+        in
+        Node.td []
+          (size_n
+          @ [ Node.span [Attr.class_ (Card.Suit.name trade.symbol)]
+              [Node.text (Card.Suit.to_utf8 trade.symbol)]
+            ])
+        end
+      ; Node.td [Attr.class_ "price"]
+          [Node.text (Market.Price.to_string trade.price)]
+      ; match traded_with with
+        | None -> Node.td [] []
+        | Some username -> person_td username
+      ]
+      |> Node.tr []
+    in
+    let trades =
+      Fqueue.to_list trades
       |> List.map ~f:(fun ((traded : Market.Order.t), with_) ->
-          let size_s = Market.Size.to_string traded.size in
-          let size_s = if String.equal size_s "1" then "" else size_s in
-          let open Vdom in
-          let open Node in
-          let cpty_td cpty =
-            let attrs =
-              match Map.find players cpty with
-              | None -> []
-              | Some other -> [Attr.class_ (Player_id.class_ other.pers.id)]
-            in
-            td [] [span attrs [text (Market.Cpty.to_string cpty)]]
-          in
-          tr []
-            [ cpty_td traded.owner
-            ; td [Attr.class_ (Market.Dir.to_string traded.dir)]
-                [text (Market.Dir.fold traded.dir ~buy:"B" ~sell:"S")]
-            ; td []
-                [ text size_s
-                ; span [Attr.class_ (Card.Suit.name traded.symbol)]
-                    [text (Card.Suit.to_utf8 traded.symbol)]
-                ]
-            ; td [Attr.class_ "price"]
-                [text (Market.Price.to_string traded.price)]
-            ; cpty_td with_
-            ]))
+          row_of_order ~include_oid:false ~traded_with:(Some with_) traded)
+    in
+    let open_orders =
+      Card.Hand.fold market ~init:[] ~f:(fun acc per_sym ->
+        per_sym.buy @ per_sym.sell @ acc)
+      |> List.map ~f:(fun order ->
+        row_of_order
+          ~include_oid:(Username.equal my_username order.owner)
+          ~traded_with:None
+          order)
+    in
+    Node.table [Attr.id "tape"] (trades @ open_orders)
+
+  let cxl_by_id ~inject =
+    let open Vdom in
+    [ Widget.textbox ~id:"cxl" ~placeholder:"X" ~f:(fun oid ->
+        match Market.Order.Id.of_string oid with
+        | exception _ -> Vdom.Event.Ignore
+        | oid -> inject (Action.playing (Send_cancel oid)))
+        []
+    ; Node.span [Attr.id "cxlhelp"] [Node.text "cancel by id"]
+    ]
 
   module Infobox = struct
     module Position = struct
@@ -837,6 +890,10 @@ module App = struct
         [ Vdom.Node.text
             (Protocol.Order.sexp_of_error reject |> Sexp.to_string)
         ]
+      | Cancel_reject reject ->
+        [ Vdom.Node.text
+            (Protocol.Cancel.sexp_of_error reject |> Sexp.to_string)
+        ]
     in
     Vdom.Node.ul [Vdom.Attr.id "history"]
       (List.map (Fqueue.to_list messages) ~f:(fun msg ->
@@ -895,13 +952,21 @@ module App = struct
     let market, trades =
       Option.value exchange ~default:(Market.Book.empty, Fqueue.empty)
     in
+    let my_username = me.pers.username in
+    let market_help = Vdom.Node.text "" in
     let open Vdom in
     let open Node in
     body [] [div [Attr.id "container"]
       [ status_line ~inject model.state
-      ; div [Attr.id "exchange"]
-        [ market_table ~players ~inject market
-        ; trades_table ~players trades
+      ; table [Attr.id "exchange"]
+        [ tr []
+          [ td [] [market_table ~players ~inject market]
+          ; td [] [tape_table ~my_username ~players market trades]
+          ]
+        ; tr []
+          [ td [] [market_help]
+          ; td [Attr.id "cxlcontainer"] (cxl_by_id ~inject)
+          ]
         ]
       ; infoboxes
       ; div [Attr.id "historycmd"]

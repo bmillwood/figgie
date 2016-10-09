@@ -59,12 +59,10 @@ button#readybutton:hover {
 }
 
 #exchange {
-	padding-bottom: 0.5em;
-	text-align: center;
+	width: 100%;
+	padding: 0 1em 1em 1em;
 }
-
 table#market {
-	display: inline-block;
 }
 table#market td {
 	padding: 0.05em 0.8em;
@@ -88,20 +86,37 @@ tr#ordersell input { background-color: #535; }
 tr#orderbuy  input { background-color: #355; }
 
 #tape {
-	position: relative;
-	display: inline-block;
-	height: 18em;
-	min-width: 15em;
-	margin-left: 1em;
+	display: block;
+	height: 19em;
 	overflow-y: scroll;
 	background-color: #224;
 }
 #tape td {
 	padding: 0 0.2em;
 }
+#tape .oid, #tape .price {
+	text-align: center;
+	width: 1em;
+}
 #tape .buy  { color: #0f4; }
 #tape .sell { color: #f04; }
-#tape .price { text-align: center; }
+
+#cxlcontainer {
+	text-align: left;
+}
+#markethelp, #cxlhelp {
+	color: #aac;
+	font-size: small;
+  padding: 0em 0.5em;
+}
+input#cxl {
+	width: 2em;
+}
+input#cxl {
+	background-color: #446;
+	color: white; /* I don't know why this is necessary */
+	text-align: center;
+}
 
 div#infoboxes .name {
 	padding: 0 0.5em;
@@ -119,6 +134,7 @@ div#infoboxes .name {
 div#others > div, div.myself {
 	text-align: left;
 	display: inline-block;
+	vertical-align: top;
 	background-color: #224;
 }
 div#others > .left {
@@ -139,6 +155,7 @@ div.myself {
 div#historycmd {
 	width: 40em;
 	display: inline-block;
+	vertical-align: top;
 	text-align: left;
 }
 ul#history {
