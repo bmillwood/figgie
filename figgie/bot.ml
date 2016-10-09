@@ -307,28 +307,30 @@ module Card_counter = struct
             | Market book ->
               Deferred.List.iter ~how:`Parallel Suit.all ~f:(fun suit ->
                 let fair = 10. *. Hand.get (Counts.ps_gold counts) ~suit in
+                let { Dirpair.buy; sell } = Hand.get book ~suit in
                 Deferred.List.iter ~how:`Parallel
-                  (Hand.get book ~suit).sell ~f:(fun order ->
-                    let want_to_trade =
-                      match order.dir with
-                      | Buy -> fair <. Price.to_float order.price
-                      | Sell -> fair >. Price.to_float order.price
-                    in
-                    if want_to_trade
-                    then begin
-                      Rpc.Rpc.dispatch_exn Protocol.Order.rpc client.conn
-                        { owner = client.username
-                        ; id = client.new_order_id ()
-                        ; symbol = order.symbol
-                        ; dir = Dir.other order.dir
-                        ; price = order.price
-                        ; size = order.size
-                        }
-                      >>= function
-                      | Error e ->
-                        raise_s [%sexp (e : Protocol.Order.error)]
-                      | Ok `Ack -> Deferred.unit
-                    end else Deferred.unit))
+                  (buy @ sell)
+                    ~f:(fun order ->
+                      let want_to_trade =
+                        match order.dir with
+                        | Buy -> fair <. Price.to_float order.price
+                        | Sell -> fair >. Price.to_float order.price
+                      in
+                      if want_to_trade
+                      then begin
+                        Rpc.Rpc.dispatch_exn Protocol.Order.rpc client.conn
+                          { owner = client.username
+                          ; id = client.new_order_id ()
+                          ; symbol = order.symbol
+                          ; dir = Dir.other order.dir
+                          ; price = order.price
+                          ; size = order.size
+                          }
+                        >>= function
+                        | Error e ->
+                          raise_s [%sexp (e : Protocol.Order.error)]
+                        | Ok `Ack -> Deferred.unit
+                      end else Deferred.unit))
             | _ -> Deferred.unit))
     )
 end
