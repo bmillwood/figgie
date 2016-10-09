@@ -333,7 +333,7 @@ module App = struct
       | Score _ -> round
       | Send_order { symbol; dir; price } ->
         let order =
-          { Market.Order.owner = Username.of_string "bmillwood"
+          { Market.Order.owner = round.me.pers.username
           ; id = round.next_order
           ; symbol; dir; price
           ; size = Market.Size.of_int 1
