@@ -82,7 +82,7 @@ end
 module Playing = struct
   module Model = struct
     type t = {
-      my_hand     : Market.Size.t Card.Hand.t;
+      my_hand     : Size.t Card.Hand.t;
       other_hands : Partial_hand.t Username.Map.t;
       market      : Book.t;
       trades      : (Order.t * Cpty.t) Fqueue.t;
@@ -354,7 +354,7 @@ module App = struct
         Playing (apply_playing_action pact ~schedule ~conn ~login round)
       | Waiting _wait, Start_playing ->
         Playing
-          { my_hand = Card.Hand.create_all Market.Size.zero
+          { my_hand = Card.Hand.create_all Size.zero
           ; other_hands =
               Map.map login.others ~f:(fun _ ->
                 Partial_hand.create_unknown (Size.of_int 10))
