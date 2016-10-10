@@ -318,18 +318,28 @@ module Card_counter = struct
                       in
                       if want_to_trade
                       then begin
-                        Rpc.Rpc.dispatch_exn Protocol.Order.rpc client.conn
-                          { owner = client.username
-                          ; id = client.new_order_id ()
-                          ; symbol = order.symbol
-                          ; dir = Dir.other order.dir
-                          ; price = order.price
-                          ; size = order.size
-                          }
-                        >>= function
-                        | Error e ->
-                          raise_s [%sexp (e : Protocol.Order.error)]
-                        | Ok `Ack -> Deferred.unit
+                        if Username.equal order.owner client.username
+                        then begin
+                          Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc client.conn order.id
+                          >>= function
+                          | Error e ->
+                            Log.Global.sexp ~level:`Error [%sexp (e : Protocol.Cancel.error)];
+                            Deferred.unit
+                          | Ok `Ack -> Deferred.unit
+                        end else begin
+                          Rpc.Rpc.dispatch_exn Protocol.Order.rpc client.conn
+                            { owner = client.username
+                            ; id = client.new_order_id ()
+                            ; symbol = order.symbol
+                            ; dir = Dir.other order.dir
+                            ; price = order.price
+                            ; size = order.size
+                            }
+                          >>= function
+                          | Error e ->
+                            raise_s [%sexp (e : Protocol.Order.error)]
+                          | Ok `Ack -> Deferred.unit
+                        end
                       end else Deferred.unit))
             | _ -> Deferred.unit))
     )
