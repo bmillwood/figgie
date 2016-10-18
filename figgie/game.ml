@@ -4,7 +4,7 @@ module Player = struct
   type t = {
     mutable username : Username.t;
     mutable chips : Market.Price.t;
-  }
+  } [@@deriving sexp]
 
   let create ~username = { username; chips = Market.Price.zero }
 end
@@ -37,7 +37,7 @@ module Round = struct
       p : Player.t;
       mutable hand : Market.Size.t Card.Hand.t;
       orders : Market.Order.t Market.Order.Id.Table.t;
-    }
+    } [@@deriving sexp]
 
     let create p =
       { p
@@ -219,6 +219,21 @@ module Round = struct
         Hashtbl.remove sender.orders id;
         order)
 
+  let cancel_player_orders t ~(sender : Player.t) =
+    let orders = Hashtbl.data sender.orders in
+    List.iter orders ~f:(fun order ->
+      match Market.Book.cancel t.market order with
+      | Error `No_such_order ->
+        raise_s [%message "order table order not in market"
+          (sender : Player.t)
+          (order.id : Market.Order.Id.t)
+          (t.market : Market.Book.t)
+        ]
+      | Ok new_market ->
+        t.market <- new_market;);
+    Hashtbl.clear sender.orders;
+    Ok orders
+
   let with_player t ~username ~f =
     match Map.find t.players username with
     | None -> Error `You're_not_playing
@@ -236,6 +251,10 @@ module Round = struct
   let cancel_order t ~id ~sender:username =
     with_player t ~username ~f:(fun ~player ->
       cancel_player_order t ~id ~sender:player)
+
+  let cancel_orders t ~sender:username =
+    with_player t ~username ~f:(fun ~player ->
+      cancel_player_orders t ~sender:player)
 end
 
 module Phase = struct

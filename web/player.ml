@@ -103,6 +103,7 @@ module Playing = struct
           price  : Price.t;
         }
       | Send_cancel of Order.Id.t
+      | Send_cancel_all
       | Set_clock of Time_ns.t sexp_opaque
       | Clock of Countdown.Action.t
       [@@deriving sexp_of]
@@ -339,6 +340,16 @@ module App = struct
           >>| function
           | Ok `Ack -> ()
           | Error reject -> schedule (Message (Cancel_reject reject))
+        end;
+        round
+      | Send_cancel_all ->
+        don't_wait_for begin
+          Rpc.Rpc.dispatch_exn Protocol.Cancel_all.rpc conn ()
+          >>| function
+          | Ok `Ack -> ()
+          | Error reject ->
+            let reject = (reject :> Protocol.Cancel.error) in
+            schedule (Message (Cancel_reject reject))
         end;
         round
 
@@ -700,10 +711,14 @@ module App = struct
     Node.table [Attr.id "tape"] (trades @ open_orders)
 
   let cxl_by_id ~inject =
-    [ Widget.textbox ~id:"cxl" ~placeholder:"X" ~f:(fun oid ->
-        match Order.Id.of_string oid with
-        | exception _ -> Event.Ignore
-        | oid -> inject (Action.playing (Send_cancel oid)))
+    [ Widget.textbox ~id:"cxl" ~placeholder:"X"
+        ~f:(fun oid ->
+          if String.equal oid "all"
+          then inject (Action.playing Send_cancel_all)
+          else
+            match Order.Id.of_string oid with
+            | exception _ -> Event.Ignore
+            | oid -> inject (Action.playing (Send_cancel oid)))
         []
     ; Node.span [Attr.id "cxlhelp"] [Node.text "cancel by id"]
     ]

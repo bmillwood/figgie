@@ -271,6 +271,15 @@ let implementations () =
             Connection_manager.broadcast conns (Out order);
             Connection_manager.observer_update conns (Market round.market);
             return (Ok `Ack))
+    ; during_game Protocol.Cancel_all.rpc
+        (fun ~username ~round () ->
+          match Game.Round.cancel_orders round ~sender:username with
+          | (Error _) as e -> return e
+          | Ok orders ->
+            List.iter orders ~f:(fun order ->
+              Connection_manager.broadcast conns (Out order));
+            Connection_manager.observer_update conns (Market round.market);
+            return (Ok `Ack))
     ]
 
 let main ~tcp_port ~web_port =

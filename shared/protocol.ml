@@ -141,3 +141,10 @@ module Cancel = struct
   type response = ([ `Ack ], error) Result.t [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"cancel" ~version:1 ~bin_query ~bin_response
 end
+
+module Cancel_all = struct
+  type query = unit [@@deriving bin_io, sexp]
+  type error = not_playing [@@deriving bin_io, sexp]
+  type response = ([ `Ack ], error) Result.t [@@deriving bin_io, sexp]
+  let rpc = Rpc.Rpc.create ~name:"cxl-all" ~version:1 ~bin_query ~bin_response
+end
