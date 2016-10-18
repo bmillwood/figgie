@@ -33,6 +33,8 @@ module Observer_app = struct
       }
 
     let max_broadcasts = 1000
+
+    let cutoff = phys_equal
   end
 
   module Action = struct
@@ -44,32 +46,36 @@ module Observer_app = struct
       | Add_broadcast of Protocol.Broadcast.t
       [@@deriving sexp]
 
-    let apply action ~schedule:_ (model : Model.t) =
-      match action with
-      | Set_connection_status connection_status ->
-        { model with connection_status }
-      | Set_hands hands ->
-        { model with hands }
-      | Set_market market ->
-        { model with market }
-      | Set_gold gold ->
-        { model with gold = Some gold }
-      | Add_broadcast broadcast ->
-        let scores =
-          match broadcast with
-          | Scores scores -> scores
-          | _ -> model.scores
-        in
-        let old_broadcasts =
-          if Fqueue.length model.broadcasts = Model.max_broadcasts
-          then Fqueue.discard_exn model.broadcasts
-          else model.broadcasts
-        in
-        let broadcasts = Fqueue.enqueue old_broadcasts broadcast in
-        { model with scores; broadcasts }
-
     let should_log _ = false
   end
+
+  module State = struct
+    type t = unit
+  end
+
+  let apply_action (action : Action.t) (model : Model.t) () =
+    match action with
+    | Set_connection_status connection_status ->
+      { model with connection_status }
+    | Set_hands hands ->
+      { model with hands }
+    | Set_market market ->
+      { model with market }
+    | Set_gold gold ->
+      { model with gold = Some gold }
+    | Add_broadcast broadcast ->
+      let scores =
+        match broadcast with
+        | Scores scores -> scores
+        | _ -> model.scores
+      in
+      let old_broadcasts =
+        if Fqueue.length model.broadcasts = Model.max_broadcasts
+        then Fqueue.discard_exn model.broadcasts
+        else model.broadcasts
+      in
+      let broadcasts = Fqueue.enqueue old_broadcasts broadcast in
+      { model with scores; broadcasts }
 
   let status_span (connection_status : Connection_status.t) =
     let node ?(fg="black") ?(bg="transparent") text =
@@ -213,52 +219,50 @@ module Observer_app = struct
       ]
 
   let on_startup ~schedule _ =
-    don't_wait_for begin
-      let open Action in
-      let handle_update : Protocol.Observer_update.t -> unit =
-        function
-        | Broadcast broadcast -> schedule (Add_broadcast broadcast)
-        | Hands hands -> schedule (Set_hands hands)
-        | Market market -> schedule (Set_market market)
-        | Gold gold -> schedule (Set_gold gold)
-      in
-      schedule (Set_connection_status Connecting);
-      Websocket_rpc_transport.connect
-        (Host_and_port.create
-          ~host:"localhost"
-          ~port:Protocol.default_websocket_port)
-      >>= function
-      | Error () ->
-        schedule (Set_connection_status Failed_to_connect);
-        Deferred.unit
-      | Ok transport ->
-        Rpc.Connection.with_close
-          ~connection_state:(fun _ -> ())
-          transport
-          ~on_handshake_error:`Raise
-          ~dispatch_queries:(fun conn ->
-            schedule (Set_connection_status Connected);
-            Rpc.Pipe_rpc.dispatch_iter
-              Protocol.Get_observer_updates.rpc conn ()
-              ~f:(function
-                | Update update -> handle_update update; Continue
-                | Closed _ -> Continue)
-            >>| ok_exn
-            >>= function
-            | Error `Already_logged_in ->
-              failwith "Server says I'm already logged in"
-            | Ok _pipe_id -> Deferred.never ()
-          )
-        >>| fun () ->
-        schedule (Set_connection_status Disconnected)
-    end
+    let open Action in
+    let handle_update : Protocol.Observer_update.t -> unit =
+      function
+      | Broadcast broadcast -> schedule (Add_broadcast broadcast)
+      | Hands hands -> schedule (Set_hands hands)
+      | Market market -> schedule (Set_market market)
+      | Gold gold -> schedule (Set_gold gold)
+    in
+    schedule (Set_connection_status Connecting);
+    Websocket_rpc_transport.connect
+      (Host_and_port.create
+        ~host:"localhost"
+        ~port:Protocol.default_websocket_port)
+    >>= function
+    | Error () ->
+      schedule (Set_connection_status Failed_to_connect);
+      Deferred.unit
+    | Ok transport ->
+      Rpc.Connection.with_close
+        ~connection_state:(fun _ -> ())
+        transport
+        ~on_handshake_error:`Raise
+        ~dispatch_queries:(fun conn ->
+          schedule (Set_connection_status Connected);
+          Rpc.Pipe_rpc.dispatch_iter
+            Protocol.Get_observer_updates.rpc conn ()
+            ~f:(function
+              | Update update -> handle_update update; Continue
+              | Closed _ -> Continue)
+          >>| ok_exn
+          >>= function
+          | Error `Already_logged_in ->
+            failwith "Server says I'm already logged in"
+          | Ok _pipe_id -> Deferred.never ()
+        )
+      >>| fun () ->
+      schedule (Set_connection_status Disconnected)
 
-  let on_display ~schedule:_ ~old:_ _new = ()
+  let on_display ~old:_ _new () = ()
 
   let update_visibility model = model
 end
 
 let () =
   Start_app.simple
-    ~initial_state:Observer_app.Model.initial
+    ~initial_model:Observer_app.Model.initial
     (module Observer_app)

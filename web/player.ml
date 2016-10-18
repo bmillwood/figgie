@@ -223,6 +223,8 @@ module App = struct
       { messages = Fqueue.empty
       ; state = Disconnected
       }
+
+    let cutoff = phys_equal
   end
   open Model
 
@@ -238,296 +240,304 @@ module App = struct
       | Connected of Connected.Action.t
       [@@deriving sexp_of]
 
+    let should_log _ = false
+
     let connected cact = Connected cact
     let logged_in lact = connected (Logged_in lact)
     let game gact      = logged_in (Game gact)
     let waiting wact   = game (Waiting wact)
     let playing pact   = game (Playing pact)
     let clock cdact    = playing (Clock cdact)
+  end
 
-    let apply_waiting_action
-        (t : Waiting.Action.t)
-        ~schedule:_ ~conn ~(login : Logged_in.Model.t)
-        (waiting : Waiting.Model.t)
-      =
-      match t with
-      | I'm_ready readiness ->
-        don't_wait_for begin
-          Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn readiness
-          >>| function
-          | Ok () -> ()
-          | Error `Already_playing -> ()
-          | Error `Login_first -> ()
-        end;
-        Waiting.set_player_readiness waiting
-          ~username:login.me.username
-          ~is_ready:readiness
-      | Player_is_ready { other; is_ready } ->
-        Waiting.set_player_readiness waiting ~username:other ~is_ready
+  module State = struct
+    (* I'm pretty sure this is not what you're supposed to do here.
+       But I can't easily see what else it's supposed to be. *)
+    type t = { schedule : Action.t -> unit }
+  end
 
-    let apply_playing_action
-        (t : Playing.Action.t)
-        ~schedule ~conn ~(login : Logged_in.Model.t)
-        (round : Playing.Model.t)
-      =
-      match t with
-      | Market market ->
-        let other_hands =
-          Map.mapi round.other_hands ~f:(fun ~key:username ~data:hand ->
-            Card.Hand.foldi market ~init:hand
-              ~f:(fun suit hand book ->
-                let size =
-                  List.sum (module Size) book.sell ~f:(fun order ->
-                    if Username.equal order.owner username
-                    then order.size
-                    else Size.zero)
-                in
-                Partial_hand.selling hand ~suit ~size))
-        in
-        { round with market; other_hands }
-      | Hand hand ->
-        { round with my_hand = hand }
-      | Set_clock end_time ->
-        let clock =
-          Countdown.of_end_time
-            ~schedule:(fun cdact -> schedule (clock cdact))
-            end_time
-        in
-        { round with clock = Some clock }
-      | Clock cdact ->
-        let clock =
-          Option.map round.clock ~f:(fun c ->
-            Countdown.Action.apply cdact
-              ~schedule:(fun cdact -> schedule (clock cdact))
-              c)
-        in
-        { round with clock }
-      | Trade (order, with_) ->
-        let trades = Fqueue.enqueue round.trades (order, with_) in
-        let other_hands =
-          Map.mapi round.other_hands ~f:(fun ~key:username ~data:hand ->
-            let traded dir =
-              Partial_hand.traded
-                hand ~suit:order.symbol ~size:order.size ~dir
-            in
-            if Username.equal username order.owner
-            then traded order.dir
-            else if Username.equal username with_
-            then traded (Dir.other order.dir)
-            else hand)
-        in
-        { round with trades; other_hands }
-      | Score _ -> round
-      | Send_order { symbol; dir; price } ->
-        let order =
-          { Order.owner = login.me.username
-          ; id = round.next_order
-          ; symbol; dir; price
-          ; size = Size.of_int 1
-          }
-        in
-        don't_wait_for begin
-          Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn order
-          >>| function
-          | Ok `Ack -> ()
-          | Error reject -> schedule (Message (Order_reject reject))
-        end;
-        let next_order = Order.Id.next round.next_order in
-        { round with next_order }
-      | Send_cancel oid ->
-        don't_wait_for begin
-          Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn oid
-          >>| function
-          | Ok `Ack -> ()
-          | Error reject -> schedule (Message (Cancel_reject reject))
-        end;
-        round
-      | Send_cancel_all ->
-        don't_wait_for begin
-          Rpc.Rpc.dispatch_exn Protocol.Cancel_all.rpc conn ()
-          >>| function
-          | Ok `Ack -> ()
-          | Error reject ->
-            let reject = (reject :> Protocol.Cancel.error) in
-            schedule (Message (Cancel_reject reject))
-        end;
-        round
+  let apply_waiting_action
+      (t : Waiting.Action.t)
+      ~schedule:_ ~conn ~(login : Logged_in.Model.t)
+      (waiting : Waiting.Model.t)
+    =
+    match t with
+    | I'm_ready readiness ->
+      don't_wait_for begin
+        Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn readiness
+        >>| function
+        | Ok () -> ()
+        | Error `Already_playing -> ()
+        | Error `Login_first -> ()
+      end;
+      Waiting.set_player_readiness waiting
+        ~username:login.me.username
+        ~is_ready:readiness
+    | Player_is_ready { other; is_ready } ->
+      Waiting.set_player_readiness waiting ~username:other ~is_ready
 
-    let apply_game_action
-        (t : Game.Action.t)
-        ~schedule ~conn ~login
-        (game : Game.Model.t) : Game.Model.t
-      =
-      match game, t with
-      | Waiting wait, Waiting wact ->
-        Waiting (apply_waiting_action wact ~schedule ~conn ~login wait)
-      | Playing round, Playing pact ->
-        Playing (apply_playing_action pact ~schedule ~conn ~login round)
-      | Waiting _wait, Start_playing ->
-        Playing
-          { my_hand = Card.Hand.create_all Size.zero
-          ; other_hands =
-              Map.map login.others ~f:(fun _ ->
-                Partial_hand.create_unknown (Size.of_int 10))
-          ; market  = Book.empty
-          ; trades  = Fqueue.empty
-          ; next_order = Order.Id.zero
-          ; clock = None
-          }
-      | Playing _round, Round_over ->
-        Waiting { ready = Username.Set.empty }
-      | _ -> game
-
-    let apply_logged_in_action
-        (t : Logged_in.Action.t)
-        ~schedule ~conn
-        (login : Logged_in.Model.t) : Logged_in.Model.t
-      =
-      match t with
-      | Player_joined their_name ->
-        schedule
-          (waiting (Player_is_ready
-            { other = their_name; is_ready = false }));
-        Logged_in.add_new_player login ~username:their_name
-      | Scores scores ->
-        Map.fold scores ~init:login
-          ~f:(fun ~key:username ~data:score login ->
-            Logged_in.update_player login ~username
-              ~f:(fun player -> { player with score }))
-      | Game gact ->
-        let game = apply_game_action gact ~schedule ~conn ~login login.game in
-        { login with game }
-
-    let handle_update ~schedule conn : Protocol.Player_update.t -> unit =
-      function
-      | Hand hand     -> schedule (playing (Hand hand))
-      | Market market -> schedule (playing (Market market))
-      | Broadcast (Exec (order, exec)) ->
-        List.iter exec.fully_filled ~f:(fun filled_order ->
-          schedule (playing (Trade
-            ( { order
-                with size = filled_order.size; price = filled_order.price }
-            , filled_order.owner
-            ))));
-        Option.iter exec.partially_filled ~f:(fun partial_fill ->
-          schedule (playing (Trade
-            ( { order with size = partial_fill.filled_by }
-            , partial_fill.original_order.owner
-            ))));
-        don't_wait_for begin
-          let%map () =
-            Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
-            >>| Protocol.playing_exn
-          and () =
-            Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Hand
-            >>| Protocol.playing_exn
+  let apply_playing_action
+      (t : Playing.Action.t)
+      ~schedule ~conn ~(login : Logged_in.Model.t)
+      (round : Playing.Model.t)
+    =
+    match t with
+    | Market market ->
+      let other_hands =
+        Map.mapi round.other_hands ~f:(fun ~key:username ~data:hand ->
+          Card.Hand.foldi market ~init:hand
+            ~f:(fun suit hand book ->
+              let size =
+                List.sum (module Size) book.sell ~f:(fun order ->
+                  if Username.equal order.owner username
+                  then order.size
+                  else Size.zero)
+              in
+              Partial_hand.selling hand ~suit ~size))
+      in
+      { round with market; other_hands }
+    | Hand hand ->
+      { round with my_hand = hand }
+    | Set_clock end_time ->
+      let clock =
+        Countdown.of_end_time
+          ~schedule:(fun cdact -> schedule (Action.clock cdact))
+          end_time
+      in
+      { round with clock = Some clock }
+    | Clock cdact ->
+      let clock =
+        Option.map round.clock ~f:(fun c ->
+          Countdown.Action.apply cdact
+            ~schedule:(fun cdact -> schedule (Action.clock cdact))
+            c)
+      in
+      { round with clock }
+    | Trade (order, with_) ->
+      let trades = Fqueue.enqueue round.trades (order, with_) in
+      let other_hands =
+        Map.mapi round.other_hands ~f:(fun ~key:username ~data:hand ->
+          let traded dir =
+            Partial_hand.traded
+              hand ~suit:order.symbol ~size:order.size ~dir
           in
-          ()
-        end
-      | Broadcast (Player_joined username) ->
-        schedule (logged_in (Player_joined username))
-      | Broadcast New_round ->
-        schedule (game Start_playing);
-        don't_wait_for begin
-          (* Sample the time *before* we send the RPC. Then the game end
-             time we get is actually roughly "last time we can expect to
-             send an RPC and have it arrive before the game ends". *)
-          let current_time = Time_ns.now () in
-          Rpc.Rpc.dispatch_exn Protocol.Time_remaining.rpc conn ()
-          >>| function
-          | Error `Game_not_in_progress -> ()
-          | Ok remaining ->
-            let end_time = Time_ns.add current_time remaining in
-            schedule (playing (Set_clock end_time))
-        end
-      | Broadcast (Round_over _results) ->
-        schedule (game Round_over)
-      | Broadcast (Scores scores) ->
-        schedule (logged_in (Scores scores))
-      | Broadcast (Chat (who, msg)) ->
-        schedule (Message (Chat (who, msg)))
-      | Broadcast (Out _) ->
-        don't_wait_for begin
+          if Username.equal username order.owner
+          then traded order.dir
+          else if Username.equal username with_
+          then traded (Dir.other order.dir)
+          else hand)
+      in
+      { round with trades; other_hands }
+    | Score _ -> round
+    | Send_order { symbol; dir; price } ->
+      let order =
+        { Order.owner = login.me.username
+        ; id = round.next_order
+        ; symbol; dir; price
+        ; size = Size.of_int 1
+        }
+      in
+      don't_wait_for begin
+        Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn order
+        >>| function
+        | Ok `Ack -> ()
+        | Error reject -> schedule (Message (Order_reject reject))
+      end;
+      let next_order = Order.Id.next round.next_order in
+      { round with next_order }
+    | Send_cancel oid ->
+      don't_wait_for begin
+        Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn oid
+        >>| function
+        | Ok `Ack -> ()
+        | Error reject -> schedule (Message (Cancel_reject reject))
+      end;
+      round
+    | Send_cancel_all ->
+      don't_wait_for begin
+        Rpc.Rpc.dispatch_exn Protocol.Cancel_all.rpc conn ()
+        >>| function
+        | Ok `Ack -> ()
+        | Error reject ->
+          let reject = (reject :> Protocol.Cancel.error) in
+          schedule (Message (Cancel_reject reject))
+      end;
+      round
+
+  let apply_game_action
+      (t : Game.Action.t)
+      ~schedule ~conn ~login
+      (game : Game.Model.t) : Game.Model.t
+    =
+    match game, t with
+    | Waiting wait, Waiting wact ->
+      Waiting (apply_waiting_action wact ~schedule ~conn ~login wait)
+    | Playing round, Playing pact ->
+      Playing (apply_playing_action pact ~schedule ~conn ~login round)
+    | Waiting _wait, Start_playing ->
+      Playing
+        { my_hand = Card.Hand.create_all Size.zero
+        ; other_hands =
+            Map.map login.others ~f:(fun _ ->
+              Partial_hand.create_unknown (Size.of_int 10))
+        ; market  = Book.empty
+        ; trades  = Fqueue.empty
+        ; next_order = Order.Id.zero
+        ; clock = None
+        }
+    | Playing _round, Round_over ->
+      Waiting { ready = Username.Set.empty }
+    | _ -> game
+
+  let apply_logged_in_action
+      (t : Logged_in.Action.t)
+      ~schedule ~conn
+      (login : Logged_in.Model.t) : Logged_in.Model.t
+    =
+    match t with
+    | Player_joined their_name ->
+      schedule
+        (Action.waiting (Player_is_ready
+          { other = their_name; is_ready = false }));
+      Logged_in.add_new_player login ~username:their_name
+    | Scores scores ->
+      Map.fold scores ~init:login
+        ~f:(fun ~key:username ~data:score login ->
+          Logged_in.update_player login ~username
+            ~f:(fun player -> { player with score }))
+    | Game gact ->
+      let game = apply_game_action gact ~schedule ~conn ~login login.game in
+      { login with game }
+
+  let handle_update ~schedule conn : Protocol.Player_update.t -> unit =
+    function
+    | Hand hand     -> schedule (Action.playing (Hand hand))
+    | Market market -> schedule (Action.playing (Market market))
+    | Broadcast (Exec (order, exec)) ->
+      List.iter exec.fully_filled ~f:(fun filled_order ->
+        schedule (Action.playing (Trade
+          ( { order
+              with size = filled_order.size; price = filled_order.price }
+          , filled_order.owner
+          ))));
+      Option.iter exec.partially_filled ~f:(fun partial_fill ->
+        schedule (Action.playing (Trade
+          ( { order with size = partial_fill.filled_by }
+          , partial_fill.original_order.owner
+          ))));
+      don't_wait_for begin
+        let%map () =
           Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
           >>| Protocol.playing_exn
-        end
-      | Broadcast (Player_ready _) -> ()
-
-    let apply_connected_action
-        (t : Connected.Action.t)
-        ~schedule
-        (conn : Connected.Model.t) : Connected.Model.t
-      =
-      match t with
-      | Start_login username ->
-        don't_wait_for begin
-          Rpc.Pipe_rpc.dispatch_exn Protocol.Login.rpc conn.conn username
-          >>= fun (pipe, _pipe_metadata) ->
-          schedule (connected (Finish_login username));
-          Pipe.iter_without_pushback pipe
-            ~f:(fun update -> handle_update ~schedule conn.conn update)
-          >>| fun () ->
-          schedule Connection_failed
-        end;
-        conn
-      | Finish_login username ->
-        let me : Player.Persistent.t =
-          { username; id = Me; score = Price.zero }
+        and () =
+          Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Hand
+          >>| Protocol.playing_exn
         in
+        ()
+      end
+    | Broadcast (Player_joined username) ->
+      schedule (Action.logged_in (Player_joined username))
+    | Broadcast New_round ->
+      schedule (Action.game Start_playing);
+      don't_wait_for begin
+        (* Sample the time *before* we send the RPC. Then the game end
+           time we get is actually roughly "last time we can expect to
+           send an RPC and have it arrive before the game ends". *)
+        let current_time = Time_ns.now () in
+        Rpc.Rpc.dispatch_exn Protocol.Time_remaining.rpc conn ()
+        >>| function
+        | Error `Game_not_in_progress -> ()
+        | Ok remaining ->
+          let end_time = Time_ns.add current_time remaining in
+          schedule (Action.playing (Set_clock end_time))
+      end
+    | Broadcast (Round_over _results) ->
+      schedule (Action.game Round_over)
+    | Broadcast (Scores scores) ->
+      schedule (Action.logged_in (Scores scores))
+    | Broadcast (Chat (who, msg)) ->
+      schedule (Message (Chat (who, msg)))
+    | Broadcast (Out _) ->
+      don't_wait_for begin
+        Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
+        >>| Protocol.playing_exn
+      end
+    | Broadcast (Player_ready _) -> ()
+
+  let apply_connected_action
+      (t : Connected.Action.t)
+      ~schedule
+      (conn : Connected.Model.t) : Connected.Model.t
+    =
+    match t with
+    | Start_login username ->
+      don't_wait_for begin
+        Rpc.Pipe_rpc.dispatch_exn Protocol.Login.rpc conn.conn username
+        >>= fun (pipe, _pipe_metadata) ->
+        schedule (Action.connected (Finish_login username));
+        Pipe.iter_without_pushback pipe
+          ~f:(fun update -> handle_update ~schedule conn.conn update)
+        >>| fun () ->
+        schedule Connection_failed
+      end;
+      conn
+    | Finish_login username ->
+      let me : Player.Persistent.t =
+        { username; id = Me; score = Price.zero }
+      in
+      let logged_in =
+        { Logged_in.Model.me; others = Username.Map.empty
+        ; game = Waiting { ready = Username.Set.empty }
+        }
+      in
+      { conn with login = Some logged_in }
+    | Logged_in lact ->
+      begin match conn.login with
+      | None -> conn
+      | Some logged_in ->
         let logged_in =
-          { Logged_in.Model.me; others = Username.Map.empty
-          ; game = Waiting { ready = Username.Set.empty }
-          }
+          apply_logged_in_action lact ~schedule ~conn:conn.conn logged_in
         in
         { conn with login = Some logged_in }
-      | Logged_in lact ->
-        begin match conn.login with
-        | None -> conn
-        | Some logged_in ->
-          let logged_in =
-            apply_logged_in_action lact ~schedule ~conn:conn.conn logged_in
-          in
-          { conn with login = Some logged_in }
-        end
+      end
 
-    let apply t ~schedule (model : Model.t) =
-      match t with
-      | Message msg ->
-        { model with messages = Fqueue.enqueue model.messages msg }
-      | Start_connecting host_and_port ->
-        let host, port = Host_and_port.tuple host_and_port in
-        don't_wait_for begin
-          Websocket_rpc_transport.connect (Host_and_port.create ~host ~port)
-          >>= function
-          | Error () ->
-            schedule Connection_failed;
-            Deferred.unit
-          | Ok transport ->
-            Rpc.Connection.create
-              ~connection_state:ignore
-              transport
-            >>| function
-            | Error exn ->
-              ignore exn;
-              schedule Connection_failed
-            | Ok conn ->
-              schedule (Finish_connecting { host_and_port; conn })
-        end;
-        { model with state = Connecting host_and_port }
-      | Finish_connecting { host_and_port; conn } ->
-        { model with state = Connected { host_and_port; conn; login = None } }
-      | Connection_failed ->
-        { model with state = Connection_failed }
-      | Connected cact ->
-        begin match model.state with
-        | Connected conn ->
-          let conn = apply_connected_action cact ~schedule conn in
-          { model with state = Connected conn }
-        | _ -> model
-        end
-
-    let should_log _ = false
-  end
+  let apply_action (action : Action.t) (model : Model.t) (state : State.t) =
+    match action with
+    | Message msg ->
+      { model with messages = Fqueue.enqueue model.messages msg }
+    | Start_connecting host_and_port ->
+      let host, port = Host_and_port.tuple host_and_port in
+      don't_wait_for begin
+        Websocket_rpc_transport.connect (Host_and_port.create ~host ~port)
+        >>= function
+        | Error () ->
+          state.schedule Connection_failed;
+          Deferred.unit
+        | Ok transport ->
+          Rpc.Connection.create
+            ~connection_state:ignore
+            transport
+          >>| function
+          | Error exn ->
+            ignore exn;
+            state.schedule Connection_failed
+          | Ok conn ->
+            state.schedule (Finish_connecting { host_and_port; conn })
+      end;
+      { model with state = Connecting host_and_port }
+    | Finish_connecting { host_and_port; conn } ->
+      { model with state = Connected { host_and_port; conn; login = None } }
+    | Connection_failed ->
+      { model with state = Connection_failed }
+    | Connected cact ->
+      begin match model.state with
+      | Connected conn ->
+        let conn =
+          apply_connected_action cact ~schedule:state.schedule conn
+        in
+        { model with state = Connected conn }
+      | _ -> model
+      end
 
   let parse_host_and_port hps =
     match Host_and_port.of_string hps with
@@ -992,9 +1002,10 @@ module App = struct
 
   let on_startup ~schedule _model =
     Option.iter (List.Assoc.find Url.Current.arguments "autoconnect")
-      ~f:(fun v -> schedule (Action.Start_connecting (parse_host_and_port v)))
+      ~f:(fun v -> schedule (Action.Start_connecting (parse_host_and_port v)));
+    return { State.schedule }
 
-  let on_display ~schedule:_ ~(old : Model.t) (new_ : Model.t) =
+  let on_display ~(old : Model.t) (new_ : Model.t) (_state : State.t) =
     match old.state, new_.state with
     | Connecting _, Connected _ ->
       focus_input ~element_id:Ids.login
@@ -1009,5 +1020,5 @@ end
 
 let () =
   Start_app.simple
-    ~initial_state:App.Model.initial
+    ~initial_model:App.Model.initial
     (module App)
