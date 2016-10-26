@@ -154,11 +154,17 @@ module Logged_in = struct
   let add_new_player (t : Model.t) ~username =
     update_player t ~username ~f:Fn.id
 
+  let player (t : Model.t) ~username =
+    if Username.equal t.me.username username
+    then Some t.me
+    else Map.find t.others username
+
   module Action = struct
     type t =
       | Player_joined of Username.t
       | Scores of Price.t Username.Map.t
       | Game of Game.Action.t
+      | Update of Protocol.Player_update.t
       [@@deriving sexp_of]
   end
 end
@@ -191,18 +197,10 @@ module App = struct
         | Connection_failed
     end
 
-    module Message = struct
-      type t =
-        | Order_reject of Protocol.Order.error
-        | Cancel_reject of Protocol.Cancel.error
-        | Chat of Username.t * string
-        [@@deriving sexp_of]
-    end
-
-    type t = {
-      messages : Message.t Fqueue.t;
-      state : Connection_state.t
-    }
+    type t =
+      { messages : Chat.Message.t Fqueue.t
+      ; state : Connection_state.t
+      }
 
     let initial =
       { messages = Fqueue.empty
@@ -215,7 +213,7 @@ module App = struct
 
   module Action = struct
     type t =
-      | Message of Message.t
+      | Message of Chat.Message.t
       | Start_connecting of Host_and_port.t
       | Finish_connecting of
         { host_and_port : Host_and_port.t
@@ -393,62 +391,71 @@ module App = struct
     | Game gact ->
       let game = apply_game_action gact ~schedule ~conn ~login login.game in
       { login with game }
-
-  let handle_update ~schedule conn : Protocol.Player_update.t -> unit =
-    function
-    | Hand hand     -> schedule (Action.playing (Hand hand))
-    | Market market -> schedule (Action.playing (Market market))
-    | Broadcast (Exec (order, exec)) ->
-      List.iter exec.fully_filled ~f:(fun filled_order ->
-        schedule (Action.playing (Trade
-          ( { order
-              with size = filled_order.size; price = filled_order.price }
-          , filled_order.owner
-          ))));
-      Option.iter exec.partially_filled ~f:(fun partial_fill ->
-        schedule (Action.playing (Trade
-          ( { order with size = partial_fill.filled_by }
-          , partial_fill.original_order.owner
-          ))));
-      don't_wait_for begin
-        let%map () =
+    | Update up ->
+      let just_schedule act = schedule act; login in
+      match up with
+      | Hand hand     -> just_schedule (Action.playing (Hand hand))
+      | Market market -> just_schedule (Action.playing (Market market))
+      | Broadcast (Exec (order, exec)) ->
+        List.iter exec.fully_filled ~f:(fun filled_order ->
+          schedule (Action.playing (Trade
+            ( { order
+                with size = filled_order.size; price = filled_order.price }
+            , filled_order.owner
+            ))));
+        Option.iter exec.partially_filled ~f:(fun partial_fill ->
+          schedule (Action.playing (Trade
+            ( { order with size = partial_fill.filled_by }
+            , partial_fill.original_order.owner
+            ))));
+        don't_wait_for begin
+          let%map () =
+            Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
+            >>| Protocol.playing_exn
+          and () =
+            Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Hand
+            >>| Protocol.playing_exn
+          in
+          ()
+        end;
+        login
+      | Broadcast (Player_joined username) ->
+        just_schedule (Action.logged_in (Player_joined username))
+      | Broadcast New_round ->
+        schedule (Action.game Start_playing);
+        don't_wait_for begin
+          (* Sample the time *before* we send the RPC. Then the game end
+             time we get is actually roughly "last time we can expect to
+             send an RPC and have it arrive before the game ends". *)
+          let current_time = Time_ns.now () in
+          Rpc.Rpc.dispatch_exn Protocol.Time_remaining.rpc conn ()
+          >>| function
+          | Error `Game_not_in_progress -> ()
+          | Ok remaining ->
+            let end_time = Time_ns.add current_time remaining in
+            schedule (Action.playing (Set_clock end_time))
+        end;
+        login
+      | Broadcast (Round_over _results) ->
+        just_schedule (Action.game Round_over)
+      | Broadcast (Scores scores) ->
+        just_schedule (Action.logged_in (Scores scores))
+      | Broadcast (Chat (who, msg)) ->
+        let player =
+          Option.value (Logged_in.player login ~username:who)
+            ~default:Player.Persistent.nobody
+        in
+        let class_ = Player_id.class_ player.id in
+        just_schedule (Message (Chat ((who, class_), msg)))
+      | Broadcast (Out _) ->
+        don't_wait_for begin
           Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
           >>| Protocol.playing_exn
-        and () =
-          Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Hand
-          >>| Protocol.playing_exn
-        in
-        ()
-      end
-    | Broadcast (Player_joined username) ->
-      schedule (Action.logged_in (Player_joined username))
-    | Broadcast New_round ->
-      schedule (Action.game Start_playing);
-      don't_wait_for begin
-        (* Sample the time *before* we send the RPC. Then the game end
-           time we get is actually roughly "last time we can expect to
-           send an RPC and have it arrive before the game ends". *)
-        let current_time = Time_ns.now () in
-        Rpc.Rpc.dispatch_exn Protocol.Time_remaining.rpc conn ()
-        >>| function
-        | Error `Game_not_in_progress -> ()
-        | Ok remaining ->
-          let end_time = Time_ns.add current_time remaining in
-          schedule (Action.playing (Set_clock end_time))
-      end
-    | Broadcast (Round_over _results) ->
-      schedule (Action.game Round_over)
-    | Broadcast (Scores scores) ->
-      schedule (Action.logged_in (Scores scores))
-    | Broadcast (Chat (who, msg)) ->
-      schedule (Message (Chat (who, msg)))
-    | Broadcast (Out _) ->
-      don't_wait_for begin
-        Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
-        >>| Protocol.playing_exn
-      end
-    | Broadcast (Player_ready { who; is_ready }) ->
-      schedule (Action.waiting (Player_is_ready { other = who; is_ready }))
+        end;
+        login
+      | Broadcast (Player_ready { who; is_ready }) ->
+        just_schedule
+          (Action.waiting (Player_is_ready { other = who; is_ready }))
 
   let apply_connected_action
       (t : Connected.Action.t)
@@ -462,7 +469,7 @@ module App = struct
         >>= fun (pipe, _pipe_metadata) ->
         schedule (Action.connected (Finish_login username));
         Pipe.iter_without_pushback pipe
-          ~f:(fun update -> handle_update ~schedule conn.conn update)
+          ~f:(fun update -> schedule (Action.logged_in (Update update)))
         >>| fun () ->
         schedule Connection_failed
       end;
@@ -869,51 +876,6 @@ module App = struct
       ~others:(Map.map login.others ~f:draw_other)
       ~me:(draw_hand login.me (Partial_hand.create_known playing.my_hand))
 
-  let history ~players ~messages =
-    let nodes_of_message : Message.t -> _ =
-      function
-      | Chat (who, msg) ->
-        let player =
-          Map.find players who
-          |> Option.value ~default:Player.nobody
-        in
-        [ Node.span
-            [Attr.class_ (Player_id.class_ player.pers.id)]
-            [Node.text (Username.to_string player.pers.username)]
-        ; Node.text ": "
-        ; Node.text msg
-        ]
-      | Order_reject reject ->
-        [ Node.text
-            (Protocol.Order.sexp_of_error reject |> Sexp.to_string)
-        ]
-      | Cancel_reject reject ->
-        [ Node.text
-            (Protocol.Cancel.sexp_of_error reject |> Sexp.to_string)
-        ]
-    in
-    Node.ul [Attr.id "history"]
-      (List.map (Fqueue.to_list messages) ~f:(fun msg ->
-        Node.li [] (nodes_of_message msg)))
-
-  let cmdline (model : Model.t) =
-    Widget.textbox ~id:Ids.cmdline
-      ~f:(fun msg ->
-        begin match model.state with
-        | Connected { conn; _ } ->
-          don't_wait_for begin
-            Rpc.Rpc.dispatch_exn Protocol.Chat.rpc conn msg
-            >>| function
-            | Error `Login_first | Ok () -> ()
-          end
-        | _ -> ()
-        end;
-        Event.Ignore)
-      [ Attr.property "disabled"
-          (Js.Unsafe.inject (Js.bool
-            (match model.state with | Connected _ -> false | _ -> true)))
-      ]
-
   let hotkeys =
     [| 'q', Ids.order ~dir:Sell ~suit:Spades
     ;  'w', Ids.order ~dir:Sell ~suit:Hearts
@@ -925,6 +887,29 @@ module App = struct
     ;  'f', Ids.order ~dir:Buy  ~suit:Clubs
     ;  'c', Ids.cancel
     |]
+
+  let chat_view (model : Model.t) =
+    let chat_model : Chat.Model.t =
+      { Chat.Model.messages = model.messages
+      ; is_connected =
+        match model.state with
+        | Connected _ -> true
+        | _ -> false
+      }
+    in
+    let chat_inject (Chat.Action.Send_chat msg) =
+      begin match model.state with
+      | Connected { conn; _ } ->
+        don't_wait_for begin
+          Rpc.Rpc.dispatch_exn Protocol.Chat.rpc conn msg
+          >>| function
+          | Error `Login_first | Ok () -> ()
+        end
+      | _ -> ()
+      end;
+      Event.Ignore
+    in
+    Chat.view chat_model ~inject:chat_inject
 
   let view (incr_model : Model.t Incr.t) ~inject =
     let open Incr.Let_syntax in
@@ -988,10 +973,7 @@ module App = struct
           ]
         ]
       ; infoboxes
-      ; div [Attr.id "historycmd"]
-        [ history ~players ~messages:model.messages
-        ; cmdline model
-        ]
+      ; chat_view model
       ]
     ]
 
