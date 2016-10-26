@@ -312,8 +312,15 @@ module Card_counter = struct
                   (buy @ sell)
                     ~f:(fun order ->
                       let want_to_trade =
+                        (* countbot doesn't understand the value of getting
+                           the most gold cards, so substantially
+                           underestimates some expected values.
+                           Correspondingly, countbot should not sell. Future
+                           work: come up with a (very?) conservative fair
+                           value by assuming that *every* gold sale loses you
+                           the pot. *)
                         match order.dir with
-                        | Buy -> fair <. Price.to_float order.price
+                        | Buy -> false (* fair <. Price.to_float order.price *)
                         | Sell -> fair >. Price.to_float order.price
                       in
                       if want_to_trade
