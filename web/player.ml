@@ -161,8 +161,6 @@ module Logged_in = struct
 
   module Action = struct
     type t =
-      | Player_joined of Username.t
-      | Scores of Price.t Username.Map.t
       | Game of Game.Action.t
       | Update of Protocol.Player_update.t
       [@@deriving sexp_of]
@@ -378,16 +376,6 @@ module App = struct
       (login : Logged_in.Model.t) : Logged_in.Model.t
     =
     match t with
-    | Player_joined their_name ->
-      schedule
-        (Action.waiting (Player_is_ready
-          { other = their_name; is_ready = false }));
-      Logged_in.add_new_player login ~username:their_name
-    | Scores scores ->
-      Map.fold scores ~init:login
-        ~f:(fun ~key:username ~data:score login ->
-          Logged_in.update_player login ~username
-            ~f:(fun player -> { player with score }))
     | Game gact ->
       let game = apply_game_action gact ~schedule ~conn ~login login.game in
       { login with game }
@@ -420,7 +408,10 @@ module App = struct
         end;
         login
       | Broadcast (Player_joined username) ->
-        just_schedule (Action.logged_in (Player_joined username))
+        schedule
+          (Action.waiting (Player_is_ready
+            { other = username; is_ready = false }));
+        Logged_in.add_new_player login ~username
       | Broadcast New_round ->
         schedule (Action.game Start_playing);
         don't_wait_for begin
@@ -439,7 +430,10 @@ module App = struct
       | Broadcast (Round_over _results) ->
         just_schedule (Action.game Round_over)
       | Broadcast (Scores scores) ->
-        just_schedule (Action.logged_in (Scores scores))
+        Map.fold scores ~init:login
+          ~f:(fun ~key:username ~data:score login ->
+            Logged_in.update_player login ~username
+              ~f:(fun player -> { player with score }))
       | Broadcast (Chat (who, msg)) ->
         let player =
           Option.value (Logged_in.player login ~username:who)
