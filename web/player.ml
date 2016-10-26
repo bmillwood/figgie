@@ -621,10 +621,9 @@ module App = struct
                 Map.find players order.owner
                 |> Option.value ~default:Player.nobody
               in
-              let class_ = Player_id.class_ player.pers.id in
               Node.td [] [
                 Node.span
-                  [Attr.class_ class_]
+                  [Attr.class_ (Player_id.class_ player.pers.id)]
                   [Node.text (Price.to_string order.price)]
               ])
         in
@@ -750,7 +749,7 @@ module App = struct
       Widget.textbox ~id:Ids.login ~placeholder:"username" ?initial_value
         ~f:(fun user ->
           inject (Action.connected (Start_login (Username.of_string user))))
-        [Attr.class_ "name me"]
+        [Attr.classes ["name"; "me"]]
     in
     infoboxes
       [infobox ~pos:Me ~name:login_textbox ~score:None ~info:[]]
@@ -758,13 +757,12 @@ module App = struct
   let player_infobox ~pos ~(pers : Player.Persistent.t) ~ranking ~info =
     let score =
       Node.span
-        [Attr.class_ (sprintf "score %s" ranking)]
+        [Attr.classes ["score"; ranking]]
         [Node.text (Price.to_string pers.score)]
     in
     let name =
-      let class_ = sprintf "name %s" (Player_id.class_ pers.id) in
       Node.span
-        [ Attr.class_ class_ ]
+        [ Attr.classes ["name"; Player_id.class_ pers.id] ]
         [ Node.text (Username.to_string pers.username) ]
     in
     infobox ~pos ~name ~score:(Some score) ~info
