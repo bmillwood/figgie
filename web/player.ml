@@ -447,7 +447,8 @@ module App = struct
         Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
         >>| Protocol.playing_exn
       end
-    | Broadcast (Player_ready _) -> ()
+    | Broadcast (Player_ready { who; is_ready }) ->
+      schedule (Action.waiting (Player_is_ready { other = who; is_ready }))
 
   let apply_connected_action
       (t : Connected.Action.t)
