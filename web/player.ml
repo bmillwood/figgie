@@ -6,21 +6,6 @@ open Vdom
 
 open Market
 
-(* only bother putting an id in here if it is referred to
-   in more than one place *)
-module Ids = struct
-  let login = "login"
-  let ready_button = "readyButton"
-end
-
-let focus_input ~element_id =
-  let (>>>) t f = Option.iter t ~f in
-  Option.try_with (fun () -> Dom_html.getElementById element_id)
-  >>> fun elt ->
-  Js.Opt.to_option (Dom_html.CoerceTo.input elt)
-  >>> fun input ->
-  input##focus
-
 module Waiting = struct
   module Model = struct
     type t = { ready : Username.Set.t }
@@ -579,7 +564,7 @@ module App = struct
         in
         ( "Disconnected"
         , [ textf "Connect to:"
-          ; Widget.textbox ~id:"connectTo"
+          ; Widget.textbox ~id:Ids.connectTo
               ?initial_value:address_from_query_string
               ~placeholder:"host[:port]" ~clear_on_submit:false
               ~f:(fun hps ->
@@ -599,7 +584,9 @@ module App = struct
     Node.p [Attr.id "status"; Attr.class_ class_]
       (status @ Option.to_list clock)
 
-  let market_table ~players ~(inject : Action.t -> _) (market : Book.t) =
+  let market_table
+    ~hotkeys ~players ~(inject : Action.t -> _) (market : Book.t)
+    =
     let market_depth = 3 in
     let nbsp = "\xc2\xa0" in
     let empty_cells =
@@ -608,16 +595,12 @@ module App = struct
     in
     let input_row ~dir =
       let dir_s = Dir.to_string dir in
-      let id symbol = "order" ^ dir_s ^ Card.Suit.name symbol in
-      let keys =
-        Dir.fold dir
-          ~sell:["Q"; "W"; "E"; "R"]
-          ~buy:["A"; "S"; "D"; "F"]
-      in
       Node.tr [Attr.id ("order" ^ dir_s); Attr.class_ dir_s]
-        (List.map2_exn Card.Suit.all keys ~f:(fun symbol key ->
+        (List.map Card.Suit.all ~f:(fun symbol ->
+          let id = Ids.order ~dir ~suit:symbol in
+          let placeholder = Hotkeys.placeholder_of_id hotkeys id in
           Node.td [] [
-            Widget.textbox ~id:(id symbol) ~placeholder:key
+            Widget.textbox ~id ?placeholder
               ~f:(fun price_s ->
                 match Price.of_string price_s with
                 | exception _ -> Event.Ignore
@@ -720,8 +703,9 @@ module App = struct
     in
     Node.table [Attr.id "tape"] (trades @ open_orders)
 
-  let cxl_by_id ~inject =
-    [ Widget.textbox ~id:"cxl" ~placeholder:"X"
+  let cxl_by_id ~hotkeys ~inject =
+    let placeholder = Hotkeys.placeholder_of_id hotkeys Ids.cancel in
+    [ Widget.textbox ~id:Ids.cancel ?placeholder
         ~f:(fun oid ->
           if String.equal oid "all"
           then inject (Action.playing Send_cancel_all)
@@ -914,8 +898,7 @@ module App = struct
         Node.li [] (nodes_of_message msg)))
 
   let cmdline (model : Model.t) =
-    let this_id = "cmdline" in
-    Widget.textbox ~id:this_id
+    Widget.textbox ~id:Ids.cmdline
       ~f:(fun msg ->
         begin match model.state with
         | Connected { conn; _ } ->
@@ -931,6 +914,18 @@ module App = struct
           (Js.Unsafe.inject (Js.bool
             (match model.state with | Connected _ -> false | _ -> true)))
       ]
+
+  let hotkeys =
+    [| 'q', Ids.order ~dir:Sell ~suit:Spades
+    ;  'w', Ids.order ~dir:Sell ~suit:Hearts
+    ;  'e', Ids.order ~dir:Sell ~suit:Diamonds
+    ;  'r', Ids.order ~dir:Sell ~suit:Clubs
+    ;  'a', Ids.order ~dir:Buy  ~suit:Spades
+    ;  's', Ids.order ~dir:Buy  ~suit:Hearts
+    ;  'd', Ids.order ~dir:Buy  ~suit:Diamonds
+    ;  'f', Ids.order ~dir:Buy  ~suit:Clubs
+    ;  'c', Ids.cancel
+    |]
 
   let view (incr_model : Model.t Incr.t) ~inject =
     let open Incr.Let_syntax in
@@ -979,17 +974,18 @@ module App = struct
     in
     let my_username = me.pers.username in
     let market_help = Node.text "" in
+    let on_keypress = Vdom.Attr.on_keypress (Hotkeys.on_keypress hotkeys) in
     let open Node in
-    body [] [div [Attr.id "container"]
+    body [on_keypress] [div [Attr.id "container"]
       [ status_line ~inject model.state
       ; table [Attr.id "exchange"]
         [ tr []
-          [ td [] [market_table ~players ~inject market]
+          [ td [] [market_table ~hotkeys ~players ~inject market]
           ; td [] [tape_table ~my_username ~players market trades]
           ]
         ; tr []
           [ td [] [market_help]
-          ; td [Attr.id "cxlcontainer"] (cxl_by_id ~inject)
+          ; td [Attr.id "cxlcontainer"] (cxl_by_id ~hotkeys ~inject)
           ]
         ]
       ; infoboxes
@@ -1008,7 +1004,7 @@ module App = struct
   let on_display ~(old : Model.t) (new_ : Model.t) (_state : State.t) =
     match old.state, new_.state with
     | Connecting _, Connected _ ->
-      focus_input ~element_id:Ids.login
+      Focus.focus_input ~id:Ids.login
     | Connected { login = None; _ }, Connected { login = Some _; _ } ->
       (* would like to focus ready button here, but buttonElement doesn't
          seem to have a focus method *)
