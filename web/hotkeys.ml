@@ -26,14 +26,17 @@ let on_keypress (t : t) (ev : Dom_html.keyboardEvent Js.t) =
   with
   | None -> Vdom.Event.Ignore
   | Some id ->
-    let suppress =
+    let suppress_because_focus =
       match Focus.get () with
       | None -> false
       | Some active_id ->
         Set.mem suppress_hotkeys_if_focused active_id
           || String.equal id active_id
     in
-    if suppress
+    let suppress_because_modifier =
+      Js.to_bool ev##.altKey || Js.to_bool ev##.ctrlKey
+    in
+    if suppress_because_focus || suppress_because_modifier
     then Vdom.Event.Ignore
     else begin
       Focus.focus_input ~id;
