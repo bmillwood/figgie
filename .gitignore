@@ -1,4 +1,3 @@
 *.byte
-observer.js
 player.js
 _build
