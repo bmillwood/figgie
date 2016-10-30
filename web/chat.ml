@@ -17,18 +17,11 @@ module Message = struct
     [@@deriving sexp_of]
 end
 
-module Model = struct
-  type t =
-    { messages : Message.t Fqueue.t
-    ; is_connected : bool
-    }
-end
-
 module Action = struct
   type t = Send_chat of string
 end
 
-let view (t : Model.t) ~inject =
+let view ~messages ~is_connected ~inject =
   let nodes_of_message : Message.t -> _ =
     function
     | Order_reject reject ->
@@ -47,11 +40,11 @@ let view (t : Model.t) ~inject =
   in
   Node.div [Attr.id "historycmd"]
     [ Node.ul [Attr.id "history"]
-        (List.map (Fqueue.to_list t.messages) ~f:(fun msg ->
+        (List.map (Fqueue.to_list messages) ~f:(fun msg ->
           Node.li [] (nodes_of_message msg)))
     ; Widget.textbox ~id:Ids.cmdline
         ~f:(fun msg -> inject (Action.Send_chat msg))
         [ Attr.property "disabled"
-            (Js.Unsafe.inject (Js.bool (not t.is_connected)))
+            (Js.Unsafe.inject (Js.bool (not is_connected)))
         ]
     ]

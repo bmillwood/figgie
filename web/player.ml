@@ -883,14 +883,6 @@ module App = struct
     |]
 
   let chat_view (model : Model.t) =
-    let chat_model : Chat.Model.t =
-      { Chat.Model.messages = model.messages
-      ; is_connected =
-        match model.state with
-        | Connected _ -> true
-        | _ -> false
-      }
-    in
     let chat_inject (Chat.Action.Send_chat msg) =
       begin match model.state with
       | Connected { conn; _ } ->
@@ -903,7 +895,12 @@ module App = struct
       end;
       Event.Ignore
     in
-    Chat.view chat_model ~inject:chat_inject
+    let is_connected =
+      match model.state with
+      | Connected _ -> true
+      | _ -> false
+    in
+    Chat.view ~messages:model.messages ~is_connected ~inject:chat_inject
 
   let view (incr_model : Model.t Incr.t) ~inject =
     let open Incr.Let_syntax in
