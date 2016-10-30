@@ -11,13 +11,6 @@ module Waiting = struct
     type t = { ready : Username.Set.t }
   end
 
-  module Action = struct
-    type t =
-      | I'm_ready of bool
-      | Player_is_ready of { other : Username.t; is_ready : bool }
-      [@@deriving sexp_of]
-  end
-
   let set_player_readiness (t : Model.t) ~username ~is_ready =
     let apply = if is_ready then Set.add else Set.remove in
     { Model.ready = apply t.ready username }
@@ -104,9 +97,9 @@ module Game = struct
 
   module Action = struct
     type t =
-      | Waiting of Waiting.Action.t
-      | Playing of Playing.Action.t
+      | I'm_ready of bool
       | Start_playing
+      | Playing of Playing.Action.t
       | Round_over
       [@@deriving sexp_of]
   end
@@ -137,6 +130,11 @@ module Logged_in = struct
     match t.game with
     | Playing round -> { t with game = Playing (f round) }
     | Waiting _ -> t
+
+  let update_ready_if_waiting (t : Model.t) ~f =
+    match t.game with
+    | Playing _ -> t
+    | Waiting wait -> { t with game = Waiting (f wait) }
 
   let update_player (t : Model.t) ~username ~f =
     if Username.equal t.me.username username
@@ -226,7 +224,6 @@ module App = struct
     let connected cact = Connected cact
     let logged_in lact = connected (Logged_in lact)
     let game gact      = logged_in (Game gact)
-    let waiting wact   = game (Waiting wact)
     let playing pact   = game (Playing pact)
     let clock cdact    = playing (Clock cdact)
   end
@@ -236,26 +233,6 @@ module App = struct
        But I can't easily see what else it's supposed to be. *)
     type t = { schedule : Action.t -> unit }
   end
-
-  let apply_waiting_action
-      (t : Waiting.Action.t)
-      ~schedule:_ ~conn ~(login : Logged_in.Model.t)
-      (waiting : Waiting.Model.t)
-    =
-    match t with
-    | I'm_ready readiness ->
-      don't_wait_for begin
-        Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn readiness
-        >>| function
-        | Ok () -> ()
-        | Error `Already_playing -> ()
-        | Error `Login_first -> ()
-      end;
-      Waiting.set_player_readiness waiting
-        ~username:login.me.username
-        ~is_ready:readiness
-    | Player_is_ready { other; is_ready } ->
-      Waiting.set_player_readiness waiting ~username:other ~is_ready
 
   let apply_playing_action
       (t : Playing.Action.t)
@@ -347,12 +324,20 @@ module App = struct
 
   let apply_game_action
       (t : Game.Action.t)
-      ~schedule ~conn ~login
+      ~schedule ~conn ~(login : Logged_in.Model.t)
       (game : Game.Model.t) : Game.Model.t
     =
     match game, t with
-    | Waiting wait, Waiting wact ->
-      Waiting (apply_waiting_action wact ~schedule ~conn ~login wait)
+    | Waiting wait, I'm_ready readiness ->
+      don't_wait_for begin
+        Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn readiness
+        >>| function
+        | Ok () | Error `Already_playing | Error `Login_first -> ()
+      end;
+      Waiting
+        (Waiting.set_player_readiness wait
+          ~username:login.me.username
+          ~is_ready:readiness)
     | Playing round, Playing pact ->
       Playing (apply_playing_action pact ~schedule ~conn ~login round)
     | Waiting _wait, Start_playing ->
@@ -408,9 +393,6 @@ module App = struct
         end;
         login
       | Broadcast (Player_joined username) ->
-        schedule
-          (Action.waiting (Player_is_ready
-            { other = username; is_ready = false }));
         Logged_in.add_new_player login ~username
       | Broadcast New_round ->
         schedule (Action.game Start_playing);
@@ -448,8 +430,8 @@ module App = struct
         end;
         login
       | Broadcast (Player_ready { who; is_ready }) ->
-        just_schedule
-          (Action.waiting (Player_is_ready { other = who; is_ready }))
+        Logged_in.update_ready_if_waiting login ~f:(fun wait ->
+          Waiting.set_player_readiness wait ~username:who ~is_ready)
 
   let apply_connected_action
       (t : Connected.Action.t)
@@ -822,7 +804,7 @@ module App = struct
       Node.button
         [ Attr.id Ids.ready_button
         ; Attr.on_click (fun _mouseEvent ->
-            inject (Action.waiting (I'm_ready set_it_to)))
+            inject (Action.game (I'm_ready set_it_to)))
         ]
         [ Node.text text ]
     in
