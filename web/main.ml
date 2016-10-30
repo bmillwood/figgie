@@ -16,47 +16,6 @@ module Waiting = struct
     { Model.ready = apply t.ready username }
 end
 
-module Player_id = struct
-  type t =
-    | Me
-    | Them of int
-    | Nobody
-    [@@deriving compare, sexp]
-
-  let equal t1 t2 = compare t1 t2 = 0
-
-  let class_ =
-    function
-    | Me -> "me"
-    | Them i -> "them" ^ Int.to_string i
-    | Nobody -> "nobody"
-end
-
-module Player = struct
-  module Persistent = struct
-    type t = {
-      id : Player_id.t;
-      username : Username.t;
-      score : Price.t;
-    } [@@deriving sexp]
-
-    let nobody =
-      { id = Nobody
-      ; username = Username.of_string "[nobody]"
-      ; score = Price.zero
-      }
-  end
-
-  type t = {
-    pers : Persistent.t;
-    hand : Partial_hand.t;
-  }
-
-  let with_empty_hand pers = { pers; hand = Partial_hand.empty }
-
-  let nobody = with_empty_hand Persistent.nobody
-end
-
 module Playing = struct
   module Model = struct
     type t = {
@@ -115,16 +74,16 @@ module Logged_in = struct
   end
 
   let new_player (t : Model.t) ~username =
-    let id =
+    let n =
       let rec loop n =
         if Map.exists t.others
-          ~f:(fun other -> Player_id.equal other.id (Them n))
+          ~f:(fun other -> Player.Style.equal other.style (Them n))
         then loop (n + 1)
         else n
       in
       loop 1
     in
-    { Player.Persistent.username; id = Them id; score = Price.zero }
+    { Player.Persistent.username; style = Them n; score = Price.zero }
 
   let update_round_if_playing (t : Model.t) ~f =
     match t.game with
@@ -421,7 +380,7 @@ module App = struct
           Option.value (Logged_in.player login ~username:who)
             ~default:Player.Persistent.nobody
         in
-        let class_ = Player_id.class_ player.id in
+        let class_ = Player.Persistent.class_ player in
         just_schedule (Message (Chat ((who, class_), msg)))
       | Broadcast (Out _) ->
         don't_wait_for begin
@@ -452,7 +411,7 @@ module App = struct
       conn
     | Finish_login username ->
       let me : Player.Persistent.t =
-        { username; id = Me; score = Price.zero }
+        { username; style = Me; score = Price.zero }
       in
       let logged_in =
         { Logged_in.Model.me; others = Username.Map.empty
@@ -606,7 +565,7 @@ module App = struct
               in
               Node.td [] [
                 Node.span
-                  [Attr.class_ (Player_id.class_ player.pers.id)]
+                  [Attr.class_ (Player.Persistent.class_ player.pers)]
                   [Node.text (Price.to_string order.price)]
               ])
         in
@@ -639,7 +598,7 @@ module App = struct
         let attrs =
           match Map.find players username with
           | None -> []
-          | Some other -> [Attr.class_ (Player_id.class_ other.pers.id)]
+          | Some other -> Player.Persistent.attrs other.pers
         in
         Node.td []
           [Node.span attrs [Node.text (Username.to_string username)]]
@@ -700,158 +659,6 @@ module App = struct
     ; Node.span [Attr.id "cxlhelp"] [Node.text "cancel by id"]
     ]
 
-  module Infobox = struct
-    module Position = struct
-      type t = | Me | Left | Middle | Right
-
-      let attr t =
-        let class_ =
-          match t with
-          | Me -> "myself"
-          | Left -> "left"
-          | Middle -> "middle"
-          | Right -> "right"
-        in
-        Attr.class_ class_
-    end
-  end
-
-  let infobox ~pos ~name ~score ~info =
-    Node.div [Infobox.Position.attr pos]
-      ([ [name]
-      ; Option.to_list score
-      ; [Node.create "br" [] []]
-      ; info
-      ] |> List.concat)
-
-  let infoboxes = Node.div [Attr.id "infoboxes"]
-
-  let login_infoboxes ~inject =
-    let initial_value = List.Assoc.find Url.Current.arguments "username" in
-    let login_textbox =
-      Widget.textbox ~id:Ids.login ~placeholder:"username" ?initial_value
-        ~f:(fun user ->
-          inject (Action.connected (Start_login (Username.of_string user))))
-        [Attr.classes ["name"; "me"]]
-    in
-    infoboxes
-      [infobox ~pos:Me ~name:login_textbox ~score:None ~info:[]]
-
-  let player_infobox ~pos ~(pers : Player.Persistent.t) ~ranking ~info =
-    let score =
-      Node.span
-        [Attr.classes ["score"; ranking]]
-        [Node.text (Price.to_string pers.score)]
-    in
-    let name =
-      Node.span
-        [ Attr.classes ["name"; Player_id.class_ pers.id] ]
-        [ Node.text (Username.to_string pers.username) ]
-    in
-    infobox ~pos ~name ~score:(Some score) ~info
-
-  let player_infoboxes ~others ~me =
-    let (my_pers : Player.Persistent.t), _ = me in
-    let players = Map.add others ~key:my_pers.username ~data:me in
-    let nobody = Player.Persistent.nobody, [] in
-    match Map.data others @ List.init 3 ~f:(fun _ -> nobody) with
-    | left :: middle :: right :: _ ->
-      let p ~pos ((pers : Player.Persistent.t), info) =
-        let better_players =
-          Map.count players ~f:(fun (o, _) ->
-            Price.O.(o.score > pers.score))
-        in
-        let ranking =
-          match better_players with
-          | 0 -> "first"
-          | 1 -> "second"
-          | 2 -> "third"
-          | _ -> "last"
-        in
-        player_infobox ~pos ~pers ~ranking ~info
-      in
-      infoboxes
-        [ Node.div [Attr.id "others"]
-          [ p ~pos:Left   left
-          ; p ~pos:Middle middle
-          ; p ~pos:Right  right
-          ]
-        ; p ~pos:Me me
-        ]
-    | _ -> assert false
-
-  let waiting_infoboxes ~inject
-      ~(me : Player.Persistent.t)
-      ~(others : Player.Persistent.t Username.Map.t)
-      (waiting : Waiting.Model.t)
-    =
-    let others =
-      Map.map others ~f:(fun o ->
-        let ready_text =
-          if Set.mem waiting.ready o.username
-          then "[ready]"
-          else "[not ready]"
-        in
-        (o, [Node.text ready_text]))
-    in
-    let ready_button =
-      let is_ready = Set.mem waiting.ready me.username in
-      let text, set_it_to =
-        if is_ready
-        then "I'm not ready!", false
-        else "I'm ready!", true
-      in
-      Node.button
-        [ Attr.id Ids.ready_button
-        ; Attr.on_click (fun _mouseEvent ->
-            inject (Action.game (I'm_ready set_it_to)))
-        ]
-        [ Node.text text ]
-    in
-    player_infoboxes
-      ~others
-      ~me:(me, [ready_button])
-
-  let playing_infoboxes
-      ~(login : Logged_in.Model.t)
-      ~(playing : Playing.Model.t)
-      =
-    let span_of_copies class_ n s =
-      let content =
-        List.init (Size.to_int n) ~f:(fun _ -> s)
-        |> String.concat
-        |> Node.text
-      in
-      Node.span [Attr.class_ class_] [content]
-    in
-    let draw_hand (player : Player.Persistent.t) (hand : Partial_hand.t) =
-      let known =
-        Card.Hand.foldi hand.known
-          ~init:[]
-          ~f:(fun suit acc count ->
-            span_of_copies
-              (Card.Suit.name suit)
-              count
-              (Card.Suit.to_utf8 suit)
-              :: acc)
-          |> List.rev
-      in
-      let unknown =
-        span_of_copies "Unknown" hand.unknown Partial_hand.unknown_utf8
-      in
-      (player, known @ [unknown])
-    in
-    let draw_other (player : Player.Persistent.t) =
-      let hand =
-        Option.value ~default:Partial_hand.empty
-          (Map.find playing.other_hands player.username)
-      in
-      draw_hand player hand
-    in
-    player_infoboxes
-      ~others:(Map.map login.others ~f:draw_other)
-      ~me:(draw_hand login.me (Partial_hand.create_known playing.my_hand))
-
   let hotkeys =
     [| 'q', Ids.order ~dir:Sell ~suit:Spades
     ;  'w', Ids.order ~dir:Sell ~suit:Hearts
@@ -890,15 +697,34 @@ module App = struct
     let infoboxes =
       match model.state with
       | Connected { login = None; _ } ->
-          login_infoboxes ~inject
+        Infobox.login ~inject_login:(fun user ->
+          inject (Action.connected (Start_login user)))
       | Connected { login = Some login; _ } ->
         begin match login.game with
         | Playing playing ->
-          playing_infoboxes ~login ~playing
-        | Waiting waiting ->
-          waiting_infoboxes ~inject ~me:login.me ~others:login.others waiting
+          let others = 
+            Map.map login.others ~f:(fun pers ->
+              let hand =
+                Option.value
+                  ~default:Partial_hand.empty
+                  (Map.find playing.other_hands pers.username)
+              in
+              { Player.pers; hand })
+          in
+          let my_partial_hand =
+            Partial_hand.create_known playing.my_hand
+          in
+          let me = { Player.pers = login.me; hand = my_partial_hand } in
+          Infobox.playing ~others ~me
+        | Waiting { ready } ->
+          Infobox.waiting
+            ~inject_I'm_ready:(fun readiness ->
+              inject (Action.game (I'm_ready readiness)))
+            ~others:login.others
+            ~me:login.me
+            ~who_is_ready:ready
         end
-      | _ -> infoboxes []
+      | _ -> Infobox.empty
     in
     let me, others, exchange =
       match model.state with
