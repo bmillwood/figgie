@@ -1,5 +1,5 @@
 #!/bin/bash -eux
 ocamlbuild -use-ocamlfind -plugin-tag "package(ppx_driver.ocamlbuild)" \
-	figgie/figgie.byte web/player.byte
-js_of_ocaml +bin_prot.js +core_kernel.js +nat.js +weak.js player.byte
+	figgie/figgie.byte web/main.byte
+js_of_ocaml +bin_prot.js +core_kernel.js +nat.js +weak.js main.byte
 wait
