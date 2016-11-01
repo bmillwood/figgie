@@ -28,6 +28,14 @@ module Playing = struct
     }
   end
 
+  module Cancel_scope = struct
+    type t =
+      | All
+      | By_id of Order.Id.t
+      | By_symbol_side of { symbol : Symbol.t; dir : Dir.t }
+      [@@deriving sexp_of]
+  end
+
   module Action = struct
     type t =
       | Market of Book.t
@@ -39,8 +47,7 @@ module Playing = struct
           dir    : Dir.t;
           price  : Price.t;
         }
-      | Send_cancel of Order.Id.t
-      | Send_cancel_all
+      | Send_cancel of Cancel_scope.t
       | Set_clock of Time_ns.t sexp_opaque
       | Clock of Countdown.Action.t
       [@@deriving sexp_of]
@@ -262,7 +269,7 @@ module App = struct
       end;
       let next_order = Order.Id.next round.next_order in
       { round with next_order }
-    | Send_cancel oid ->
+    | Send_cancel (By_id oid) ->
       don't_wait_for begin
         Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn oid
         >>| function
@@ -270,7 +277,22 @@ module App = struct
         | Error reject -> schedule (Message (Cancel_reject reject))
       end;
       round
-    | Send_cancel_all ->
+    | Send_cancel (By_symbol_side { symbol; dir }) ->
+      don't_wait_for begin
+        Card.Hand.get round.market ~suit:symbol
+        |> Dirpair.get ~dir
+        |> Deferred.List.iter ~how:`Parallel ~f:(fun order ->
+            if Cpty.equal order.owner login.me.username
+            then begin
+              Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn order.id
+              >>| function
+              | Ok `Ack -> ()
+              | Error reject -> schedule (Message (Cancel_reject reject))
+            end
+            else Deferred.unit)
+      end;
+      round
+    | Send_cancel All ->
       don't_wait_for begin
         Rpc.Rpc.dispatch_exn Protocol.Cancel_all.rpc conn ()
         >>| function
@@ -545,7 +567,11 @@ module App = struct
           Node.td [] [
             Widget.textbox ~id ?placeholder
               ~f:(fun price_s ->
-                match Price.of_string price_s with
+                if String.equal (String.lowercase price_s) "x"
+                then begin
+                  inject (Action.playing
+                    (Send_cancel (By_symbol_side { symbol; dir })))
+                end else match Price.of_string price_s with
                 | exception _ -> Event.Ignore
                 | price ->
                   inject (Action.playing (Send_order { symbol; dir; price })))
@@ -650,11 +676,11 @@ module App = struct
     [ Widget.textbox ~id:Ids.cancel ?placeholder
         ~f:(fun oid ->
           if String.equal oid "all"
-          then inject (Action.playing Send_cancel_all)
+          then inject (Action.playing (Send_cancel All))
           else
             match Order.Id.of_string oid with
             | exception _ -> Event.Ignore
-            | oid -> inject (Action.playing (Send_cancel oid)))
+            | oid -> inject (Action.playing (Send_cancel (By_id oid))))
         []
     ; Node.span [Attr.id "cxlhelp"] [Node.text "cancel by id"]
     ]

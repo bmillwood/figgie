@@ -17,13 +17,11 @@ let placeholder_of_id t id =
 let suppress_hotkeys_if_focused =
   String.Set.of_list [Ids.login; Ids.cmdline; Ids.connectTo]
 
+let char_code ev =
+  Option.bind (Js.Optdef.to_option ev##.charCode) ~f:Char.of_int
+
 let on_keypress (t : t) (ev : Dom_html.keyboardEvent Js.t) =
-  let open Option.Let_syntax in
-  match
-    let%bind charCode = Js.Optdef.to_option ev##.charCode in
-    let%bind char = Char.of_int charCode in
-    lookup_char t char
-  with
+  match Option.bind (char_code ev) ~f:(lookup_char t) with
   | None -> Vdom.Event.Ignore
   | Some id ->
     let suppress_because_focus =
