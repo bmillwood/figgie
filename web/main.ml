@@ -525,7 +525,8 @@ module App = struct
         )
       | Disconnected ->
         let address_from_query_string =
-          List.Assoc.find Url.Current.arguments ~equal:String.equal "address"
+          List.Assoc.find Url.Current.arguments
+            ~equal:String.Caseless.equal "address"
         in
         ( "Disconnected"
         , [ textf "Connect to:"
@@ -567,7 +568,7 @@ module App = struct
           Node.td [] [
             Widget.textbox ~id ?placeholder
               ~f:(fun price_s ->
-                if String.equal (String.lowercase price_s) "x"
+                if String.Caseless.equal price_s "x"
                 then begin
                   inject (Action.playing
                     (Send_cancel (By_symbol_side { symbol; dir })))
@@ -675,7 +676,7 @@ module App = struct
     let placeholder = Hotkeys.placeholder_of_id hotkeys Ids.cancel in
     [ Widget.textbox ~id:Ids.cancel ?placeholder
         ~f:(fun oid ->
-          if String.equal oid "all"
+          if String.Caseless.equal oid "x"
           then inject (Action.playing (Send_cancel All))
           else
             match Order.Id.of_string oid with
