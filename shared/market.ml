@@ -81,20 +81,27 @@ end
 
 module Price : sig
   include With_units
-  val more_agg          : t -> than:t -> dir:Dir.t -> bool
-  val more_agg_or_equal : t -> than:t -> dir:Dir.t -> bool
+  val is_more_agg          : t -> than:t -> dir:Dir.t -> bool
+  val is_more_agg_or_equal : t -> than:t -> dir:Dir.t -> bool
+
+  val make_more_agg : t -> by:t -> dir:Dir.t -> t
 end = struct
   include Rational
 
-  let more_agg_or_equal t ~than ~dir =
+  let is_more_agg_or_equal t ~than ~dir =
     match (dir : Dir.t) with
     | Buy  -> t >= than
     | Sell -> t <= than
 
-  let more_agg t ~than ~dir =
+  let is_more_agg t ~than ~dir =
     match (dir : Dir.t) with
     | Buy  -> t > than
     | Sell -> t < than
+
+  let make_more_agg t ~by ~dir =
+    match (dir : Dir.t) with
+    | Buy  -> t + by
+    | Sell -> t - by
 end
 
 module Size : sig 
@@ -130,10 +137,10 @@ module Order = struct
     size : Size.t;
   } [@@deriving bin_io, sexp]
 
-  let more_agg_or_equal t ~than =
-    Price.more_agg_or_equal t.price ~than:than.price ~dir:t.dir
-  let more_agg t ~than =
-    Price.more_agg t.price ~than:than.price ~dir:t.dir
+  let is_more_agg_or_equal t ~than =
+    Price.is_more_agg_or_equal t.price ~than:than.price ~dir:t.dir
+  let is_more_agg t ~than =
+    Price.is_more_agg t.price ~than:than.price ~dir:t.dir
 end
 
 module Exec = struct
@@ -161,7 +168,7 @@ module Halfbook = struct
   let add_order t (order : Order.t) =
     let rec go acc (xs : t) =
       match xs with
-      | o :: os when not (Order.more_agg order ~than:o) -> go (o :: acc) os
+      | o :: os when not (Order.is_more_agg order ~than:o) -> go (o :: acc) os
       | _ -> List.rev_append acc (order :: xs)
     in
     go [] t
@@ -178,7 +185,7 @@ module Halfbook = struct
 
   let rec match_ t order : t Match_result.t =
     match t with
-    | o :: os when Order.more_agg_or_equal order ~than:o ->
+    | o :: os when Order.is_more_agg_or_equal order ~than:o ->
       let open Size.O in
       begin match Ordering.of_int (Size.compare order.size o.size) with
       | Less ->

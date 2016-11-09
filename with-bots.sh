@@ -1,7 +1,7 @@
 #!/bin/bash
 ./figgie.byte server &
 victims=$!
-sleep 0.1
+sleep 0.5
 for which in 1 2
 do
   ./figgie.byte bot sell -server localhost:58828 \

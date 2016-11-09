@@ -33,9 +33,10 @@ let empty = container []
 let login ~inject_login =
   let initial_value = List.Assoc.find Url.Current.arguments "username" in
   let login_textbox =
-    Widget.textbox ~id:Ids.login ~placeholder:"username" ?initial_value
-      ~f:(fun user -> inject_login (Username.of_string user))
-      [Attr.classes ["name"; "me"]]
+    Widget.textbox ~id:Ids.login ~classes:["name"; "me"]
+      ~placeholder:"username" ?initial_value
+      ~on_submit:(fun user -> inject_login (Username.of_string user))
+      ()
   in
   container
     [infobox ~pos:Me ~name:login_textbox ~score:None ~info:[]]

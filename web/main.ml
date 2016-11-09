@@ -533,9 +533,9 @@ module App = struct
           ; Widget.textbox ~id:Ids.connectTo
               ?initial_value:address_from_query_string
               ~placeholder:"host[:port]" ~clear_on_submit:false
-              ~f:(fun hps ->
+              ~on_submit:(fun hps ->
                 inject (Start_connecting (parse_host_and_port hps)))
-              []
+              ()
           ]
         )
     in
@@ -550,6 +550,46 @@ module App = struct
     Node.p [Attr.id "status"; Attr.class_ class_]
       (status @ Option.to_list clock)
 
+  let order_entry ~(market : Book.t) ~inject ~hotkeys ~symbol ~dir =
+    let id = Ids.order ~dir ~suit:symbol in
+    let hotkey = Hotkeys.lookup_id hotkeys id in
+    let placeholder = Hotkeys.placeholder_of_id hotkeys id in
+    let book = Card.Hand.get market ~suit:symbol in
+    Widget.textbox ~id ?placeholder
+      ~on_keypress:(fun ~self ev ->
+        match Hotkeys.char_code ev with
+        | None -> Event.Ignore
+        | Some ('j' | 'p' as join_penny) ->
+            Option.iter (List.hd (Dirpair.get book ~dir)) ~f:(fun order ->
+              let price =
+                if Char.equal join_penny 'p'
+                then
+                  Price.make_more_agg order.price
+                    ~by:(Market.Price.of_int 1) ~dir
+                else
+                  order.price
+              in
+              self##.value := Js.string (Price.to_string price));
+            Event.Prevent_default
+        | Some other ->
+            if Option.exists hotkey ~f:(Char.equal other)
+            then begin
+              Option.iter (List.hd (Dirpair.get book ~dir:(Dir.other dir)))
+                ~f:(fun order ->
+                  self##.value := Js.string (Price.to_string order.price));
+              Event.Prevent_default
+            end else Event.Ignore)
+      ~on_submit:(fun price_s ->
+        if String.Caseless.equal price_s "x"
+        then begin
+          inject (Action.playing
+            (Send_cancel (By_symbol_side { symbol; dir })))
+        end else match Price.of_string price_s with
+        | exception _ -> Event.Ignore
+        | price ->
+          inject (Action.playing (Send_order { symbol; dir; price })))
+      ()
+
   let market_table
     ~hotkeys ~players ~(inject : Action.t -> _) (market : Book.t)
     =
@@ -563,22 +603,7 @@ module App = struct
       let dir_s = Dir.to_string dir in
       Node.tr [Attr.id ("order" ^ dir_s); Attr.class_ dir_s]
         (List.map Card.Suit.all ~f:(fun symbol ->
-          let id = Ids.order ~dir ~suit:symbol in
-          let placeholder = Hotkeys.placeholder_of_id hotkeys id in
-          Node.td [] [
-            Widget.textbox ~id ?placeholder
-              ~f:(fun price_s ->
-                if String.Caseless.equal price_s "x"
-                then begin
-                  inject (Action.playing
-                    (Send_cancel (By_symbol_side { symbol; dir })))
-                end else match Price.of_string price_s with
-                | exception _ -> Event.Ignore
-                | price ->
-                  inject (Action.playing (Send_order { symbol; dir; price })))
-              []
-          ]
-        ))
+          Node.td [] [order_entry ~hotkeys ~market ~inject ~symbol ~dir]))
     in
     let cells ~dir =
       List.map Card.Suit.all ~f:(fun symbol ->
@@ -675,14 +700,14 @@ module App = struct
   let cxl_by_id ~hotkeys ~inject =
     let placeholder = Hotkeys.placeholder_of_id hotkeys Ids.cancel in
     [ Widget.textbox ~id:Ids.cancel ?placeholder
-        ~f:(fun oid ->
+        ~on_submit:(fun oid ->
           if String.Caseless.equal oid "x"
           then inject (Action.playing (Send_cancel All))
           else
             match Order.Id.of_string oid with
             | exception _ -> Event.Ignore
             | oid -> inject (Action.playing (Send_cancel (By_id oid))))
-        []
+        ()
     ; Node.span [Attr.id "cxlhelp"] [Node.text "cancel by id"]
     ]
 

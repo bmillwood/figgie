@@ -43,8 +43,7 @@ let view ~messages ~is_connected ~inject =
         (List.map (Fqueue.to_list messages) ~f:(fun msg ->
           Node.li [] (nodes_of_message msg)))
     ; Widget.textbox ~id:Ids.cmdline
-        ~f:(fun msg -> inject (Action.Send_chat msg))
-        [ Attr.property "disabled"
-            (Js.Unsafe.inject (Js.bool (not is_connected)))
-        ]
+        ~disabled:(not is_connected)
+        ~on_submit:(fun msg -> inject (Action.Send_chat msg))
+        ()
     ]

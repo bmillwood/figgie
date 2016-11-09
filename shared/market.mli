@@ -63,8 +63,10 @@ end
 
 module Price : sig
   include With_units
-  val more_agg          : t -> than:t -> dir:Dir.t -> bool
-  val more_agg_or_equal : t -> than:t -> dir:Dir.t -> bool
+  val is_more_agg          : t -> than:t -> dir:Dir.t -> bool
+  val is_more_agg_or_equal : t -> than:t -> dir:Dir.t -> bool
+
+  val make_more_agg : t -> by:t -> dir:Dir.t -> t
 end
 
 module Size : sig 
@@ -96,8 +98,8 @@ module Order : sig
     size : Size.t;
   } [@@deriving bin_io, sexp]
 
-  val more_agg_or_equal : t -> than:t -> bool
-  val more_agg          : t -> than:t -> bool
+  val is_more_agg_or_equal : t -> than:t -> bool
+  val is_more_agg          : t -> than:t -> bool
 end
 
 module Exec : sig
