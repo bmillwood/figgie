@@ -38,6 +38,8 @@ module T = struct
   let sexp_of_t { n; d } =
     if d = 1
     then sexp_of_int n
+    else if Int.O.(abs n < d)
+    then Sexp.Atom (sprintf "%d/%d" n d)
     else begin
       let sign, n = if n < 0 then "-", Int.abs n else "", n in
       Sexp.List
