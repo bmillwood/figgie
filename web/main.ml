@@ -265,7 +265,7 @@ module App = struct
         Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn order
         >>| function
         | Ok `Ack -> ()
-        | Error reject -> schedule (Message (Order_reject reject))
+        | Error reject -> schedule (Message (Order_reject (order, reject)))
       end;
       let next_order = Order.Id.next round.next_order in
       { round with next_order }
@@ -274,7 +274,8 @@ module App = struct
         Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn oid
         >>| function
         | Ok `Ack -> ()
-        | Error reject -> schedule (Message (Cancel_reject reject))
+        | Error reject ->
+          schedule (Message (Cancel_reject (`Id oid, reject)))
       end;
       round
     | Send_cancel (By_symbol_side { symbol; dir }) ->
@@ -287,7 +288,8 @@ module App = struct
               Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn order.id
               >>| function
               | Ok `Ack -> ()
-              | Error reject -> schedule (Message (Cancel_reject reject))
+              | Error reject ->
+                schedule (Message (Cancel_reject (`Id order.id, reject)))
             end
             else Deferred.unit)
       end;
@@ -299,7 +301,7 @@ module App = struct
         | Ok `Ack -> ()
         | Error reject ->
           let reject = (reject :> Protocol.Cancel.error) in
-          schedule (Message (Cancel_reject reject))
+          schedule (Message (Cancel_reject (`All, reject)))
       end;
       round
 
@@ -322,6 +324,7 @@ module App = struct
     | Playing round, Playing pact ->
       Playing (apply_playing_action pact ~schedule ~conn ~login round)
     | Waiting _wait, Start_playing ->
+      schedule (Action.Message New_round);
       Playing
         { my_hand = Card.Hand.create_all Size.zero
         ; other_hands =
@@ -390,8 +393,10 @@ module App = struct
             schedule (Action.playing (Set_clock end_time))
         end;
         login
-      | Broadcast (Round_over _results) ->
-        just_schedule (Action.game Round_over)
+      | Broadcast (Round_over results) ->
+        schedule (Action.game Round_over);
+        schedule (Action.Message (Round_over results));
+        login
       | Broadcast (Scores scores) ->
         Map.fold scores ~init:login
           ~f:(fun ~key:username ~data:score login ->

@@ -32,6 +32,7 @@ input#login {
 .Spades, .Clubs    { color: black;   }
 .Hearts, .Diamonds { color: darkred; }
 .Unknown           { color: grey;    }
+.gold { background-color: gold; }
 
 #status {
 	position: relative;
