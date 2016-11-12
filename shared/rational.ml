@@ -10,11 +10,12 @@ let gcd a b =
 
 module T = struct
   module T' : sig
-    type t = private { n : int; d : int } [@@deriving bin_io, compare]
+    type t = private { n : int; d : int } [@@deriving bin_io]
     val create : n:int -> d:int -> t
   end = struct
-    type t = { n : int; d : int } [@@deriving bin_io, compare]
+    type t = { n : int; d : int } [@@deriving bin_io]
 
+    (* enforces d > 0 and gcd d n = 1 *)
     let create ~n ~d =
       let n, d =
         match Int.sign d with
@@ -26,6 +27,8 @@ module T = struct
       { n = n / g; d = d / g }
   end
   include T'
+
+  let compare x y = Int.compare (x.n * y.d) (y.n * x.d)
 
   let of_int n = create ~n ~d:1
   let to_float t = Float.of_int t.n /. Float.of_int t.d
