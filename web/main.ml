@@ -841,7 +841,11 @@ module App = struct
   let on_display ~(old : Model.t) (new_ : Model.t) (_state : State.t) =
     match old.state, new_.state with
     | Connecting _, Connected _ ->
-      Focus.focus_input ~id:Ids.login
+      Focus.with_input ~id:Ids.login ~f:(fun input ->
+        input##focus;
+        let n = String.length (Js.to_string input##.value) in
+        input##.selectionStart := n;
+        input##.selectionEnd := n)
     | Connected { login = None; _ }, Connected { login = Some _; _ } ->
       (* would like to focus ready button here, but buttonElement doesn't
          seem to have a focus method *)
