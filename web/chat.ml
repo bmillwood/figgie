@@ -21,11 +21,32 @@ module Message = struct
     [@@deriving sexp_of]
 end
 
-module Action = struct
-  type t = Send_chat of string
+module Model = struct
+  type t =
+    { messages  : Message.t Fqueue.t
+    ; scrolling : Scrolling.Model.t
+    }
+
+  let initial =
+    { messages = Fqueue.empty
+    ; scrolling = Scrolling.Model.create ~id:"history"
+    }
+
+  let add_message t message =
+    { t with messages = Fqueue.enqueue t.messages message }
 end
 
-let view ~messages ~is_connected ~inject =
+module Action = struct
+  type t =
+    | Send_chat of string
+    | Scroll_chat of Scrolling.Action.t
+    [@@deriving sexp_of]
+end
+
+let apply_scrolling_action (t : Model.t) (act : Scrolling.Action.t) =
+  { t with scrolling = Scrolling.apply_action t.scrolling act }
+
+let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
   let nodes_of_message : Message.t -> _ =
     function
     | New_round -> [ Node.text "Everyone's ready: game is starting!" ]
@@ -54,11 +75,19 @@ let view ~messages ~is_connected ~inject =
       ]
   in
   Node.div [Attr.id "historycmd"]
-    [ Node.ul [Attr.id "history"]
-        (List.map (Fqueue.to_list messages) ~f:(fun msg ->
+    [ Node.ul
+        [ Attr.id t.scrolling.id
+        ; Scrolling.on_scroll t.scrolling
+            ~inject:(fun scroll -> inject (Scroll_chat scroll))
+        ]
+        (List.map (Fqueue.to_list t.messages) ~f:(fun msg ->
           Node.li [] (nodes_of_message msg)))
     ; Widget.textbox ~id:Ids.cmdline
         ~disabled:(not is_connected)
-        ~on_submit:(fun msg -> inject (Action.Send_chat msg))
+        ~on_submit:(fun msg -> inject (Send_chat msg))
         ()
     ]
+
+let on_display ~(old : Model.t) (new_ : Model.t) ~schedule_scroll =
+  ignore old;
+  Scrolling.on_display new_.scrolling ~schedule:schedule_scroll;

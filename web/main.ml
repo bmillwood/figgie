@@ -19,12 +19,13 @@ end
 module Playing = struct
   module Model = struct
     type t = {
-      my_hand     : Size.t Card.Hand.t;
-      other_hands : Partial_hand.t Username.Map.t;
-      market      : Book.t;
-      trades      : (Order.t * Cpty.t) Fqueue.t;
-      next_order  : Order.Id.t;
-      clock       : Countdown.Model.t option;
+      my_hand       : Size.t Card.Hand.t;
+      other_hands   : Partial_hand.t Username.Map.t;
+      market        : Book.t;
+      trades        : (Order.t * Cpty.t) Fqueue.t;
+      trades_scroll : Scrolling.Model.t;
+      next_order    : Order.Id.t;
+      clock         : Countdown.Model.t option;
     }
   end
 
@@ -41,6 +42,7 @@ module Playing = struct
       | Market of Book.t
       | Hand of Size.t Card.Hand.t
       | Trade of Order.t * Cpty.t
+      | Scroll_trades of Scrolling.Action.t
       | Score of Price.t
       | Send_order of {
           symbol : Card.Suit.t;
@@ -160,12 +162,12 @@ module App = struct
     end
 
     type t =
-      { messages : Chat.Message.t Fqueue.t
+      { messages : Chat.Model.t
       ; state : Connection_state.t
       }
 
     let initial =
-      { messages = Fqueue.empty
+      { messages = Chat.Model.initial
       ; state = Disconnected
       }
 
@@ -175,7 +177,8 @@ module App = struct
 
   module Action = struct
     type t =
-      | Message of Chat.Message.t
+      | Add_message of Chat.Message.t
+      | Scroll_chat of Scrolling.Action.t
       | Start_connecting of Host_and_port.t
       | Finish_connecting of
         { host_and_port : Host_and_port.t
@@ -195,14 +198,14 @@ module App = struct
   end
 
   module State = struct
-    (* I'm pretty sure this is not what you're supposed to do here.
-       But I can't easily see what else it's supposed to be. *)
     type t = { schedule : Action.t -> unit }
   end
 
   let apply_playing_action
       (t : Playing.Action.t)
-      ~schedule ~conn ~(login : Logged_in.Model.t)
+      ~(schedule : Action.t -> _)
+      ~conn
+      ~(login : Logged_in.Model.t)
       (round : Playing.Model.t)
     =
     match t with
@@ -252,6 +255,10 @@ module App = struct
           else hand)
       in
       { round with trades; other_hands }
+    | Scroll_trades act ->
+      { round with
+        trades_scroll = Scrolling.apply_action round.trades_scroll act
+      }
     | Score _ -> round
     | Send_order { symbol; dir; price } ->
       let order =
@@ -265,7 +272,8 @@ module App = struct
         Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn order
         >>| function
         | Ok `Ack -> ()
-        | Error reject -> schedule (Message (Order_reject (order, reject)))
+        | Error reject ->
+          schedule (Add_message (Order_reject (order, reject)))
       end;
       let next_order = Order.Id.next round.next_order in
       { round with next_order }
@@ -275,7 +283,7 @@ module App = struct
         >>| function
         | Ok `Ack -> ()
         | Error reject ->
-          schedule (Message (Cancel_reject (`Id oid, reject)))
+          schedule (Add_message (Cancel_reject (`Id oid, reject)))
       end;
       round
     | Send_cancel (By_symbol_side { symbol; dir }) ->
@@ -289,7 +297,7 @@ module App = struct
               >>| function
               | Ok `Ack -> ()
               | Error reject ->
-                schedule (Message (Cancel_reject (`Id order.id, reject)))
+                schedule (Add_message (Cancel_reject (`Id order.id, reject)))
             end
             else Deferred.unit)
       end;
@@ -301,7 +309,7 @@ module App = struct
         | Ok `Ack -> ()
         | Error reject ->
           let reject = (reject :> Protocol.Cancel.error) in
-          schedule (Message (Cancel_reject (`All, reject)))
+          schedule (Add_message (Cancel_reject (`All, reject)))
       end;
       round
 
@@ -324,14 +332,16 @@ module App = struct
     | Playing round, Playing pact ->
       Playing (apply_playing_action pact ~schedule ~conn ~login round)
     | Waiting _wait, Start_playing ->
-      schedule (Action.Message New_round);
+      schedule (Add_message New_round);
+      let trades_scroll = Scrolling.Model.create ~id:Ids.tape in
       Playing
         { my_hand = Card.Hand.create_all Size.zero
         ; other_hands =
             Map.map login.others ~f:(fun _ ->
               Partial_hand.create_unknown (Size.of_int 10))
-        ; market  = Book.empty
-        ; trades  = Fqueue.empty
+        ; market = Book.empty
+        ; trades = Fqueue.empty
+        ; trades_scroll
         ; next_order = Order.Id.zero
         ; clock = None
         }
@@ -395,7 +405,7 @@ module App = struct
         login
       | Broadcast (Round_over results) ->
         schedule (Action.game Round_over);
-        schedule (Action.Message (Round_over results));
+        schedule (Add_message (Round_over results));
         login
       | Broadcast (Scores scores) ->
         Map.fold scores ~init:login
@@ -408,7 +418,7 @@ module App = struct
             ~default:Player.Persistent.nobody
         in
         let class_ = Player.Persistent.class_ player in
-        just_schedule (Message (Chat ((who, class_), msg)))
+        just_schedule (Add_message (Chat ((who, class_), msg)))
       | Broadcast (Out _) ->
         don't_wait_for begin
           Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
@@ -458,8 +468,10 @@ module App = struct
 
   let apply_action (action : Action.t) (model : Model.t) (state : State.t) =
     match action with
-    | Message msg ->
-      { model with messages = Fqueue.enqueue model.messages msg }
+    | Add_message msg ->
+      { model with messages = Chat.Model.add_message model.messages msg }
+    | Scroll_chat act ->
+      { model with messages = Chat.apply_scrolling_action model.messages act }
     | Start_connecting host_and_port ->
       let host, port = Host_and_port.tuple host_and_port in
       don't_wait_for begin
@@ -700,7 +712,7 @@ module App = struct
           ~traded_with:None
           order)
     in
-    Node.table [Attr.id "tape"] (trades @ open_orders)
+    Node.table [Attr.id Ids.tape] (trades @ open_orders)
 
   let cxl_by_id ~hotkeys ~inject =
     let placeholder = Hotkeys.placeholder_of_id hotkeys Ids.cancel in
@@ -728,25 +740,30 @@ module App = struct
     ;  'c', Ids.cancel
     |]
 
-  let chat_view (model : Model.t) =
-    let chat_inject (Chat.Action.Send_chat msg) =
-      begin match model.state with
-      | Connected { conn; _ } ->
-        don't_wait_for begin
-          Rpc.Rpc.dispatch_exn Protocol.Chat.rpc conn msg
-          >>| function
-          | Error `Login_first | Ok () -> ()
-        end
-      | _ -> ()
-      end;
-      Event.Ignore
+  let send_chat (model : Model.t) msg =
+    match model.state with
+    | Connected { conn; _ } ->
+      don't_wait_for begin
+        Rpc.Rpc.dispatch_exn Protocol.Chat.rpc conn msg
+        >>| function
+        | Error `Login_first | Ok () -> ()
+      end
+    | _ -> ()
+
+  let chat_view (model : Model.t) ~(inject : Action.t -> _) =
+    let chat_inject : Chat.Action.t -> _ = function
+      | Send_chat msg ->
+        send_chat model msg;
+        Event.Ignore
+      | Scroll_chat act ->
+        inject (Scroll_chat act)
     in
     let is_connected =
       match model.state with
       | Connected _ -> true
       | _ -> false
     in
-    Chat.view ~messages:model.messages ~is_connected ~inject:chat_inject
+    Chat.view model.messages ~is_connected ~inject:chat_inject
 
   let view (incr_model : Model.t Incr.t) ~inject =
     let open Incr.Let_syntax in
@@ -829,7 +846,7 @@ module App = struct
           ]
         ]
       ; infoboxes
-      ; chat_view model
+      ; chat_view model ~inject
       ]
     ]
 
@@ -838,8 +855,8 @@ module App = struct
       ~f:(fun v -> schedule (Action.Start_connecting (parse_host_and_port v)));
     return { State.schedule }
 
-  let on_display ~(old : Model.t) (new_ : Model.t) (_state : State.t) =
-    match old.state, new_.state with
+  let on_display ~(old : Model.t) (new_ : Model.t) (state : State.t) =
+    begin match old.state, new_.state with
     | Connecting _, Connected _ ->
       Focus.with_input ~id:Ids.login ~f:(fun input ->
         input##focus;
@@ -850,7 +867,16 @@ module App = struct
       (* would like to focus ready button here, but buttonElement doesn't
          seem to have a focus method *)
       ()
+    | _, Connected { login = Some { game = Playing p; _ }; _ } ->
+      Scrolling.on_display p.trades_scroll
+        ~schedule:(fun act ->
+          state.schedule (Action.playing (Scroll_trades act)))
     | _ -> ()
+    end;
+    Chat.on_display
+      ~old:old.messages
+      new_.messages
+      ~schedule_scroll:(fun act -> state.schedule (Scroll_chat act))
 
   let update_visibility model = model
 end
