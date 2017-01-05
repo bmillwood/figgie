@@ -102,23 +102,6 @@ tr#orderbuy  input { background-color: #355; }
 #tape .buy  { color: #0f4; }
 #tape .sell { color: #f04; }
 
-#cxlcontainer {
-	text-align: left;
-}
-#markethelp, #cxlhelp {
-	color: #aac;
-	font-size: small;
-  padding: 0em 0.5em;
-}
-input#cxl {
-	width: 2em;
-}
-input#cxl {
-	background-color: #446;
-	color: white; /* I don't know why this is necessary */
-	text-align: center;
-}
-
 div#infoboxes .name {
 	padding: 0 0.5em;
 	font-size: 0.8em;

@@ -714,20 +714,6 @@ module App = struct
     in
     Node.table [Attr.id Ids.tape] (trades @ open_orders)
 
-  let cxl_by_id ~hotkeys ~inject =
-    let placeholder = Hotkeys.placeholder_of_id hotkeys Ids.cancel in
-    [ Widget.textbox ~id:Ids.cancel ?placeholder
-        ~on_submit:(fun oid ->
-          if String.Caseless.equal oid "x"
-          then inject (Action.playing (Send_cancel All))
-          else
-            match Order.Id.of_string oid with
-            | exception _ -> Event.Ignore
-            | oid -> inject (Action.playing (Send_cancel (By_id oid))))
-        ()
-    ; Node.span [Attr.id "cxlhelp"] [Node.text "cancel by id"]
-    ]
-
   let hotkeys =
     [| 'q', Ids.order ~dir:Sell ~suit:Spades
     ;  'w', Ids.order ~dir:Sell ~suit:Hearts
@@ -830,7 +816,6 @@ module App = struct
       Option.value exchange ~default:(Book.empty, Fqueue.empty)
     in
     let my_username = me.pers.username in
-    let market_help = Node.text "" in
     let on_keypress = Vdom.Attr.on_keypress (Hotkeys.on_keypress hotkeys) in
     let open Node in
     body [on_keypress] [div [Attr.id "container"]
@@ -839,10 +824,6 @@ module App = struct
         [ tr []
           [ td [] [market_table ~hotkeys ~players ~inject market]
           ; td [] [tape_table ~my_username ~players market trades]
-          ]
-        ; tr []
-          [ td [] [market_help]
-          ; td [Attr.id "cxlcontainer"] (cxl_by_id ~hotkeys ~inject)
           ]
         ]
       ; infoboxes
