@@ -656,12 +656,7 @@ module App = struct
         ; cells ~dir:Buy
         ])
 
-  let tape_table
-      ~(my_username : Username.t)
-      ~(players : Player.t Username.Map.t)
-      (market : Book.t)
-      trades
-      =
+  let tape_table ~(players : Player.t Username.Map.t) trades =
     let row_of_order ~include_oid ~traded_with (trade : Order.t) =
       let person_td username =
         let attrs =
@@ -692,27 +687,16 @@ module App = struct
         end
       ; Node.td [Attr.class_ "price"]
           [Node.text (Price.to_string trade.price)]
-      ; match traded_with with
-        | None -> Node.td [] []
-        | Some username -> person_td username
+      ; person_td traded_with
       ]
       |> Node.tr []
     in
     let trades =
       Fqueue.to_list trades
       |> List.map ~f:(fun ((traded : Order.t), with_) ->
-          row_of_order ~include_oid:false ~traded_with:(Some with_) traded)
+          row_of_order ~include_oid:false ~traded_with:with_ traded)
     in
-    let open_orders =
-      Card.Hand.fold market ~init:[] ~f:(fun acc per_sym ->
-        per_sym.buy @ per_sym.sell @ acc)
-      |> List.map ~f:(fun order ->
-        row_of_order
-          ~include_oid:(Username.equal my_username order.owner)
-          ~traded_with:None
-          order)
-    in
-    Node.table [Attr.id Ids.tape] (trades @ open_orders)
+    Node.table [Attr.id Ids.tape] trades
 
   let hotkeys =
     [| 'q', Ids.order ~dir:Sell ~suit:Spades
@@ -815,7 +799,6 @@ module App = struct
     let market, trades =
       Option.value exchange ~default:(Book.empty, Fqueue.empty)
     in
-    let my_username = me.pers.username in
     let on_keypress = Vdom.Attr.on_keypress (Hotkeys.on_keypress hotkeys) in
     let open Node in
     body [on_keypress] [div [Attr.id "container"]
@@ -823,7 +806,7 @@ module App = struct
       ; table [Attr.id "exchange"]
         [ tr []
           [ td [] [market_table ~hotkeys ~players ~inject market]
-          ; td [] [tape_table ~my_username ~players market trades]
+          ; td [] [tape_table ~players trades]
           ]
         ]
       ; infoboxes
