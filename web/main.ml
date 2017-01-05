@@ -657,7 +657,7 @@ module App = struct
         ])
 
   let tape_table ~(players : Player.t Username.Map.t) trades =
-    let row_of_order ~include_oid ~traded_with (trade : Order.t) =
+    let row_of_order ~traded_with (trade : Order.t) =
       let person_td username =
         let attrs =
           match Map.find players username with
@@ -667,11 +667,7 @@ module App = struct
         Node.td []
           [Node.span attrs [Node.text (Username.to_string username)]]
       in
-      [ Node.td [Attr.class_ "oid"]
-          (if include_oid
-          then [Node.text (Order.Id.to_string trade.id)]
-          else [])
-      ; person_td trade.owner
+      [ person_td trade.owner
       ; Node.td [Attr.class_ (Dir.to_string trade.dir)]
           [Node.text (Dir.fold trade.dir ~buy:"B" ~sell:"S")]
       ; begin let size_n =
@@ -694,7 +690,7 @@ module App = struct
     let trades =
       Fqueue.to_list trades
       |> List.map ~f:(fun ((traded : Order.t), with_) ->
-          row_of_order ~include_oid:false ~traded_with:with_ traded)
+          row_of_order ~traded_with:with_ traded)
     in
     Node.table [Attr.id Ids.tape] trades
 

@@ -88,6 +88,7 @@ tr#orderbuy  input { background-color: #355; }
 
 #tape {
 	display: block;
+	min-width: 15em;
 	height: 19em;
 	overflow-y: scroll;
 	background-color: #224;
