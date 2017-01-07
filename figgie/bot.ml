@@ -311,22 +311,23 @@ module Card_counter = struct
               Deferred.unit
             | Market book when Option.is_none !pending_ack ->
               Deferred.List.iter ~how:`Parallel Suit.all ~f:(fun suit ->
-                let fair = 10. *. Hand.get (Counts.ps_gold counts) ~suit in
+                let p_gold = Hand.get (Counts.ps_gold counts) ~suit in
                 let { Dirpair.buy; sell } = Hand.get book ~suit in
                 Deferred.List.iter ~how:`Parallel
                   (buy @ sell)
                     ~f:(fun order ->
                       let want_to_trade =
                         (* countbot doesn't understand the value of getting
-                           the most gold cards, so substantially
-                           underestimates some expected values.
-                           Correspondingly, countbot should not sell. Future
-                           work: come up with a (very?) conservative fair
-                           value by assuming that *every* gold sale loses you
-                           the pot. *)
+                           the most gold cards, so let's do the maximally
+                           conservative thing and assume (a) the pot is
+                           120 (8-card gold suit) and (b) this sale is taking
+                           us from first to a four-way pot split, losing
+                           three-quarters of the pot and the 10 for the gold
+                           card. Future work: use knowledge of our own and
+                           others' hand sizes to bound loss further. *)
                         match order.dir with
-                        | Buy -> false (* fair <. Price.to_float order.price *)
-                        | Sell -> fair >. Price.to_float order.price
+                        | Buy -> 100. *. p_gold <. Price.to_float order.price
+                        | Sell -> 10. *. p_gold >. Price.to_float order.price
                       in
                       if want_to_trade
                       then begin
