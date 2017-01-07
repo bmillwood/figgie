@@ -116,11 +116,17 @@ end
 
 module Order = struct
   type query = Market.Order.t [@@deriving bin_io, sexp]
+
+  type bad_price =
+    [ `Price_must_be_nonnegative
+    | `Price_too_high
+    ] [@@deriving bin_io, sexp]
+
   type error =
     [ not_playing
     | `Owner_is_not_sender
     | `Duplicate_order_id
-    | `Price_must_be_nonnegative
+    | bad_price
     | `Size_must_be_positive
     | `Not_enough_to_sell
     ] [@@deriving bin_io, sexp]

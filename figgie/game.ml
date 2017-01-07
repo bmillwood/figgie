@@ -153,8 +153,7 @@ module Round = struct
     Result.ok_if_true (not (Hashtbl.mem sender.orders sent_order.id))
       ~error:`Duplicate_order_id
     >>= fun () ->
-    Result.ok_if_true Market.Price.O.(sent_order.price >= zero)
-      ~error:`Price_must_be_nonnegative
+    Params.validate_price sent_order.price
     >>= fun () ->
     Result.ok_if_true Market.Size.O.(sent_order.size > zero)
       ~error:`Size_must_be_positive
