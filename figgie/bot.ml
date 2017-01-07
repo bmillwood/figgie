@@ -281,6 +281,7 @@ module Card_counter = struct
         ~username:(fun i -> which_user ~stem:"countbot" i)
         ~f:(fun client _which ->
           let counts = Counts.create () in
+          let pending_ack = ref None in
           Pipe.iter client.updates ~f:(function
             | Broadcast (Round_over results) ->
               Counts.clear counts;
@@ -290,6 +291,10 @@ module Card_counter = struct
               Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc client.conn true
               |> Deferred.ignore
             | Broadcast (Exec (order, exec)) ->
+              if Option.exists !pending_ack ~f:(Order.Id.equal order.id)
+              then (
+                pending_ack := None
+              );
               Counts.see_order counts order;
               Counts.see_exec  counts ~order exec;
               begin if Username.equal order.owner client.username
@@ -304,7 +309,7 @@ module Card_counter = struct
             | Hand hand ->
               Counts.update counts client.username ~f:(Fn.const hand);
               Deferred.unit
-            | Market book ->
+            | Market book when Option.is_none !pending_ack ->
               Deferred.List.iter ~how:`Parallel Suit.all ~f:(fun suit ->
                 let fair = 10. *. Hand.get (Counts.ps_gold counts) ~suit in
                 let { Dirpair.buy; sell } = Hand.get book ~suit in
@@ -334,9 +339,11 @@ module Card_counter = struct
                             Deferred.unit
                           | Ok `Ack -> Deferred.unit
                         end else begin
+                          let id = client.new_order_id () in
+                          pending_ack := Some id;
                           Rpc.Rpc.dispatch_exn Protocol.Order.rpc client.conn
                             { owner = client.username
-                            ; id = client.new_order_id ()
+                            ; id
                             ; symbol = order.symbol
                             ; dir = Dir.other order.dir
                             ; price = order.price
