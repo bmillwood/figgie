@@ -152,7 +152,7 @@ ul#history {
 	padding-left: 0.5em;
 	margin-bottom: 2px;
 }
-li.broadcast {
+ul#history li.status {
 	font-weight: bold;
 }
 input#cmdline {

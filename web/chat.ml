@@ -47,12 +47,16 @@ let apply_scrolling_action (t : Model.t) (act : Scrolling.Action.t) =
   { t with scrolling = Scrolling.apply_action t.scrolling act }
 
 let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
+  let attrs_of_message : Message.t -> _ =
+    function
+    | Chat _ -> []
+    | _ -> [Attr.class_ "status"]
+  in
   let nodes_of_message : Message.t -> _ =
     function
     | New_round -> [ Node.text "Everyone's ready: game is starting!" ]
     | Round_over results ->
-      [ Node.strong [] [Node.text "Time's up!"]
-      ; Node.text " The gold suit was "
+      [ Node.text "Time's up! The gold suit was "
       ; Node.span [Attr.classes [Card.Suit.name results.gold; "gold"]]
         [ Node.text (Card.Suit.to_utf8 results.gold)
         ; Node.text " "
@@ -81,7 +85,7 @@ let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
             ~inject:(fun scroll -> inject (Scroll_chat scroll))
         ]
         (List.map (Fqueue.to_list t.messages) ~f:(fun msg ->
-          Node.li [] (nodes_of_message msg)))
+          Node.li (attrs_of_message msg) (nodes_of_message msg)))
     ; Widget.textbox ~id:Ids.cmdline
         ~disabled:(not is_connected)
         ~on_submit:(fun msg -> inject (Send_chat msg))
