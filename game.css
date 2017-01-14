@@ -1,20 +1,3 @@
-body {
-	color: white;
-	background-color: #001;
-}
-#container {
-	width: 45em;
-	margin: auto;
-	padding-bottom: 1em;
-	background-color: #002;
-	text-align: center;
-}
-input {
-	margin: 0;
-	padding: 0;
-	border: 0;
-}
-
 input#connectTo {
 	margin-left: 0.5em;
 	padding-left: 0.2em;
@@ -23,11 +6,6 @@ input#connectTo {
 input#login {
 	width: 7em;
 }
-
-.me    { color: #000; background-color: #99f; }
-.them1 { color: #ff6; }
-.them2 { color: #6ff; }
-.them3 { color: #f6f; }
 
 .Spades, .Clubs    { color: black;   }
 .Hearts, .Diamonds { color: darkred; }
@@ -43,16 +21,6 @@ input#login {
 #status.Disconnected, #status.Connecting { background-color: #445; }
 #status.Connected,    #status.LoggedIn   { background-color: #006; }
 #status.ConnectionFailed                  { background-color: #602; }
-
-button#readybutton {
-	border: 0;
-	margin: 0.2em 0.5em;
-	color: white;
-	background-color: #004;
-}
-button#readybutton:hover {
-	background-color: #006;
-}
 
 .clock {
 	position: absolute;
@@ -135,33 +103,4 @@ div#others > .right {
 div.myself {
 	margin-top: 0.5em;
 	font-size: 2em;
-}
-
-div#historycmd {
-	width: 40em;
-	display: inline-block;
-	vertical-align: top;
-	text-align: left;
-}
-ul#history {
-	font-size: small;
-	height: 8em;
-	overflow-y: scroll;
-	background-color: #224;
-	list-style-type: none;
-	padding-left: 0.5em;
-	margin-bottom: 2px;
-}
-ul#history li.status {
-	font-weight: bold;
-}
-input#cmdline {
-	border: 1px solid #669;
-	padding: 0.1em 0.5em;
-	background-color: #006;
-	color: white;
-	width: 100%;
-}
-input#cmdline:disabled {
-	background-color: #223;
 }
