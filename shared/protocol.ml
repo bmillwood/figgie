@@ -45,25 +45,6 @@ module Player_update = struct
     [@@deriving bin_io, sexp]
 end
 
-module Observer_update = struct
-  type t =
-    | Broadcast of Broadcast.t
-    | Gold of Card.Suit.t
-    | Hands of Market.Size.t Card.Hand.t Username.Map.t
-    | Market of Market.Book.t
-    [@@deriving bin_io, sexp]
-end
-
-module Get_observer_updates = struct
-  type query = unit [@@deriving bin_io, sexp]
-  type error = [ `Already_logged_in ] [@@deriving bin_io, sexp]
-  type response = Observer_update.t [@@deriving bin_io, sexp]
-  let rpc =
-    Rpc.Pipe_rpc.create
-      ~name:"web-updates" ~version:1 ~bin_query ~bin_response ~bin_error
-      ()
-end
-
 module Login = struct
   type query = Username.t [@@deriving bin_io, sexp]
   type error = [ `Game_is_full | `Game_already_started | `Already_logged_in ]
