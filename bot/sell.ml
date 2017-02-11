@@ -23,7 +23,7 @@ let param =
   and size =
     flag "-size" (optional int)
       ~doc:"S sell at most S at a time"
-  and log_level = Client.log_level_flag
+  and log_level = Bot.log_level_flag
   in
   Log.Global.set_level log_level;
   { which
@@ -33,10 +33,10 @@ let param =
   }
 
 let command =
-  Client.make_command
+  Bot.make_command
     ~summary:"Offer all your cards at a fixed price"
     ~param
-    ~username:(fun t -> Client.which_user ~stem:"sellbot" t.which)
+    ~username:(fun t -> Bot.which_user ~stem:"sellbot" t.which)
     ~room_id:(fun _ -> Lobby.Room.Id.of_string "0")
     ~f:(fun client t ->
       let sell_prices =

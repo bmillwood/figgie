@@ -105,16 +105,16 @@ let param =
   let%map_open which =
     flag "-which" (optional int)
       ~doc:"N modulate username"
-  and log_level = Client.log_level_flag
+  and log_level = Bot.log_level_flag
   in
   Log.Global.set_level log_level;
   which
 
 let command =
-  Client.make_command
+  Bot.make_command
     ~summary:"Count cards"
     ~param
-    ~username:(fun i -> Client.which_user ~stem:"countbot" i)
+    ~username:(fun i -> Bot.which_user ~stem:"countbot" i)
     ~room_id:(fun _ -> Lobby.Room.Id.of_string "0")
     ~f:(fun client _which ->
       let counts = Counts.create () in
