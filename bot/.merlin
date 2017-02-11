@@ -1,0 +1,4 @@
+PKG async async_kernel core
+PKG ppx_jane
+B ../_build/bot
+B ../_build/shared

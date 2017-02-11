@@ -1,4 +1,4 @@
-open Core.Std
+open Core_kernel.Std
 
 let length_of_round = Time_ns.Span.of_sec 10.
 

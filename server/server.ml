@@ -376,6 +376,7 @@ let command =
       in
       fun () ->
         Log.Global.set_level log_level;
+        Random.self_init ();
         main ~tcp_port ~web_port
         >>= never_returns
     ]

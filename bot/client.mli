@@ -7,6 +7,8 @@ type t = {
   new_order_id : unit -> Market.Order.Id.t;
 }
 
+val log_level_flag : Log.Level.t Command.Param.t
+
 val make_command
   :  summary:string
   -> param:'a Command.Param.t

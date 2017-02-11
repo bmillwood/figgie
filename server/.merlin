@@ -1,5 +1,5 @@
 PKG async async_kernel async_rpc_kernel core
 PKG websocket
 PKG ppx_jane
-B ../_build/figgie
+B ../_build/server
 B ../_build/shared

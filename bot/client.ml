@@ -34,6 +34,11 @@ let run ~server ~room_id ~username ~f =
           f { username; conn; updates; new_order_id })
   >>| Or_error.of_exn_result
 
+let log_level_flag =
+  let open Command.Param in
+  flag "-log-level" (optional_with_default `Info Log.Level.arg)
+    ~doc:"L Debug, Info, or Error"
+
 let make_command ~summary ~param ~username ~room_id ~f =
   let open Command.Let_syntax in
   Command.async_or_error'
