@@ -22,6 +22,7 @@ module Do_nothing = struct
         ~summary:"Do nothing"
         ~param
         ~username:(fun i -> which_user ~stem:"lazybot" i)
+        ~room_id:(fun _ -> Lobby.Room.Id.of_string "0")
         ~f:(fun client _which ->
           Pipe.iter client.updates ~f:(function
             | Broadcast (Round_over _) ->
@@ -69,6 +70,7 @@ module Offer_everything = struct
         ~summary:"Offer all your cards at a fixed price"
         ~param
         ~username:(fun t -> which_user ~stem:"sellbot" t.which)
+        ~room_id:(fun _ -> Lobby.Room.Id.of_string "0")
         ~f:(fun client t ->
           let sell_prices =
             Card.Hand.init ~f:(fun _suit -> ref t.initial_sell_price)
@@ -279,6 +281,7 @@ module Card_counter = struct
         ~summary:"Count cards"
         ~param
         ~username:(fun i -> which_user ~stem:"countbot" i)
+        ~room_id:(fun _ -> Lobby.Room.Id.of_string "0")
         ~f:(fun client _which ->
           let counts = Counts.create () in
           let pending_ack = ref None in

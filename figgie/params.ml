@@ -1,9 +1,6 @@
 open Core.Std
 
-let min_players = 4
-let max_players = 4
-
-let length_of_round = Time_ns.Span.of_min 1.
+let length_of_round = Time_ns.Span.of_sec 10.
 
 let gold_card_value = Market.Price.of_int 10
 let pot_per_player ~num_players:_ = Market.Price.of_int 50

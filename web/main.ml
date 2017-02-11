@@ -128,7 +128,7 @@ module Logged_in = struct
   module Action = struct
     type t =
       | Game of Game.Action.t
-      | Update of Protocol.Player_update.t
+      | Update of Protocol.Game_update.t
       [@@deriving sexp_of]
   end
 end
@@ -323,7 +323,10 @@ module App = struct
       don't_wait_for begin
         Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn readiness
         >>| function
-        | Ok () | Error `Already_playing | Error `Login_first -> ()
+        | Ok ()
+        | Error `Already_playing
+        | Error `Not_logged_in
+        | Error `Not_in_a_room -> ()
       end;
       Waiting
         (Waiting.set_player_readiness wait
@@ -397,7 +400,7 @@ module App = struct
           let current_time = Time_ns.now () in
           Rpc.Rpc.dispatch_exn Protocol.Time_remaining.rpc conn ()
           >>| function
-          | Error `Game_not_in_progress -> ()
+          | Error #Protocol.not_playing -> ()
           | Ok remaining ->
             let end_time = Time_ns.add current_time remaining in
             schedule (Action.playing (Set_clock end_time))
@@ -437,7 +440,14 @@ module App = struct
     match t with
     | Start_login username ->
       don't_wait_for begin
-        Rpc.Pipe_rpc.dispatch_exn Protocol.Login.rpc conn.conn username
+        Rpc.Rpc.dispatch_exn Protocol.Login.rpc conn.conn username
+        >>= fun r ->
+        begin match r with
+        | Ok () -> ()
+        | Error `Already_logged_in -> assert false
+        end;
+        Rpc.Pipe_rpc.dispatch_exn Protocol.Join_room.rpc
+          conn.conn (Lobby.Room.Id.of_string "0")
         >>= fun (pipe, _pipe_metadata) ->
         schedule (Action.connected (Finish_login username));
         Pipe.iter_without_pushback pipe
@@ -712,7 +722,7 @@ module App = struct
       don't_wait_for begin
         Rpc.Rpc.dispatch_exn Protocol.Chat.rpc conn msg
         >>| function
-        | Error `Login_first | Ok () -> ()
+        | Error `Not_logged_in | Ok () -> ()
       end
     | _ -> ()
 

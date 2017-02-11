@@ -4,6 +4,43 @@ open Async_rpc_kernel.Std
 let default_async_rpc_port = 58828
 let default_websocket_port = 58829
 
+module Login = struct
+  type query = Username.t [@@deriving bin_io, sexp]
+  type response =
+    ( unit
+    , [ `Already_logged_in ]
+    ) Result.t [@@deriving bin_io, sexp]
+  let rpc =
+    Rpc.Rpc.create
+      ~name:"login" ~version:1 ~bin_query ~bin_response
+end
+
+module Lobby_update = struct
+  type t =
+    | Snapshot of Lobby.t
+    | New_room of
+      { id : Lobby.Room.Id.t
+      ; room : Lobby.Room.t
+      }
+    | Room_closed of Lobby.Room.Id.t
+    | Player_joined_room of { player : Username.t; room_id : Lobby.Room.Id.t }
+    | Other_login of Username.t
+    | Other_logout of Username.t
+    | Chat of Username.t * string
+    [@@deriving bin_io, sexp]
+end
+
+module Get_lobby_updates = struct
+  type query = unit [@@deriving bin_io, sexp]
+  type response = Lobby_update.t [@@deriving bin_io, sexp]
+  type error = [ `Not_logged_in ] [@@deriving bin_io, sexp]
+  let rpc =
+    Rpc.Pipe_rpc.create
+      ~name:"get_lobby_updates" ~version:1
+      ~bin_query ~bin_response ~bin_error
+      ()
+end
+
 module Round_results = struct
   type t = {
     gold : Card.Suit.t;
@@ -25,19 +62,7 @@ module Broadcast = struct
     [@@deriving bin_io, sexp]
 end
 
-module Time_remaining = struct
-  type span = Time_ns.Span.t [@@deriving bin_io]
-  let sexp_of_span = Time_ns.Span.Alternate_sexp.sexp_of_t
-  let span_of_sexp = Time_ns.Span.Alternate_sexp.t_of_sexp
-
-  type query = unit [@@deriving bin_io, sexp]
-  type response = (span, [ `Game_not_in_progress ]) Result.t
-    [@@deriving bin_io, sexp]
-  let rpc =
-    Rpc.Rpc.create ~name:"time-left" ~version:1 ~bin_query ~bin_response
-end
-
-module Player_update = struct
+module Game_update = struct
   type t =
     | Broadcast of Broadcast.t
     | Hand of Market.Size.t Card.Hand.t
@@ -45,34 +70,49 @@ module Player_update = struct
     [@@deriving bin_io, sexp]
 end
 
-module Login = struct
-  type query = Username.t [@@deriving bin_io, sexp]
-  type error = [ `Game_is_full | `Game_already_started | `Already_logged_in ]
-    [@@deriving bin_io, sexp]
-  type response = Player_update.t [@@deriving bin_io, sexp]
+type not_logged_in = [ `Not_logged_in ] [@@deriving bin_io, sexp]
+
+module Join_room = struct
+  type query = Lobby.Room.Id.t [@@deriving bin_io, sexp]
+  type response = Game_update.t [@@deriving bin_io, sexp]
+  type error =
+    [ not_logged_in
+    | `Already_in_a_room
+    | `No_such_room
+    | `Game_already_started
+    | `Game_is_full
+    ] [@@deriving bin_io, sexp]
+
   let rpc =
     Rpc.Pipe_rpc.create
-      ~name:"login" ~version:1 ~bin_query ~bin_response ~bin_error
+      ~name:"join_room" ~version:1
+      ~bin_query ~bin_response ~bin_error
       ()
 end
 
 module Is_ready = struct
   type query = bool [@@deriving bin_io, sexp]
-  type response = (unit, [ `Login_first | `Already_playing ]) Result.t
+  type response =
+    ( unit
+    , [ not_logged_in | `Not_in_a_room | `Already_playing ]
+    ) Result.t
     [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"ready" ~version:1 ~bin_query ~bin_response
 end
 
 module Chat = struct
   type query = string [@@deriving bin_io, sexp]
-  type response = (unit, [ `Login_first ]) Result.t
+  type response = (unit, not_logged_in) Result.t
     [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"chat" ~version:1 ~bin_query ~bin_response
 end
 
 type not_playing =
-  [ `Login_first | `Game_not_in_progress | `You're_not_playing ]
-  [@@deriving bin_io, sexp]
+  [ not_logged_in
+  | `Not_in_a_room
+  | `Game_not_in_progress
+  | `You're_not_playing
+  ] [@@deriving bin_io, sexp]
 
 let playing_exn =
   function
@@ -82,6 +122,17 @@ let playing_exn =
       "Protocol.playing_exn"
         (not_playing : not_playing)
     ]
+
+module Time_remaining = struct
+  type span = Time_ns.Span.t [@@deriving bin_io]
+  let sexp_of_span = Time_ns.Span.Alternate_sexp.sexp_of_t
+  let span_of_sexp = Time_ns.Span.Alternate_sexp.t_of_sexp
+
+  type query = unit [@@deriving bin_io, sexp]
+  type response = (span, not_playing) Result.t [@@deriving bin_io, sexp]
+  let rpc =
+    Rpc.Rpc.create ~name:"time-left" ~version:1 ~bin_query ~bin_response
+end
 
 (* The response comes via the updates stream rather than in the RPC response,
    so that it has guaranteed ordering wrt other updates. *)

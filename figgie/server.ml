@@ -2,40 +2,23 @@ open Core.Std
 open Async.Std
 module Rpc_kernel = Async_rpc_kernel.Std
 
-module Connection_state = struct
-  (* One username may have many of these connections *)
-  module Player = struct
-    type t = {
+module Updates_manager = struct
+  (* One username may have many of these clients *)
+  module Client = struct
+    type 'update t = {
       conn     : Rpc.Connection.t;
       username : Username.t;
-      updates  : Protocol.Player_update.t Pipe.Writer.t;
+      updates  : 'update Pipe.Writer.t;
     }
   end
 
-  module Status = struct
-    type t =
-      | Not_logged_in of Rpc.Connection.t
-      | Player of Player.t
-  end
+  type 'update t =
+    { clients : 'update Client.t Doubly_linked.t Username.Table.t }
 
-  type t = Status.t ref
+  let create () = { clients = Username.Table.create () }
 
-  let create ~conn : t =
-    ref (Status.Not_logged_in conn)
-end
-
-module Connection_manager = struct
-  open Connection_state
-  type t = {
-    players   : Player.t Doubly_linked.t Username.Table.t;
-  }
-
-  let create () =
-    { players   = Username.Table.create ()
-    }
-
-  let add_player_conn t (conn : Player.t) =
-    Hashtbl.update t.players conn.username
+  let subscribe t (conn : _ Client.t) =
+    Hashtbl.update t.clients conn.username
       ~f:(fun conns ->
         let conns =
           match conns with
@@ -45,178 +28,301 @@ module Connection_manager = struct
         let elt = Doubly_linked.insert_first conns conn in
         don't_wait_for begin
           Pipe.closed conn.updates
-          >>= fun () ->
-          Doubly_linked.remove conns elt;
-          Rpc.Connection.close conn.conn
+          >>| fun () ->
+          Doubly_linked.remove conns elt
         end;
         conns
     )
 
-  let has_player t ~username = Hashtbl.mem t.players username
+  let has_player t ~username = Hashtbl.mem t.clients username
 
-  let write_update_to_logins (logins : Player.t Doubly_linked.t) update =
+  let write_update_to_logins (logins : _ Client.t Doubly_linked.t) update =
     Doubly_linked.iter logins ~f:(fun login ->
       Pipe.write_without_pushback login.updates update
     )
 
-  let player_update t ~username update =
-    Option.iter (Hashtbl.find t.players username) ~f:(fun logins ->
+  let update t ~username update =
+    Option.iter (Hashtbl.find t.clients username) ~f:(fun logins ->
       write_update_to_logins logins update
     )
 
   let broadcast t broadcast =
-    Log.Global.sexp [%sexp (broadcast : Protocol.Broadcast.t)];
-    Hashtbl.iteri t.players ~f:(fun ~key:_ ~data:logins ->
-      write_update_to_logins logins (Broadcast broadcast)
+    Hashtbl.iteri t.clients ~f:(fun ~key:_ ~data:logins ->
+      write_update_to_logins logins broadcast
     )
 
-  let broadcasts t updates = List.iter updates ~f:(broadcast t)
+  let broadcasts t = List.iter ~f:(broadcast t)
 end
 
-let implementations () =
-  let game = Game.create () in
-  let conns = Connection_manager.create () in
-  let setup_round (round : Game.Round.t) =
+module Room_manager = struct
+  type t =
+    { id : Lobby.Room.Id.t
+    ; room : Lobby.Room.t
+    ; game : Game.t
+    ; updates : Protocol.Game_update.t Updates_manager.t
+    }
+
+  let create ~id =
+    { id
+    ; room = Lobby.Room.empty
+    ; game = Game.create ()
+    ; updates = Updates_manager.create ()
+    }
+
+  let setup_round t (round : Game.Round.t) =
     don't_wait_for begin
       Clock_ns.at round.end_time
       >>| fun () ->
-      let results = Game.end_round game round in
-      Connection_manager.broadcasts conns
-        [ Round_over results
-        ; Scores (Game.scores game)
+      let results = Game.end_round t.game round in
+      Updates_manager.broadcasts t.updates
+        [ Broadcast (Round_over results)
+        ; Broadcast (Scores (Game.scores t.game))
         ]
     end;
     Map.iteri round.players ~f:(fun ~key:username ~data:p ->
-      Connection_manager.player_update conns ~username (Hand p.hand)
+      Updates_manager.update t.updates ~username (Hand p.hand)
     );
-    Connection_manager.broadcasts conns
-      [ New_round
-      ; Scores (Game.scores game)
+    Updates_manager.broadcasts t.updates
+      [ Broadcast New_round
+      ; Broadcast (Scores (Game.scores t.game))
       ];
+end
+
+module Connection_state = struct
+  module Status = struct
+    type t =
+      | Not_logged_in of { conn : Rpc.Connection.t }
+      | Logged_in of { conn : Rpc.Connection.t; username : Username.t }
+      | Lobby of Protocol.Lobby_update.t Updates_manager.Client.t
+      | In_room of
+        { player : Protocol.Game_update.t Updates_manager.Client.t
+        ; room   : Room_manager.t
+        }
+  end
+  open Status
+
+  type t = Status.t ref
+
+  let create ~conn =
+    ref (Not_logged_in { conn })
+end
+
+type t =
+  { lobby_updates : Protocol.Lobby_update.t Updates_manager.t
+  ; rooms : Room_manager.t Lobby.Room.Id.Table.t
+  }
+
+let lobby_snapshot t =
+  Hashtbl.fold t.rooms ~init:Lobby.Room.Id.Map.empty
+    ~f:(fun ~key ~data acc -> Map.add acc ~key ~data:data.room)
+
+let new_room_exn t ~id =
+  let new_room = Room_manager.create ~id in
+  Hashtbl.add_exn t.rooms ~key:id ~data:new_room;
+  Updates_manager.broadcast t.lobby_updates
+    (New_room { id; room = new_room.room })
+
+let unused_room_id t =
+  let rec try_ i =
+    let id = Lobby.Room.Id.of_string (Int.to_string i) in
+    if Hashtbl.mem t.rooms id then (
+      try_ (i + 1)
+    ) else (
+      id
+    )
   in
-  let for_existing_user rpc f =
+  try_ 0
+
+let ensure_empty_room_exists t =
+  if Hashtbl.for_all t.rooms ~f:(fun room -> Game.num_players room.game > 0)
+  then (
+    new_room_exn t ~id:(unused_room_id t)
+  )
+
+let create () =
+  let t = 
+    { lobby_updates = Updates_manager.create ()
+    ; rooms = Lobby.Room.Id.Table.create ()
+    }
+  in
+  ensure_empty_room_exists t;
+  t
+
+let implementations t =
+  let username_conn (state : Connection_state.t) =
+    match !state with
+    | Not_logged_in _ -> Error `Not_logged_in
+    | Logged_in { username; conn }
+    | Lobby { username; conn; _ }
+    | In_room { player = { username; conn; _ }; room = _ } ->
+      Ok (username, conn)
+  in
+  let in_room rpc f =
     Rpc.Rpc.implement rpc
       (fun (state : Connection_state.t) query ->
         match !state with
-        | Not_logged_in _ -> return (Error `Login_first)
-        | Player { username; _ } -> f ~username query
+        | Not_logged_in _ -> return (Error `Not_logged_in)
+        | Logged_in _ | Lobby _ -> return (Error `Not_in_a_room)
+        | In_room { player; room } ->
+          f ~username:player.username ~room query
     )
   in
   let during_game rpc f =
-    for_existing_user rpc (fun ~username query ->
-      match game.phase with
+    in_room rpc (fun ~username ~room query ->
+      match room.game.phase with
       | Waiting_for_players _ -> return (Error `Game_not_in_progress)
-      | Playing round -> f ~username ~round query
-    )
+      | Playing round -> f ~username ~room ~round query)
   in
   Rpc.Implementations.create_exn
     ~on_unknown_rpc:`Close_connection
     ~implementations:
-    [ Rpc.Pipe_rpc.implement Protocol.Login.rpc
+    [ Rpc.Rpc.implement Protocol.Login.rpc
         (fun (state : Connection_state.t) username ->
-          let login conn =
-            begin if Connection_manager.has_player conns ~username
-            then return (Ok ())
-            else begin
-              return (Game.player_join game ~username)
-              >>|? fun () ->
-              Connection_manager.broadcast conns (Player_joined username)
-            end end
-            >>|? fun () ->
-            let updates_r, updates_w = Pipe.create () in
-            let player_conn : Connection_state.Player.t =
-              { username; conn; updates = updates_w }
-            in
-            Connection_manager.add_player_conn conns player_conn;
-            state := Player player_conn;
-            let catch_up =
-              let open Protocol.Player_update in
-              [ [Broadcast (Scores (Game.scores game))]
-              ; match game.phase with
-                | Waiting_for_players waiting ->
-                  List.map (Hashtbl.data waiting.players) ~f:(fun wp ->
-                    Broadcast (Player_ready
-                      { who = wp.p.username
-                      ; is_ready = wp.is_ready
-                      }))
-                | Playing round ->
-                    [ Broadcast New_round
-                    ; Hand (Map.find_exn round.players username).hand
-                    ; Market round.market
-                    ]
-              ] |> List.concat
-            in
-            List.iter catch_up ~f:(fun update ->
-              Pipe.write_without_pushback updates_w update);
-            updates_r
-          in
           match !state with
-          | Player _ -> return (Error `Already_logged_in)
-          | Not_logged_in conn ->
-            login conn
-        )
-    ; Rpc.Rpc.implement Protocol.Time_remaining.rpc
-        (fun _state () ->
-          match game.phase with
-          | Waiting_for_players _ -> return (Error `Game_not_in_progress)
-          | Playing round ->
-            let span = Time_ns.diff round.end_time (Time_ns.now ()) in
-            return (Ok span)
+          | Not_logged_in { conn } ->
+            state := Logged_in { conn; username };
+            return (Ok ())
+          | _other ->
+            return (Error `Already_logged_in))
+    ; Rpc.Pipe_rpc.implement Protocol.Get_lobby_updates.rpc
+        (fun (state : Connection_state.t) () ->
+          (* no reason in principle why we couldn't allow not-logged-in
+             users to get lobby updates, it just means writing code *)
+          return (username_conn state)
+          >>=? fun (username, conn) ->
+          let (updates_r, updates_w) = Pipe.create () in
+          let client : _ Updates_manager.Client.t =
+            { conn; username; updates = updates_w }
+          in
+          state := Lobby client;
+          Updates_manager.subscribe t.lobby_updates client;
+          Pipe.write_without_pushback updates_w
+            (Snapshot (lobby_snapshot t));
+          return (Ok updates_r))
+    ; Rpc.Pipe_rpc.implement Protocol.Join_room.rpc
+        (fun (state : Connection_state.t) room_id ->
+          return begin match !state with
+          | Not_logged_in _ -> Error `Not_logged_in
+          | In_room _ -> Error `Already_in_a_room
+          | Logged_in { username; conn }
+          | Lobby { username; conn; _ } -> Ok (username, conn)
+          end
+          >>=? fun (username, conn) ->
+          begin match Hashtbl.find t.rooms room_id with
+          | None -> return (Error `No_such_room)
+          | Some room -> return (Ok room)
+          end
+          >>=? fun room ->
+          begin if Updates_manager.has_player room.updates ~username then (
+            return (Ok ())
+          ) else (
+            return (Game.player_join room.game ~username)
+            >>|? fun () ->
+            ensure_empty_room_exists t;
+            Updates_manager.broadcast room.updates
+              (Broadcast (Player_joined username))
+          ) end
+          >>=? fun () ->
+          let updates_r, updates_w = Pipe.create () in
+          let player : _ Updates_manager.Client.t =
+            { username; conn; updates = updates_w }
+          in
+          Updates_manager.subscribe room.updates player;
+          state := In_room { player; room };
+          let catch_up =
+            let open Protocol.Game_update in
+            [ [Broadcast (Scores (Game.scores room.game))]
+            ; match room.game.phase with
+              | Waiting_for_players waiting ->
+                List.map (Hashtbl.data waiting.players) ~f:(fun wp ->
+                  Broadcast (Player_ready
+                    { who = wp.p.username
+                    ; is_ready = wp.is_ready
+                    }))
+              | Playing round ->
+                  [ Broadcast New_round
+                  ; Hand (Map.find_exn round.players username).hand
+                  ; Market round.market
+                  ]
+            ] |> List.concat
+          in
+          List.iter catch_up ~f:(fun update ->
+            Pipe.write_without_pushback updates_w update);
+          return (Ok updates_r)
       )
-    ; for_existing_user Protocol.Is_ready.rpc
-        (fun ~username is_ready ->
-          Connection_manager.broadcast conns
-            (Player_ready { who = username; is_ready });
-          return (Game.set_ready game ~username ~is_ready)
+    ; Rpc.Rpc.implement Protocol.Chat.rpc
+        (fun (state : Connection_state.t) msg ->
+          match !state with
+          | Not_logged_in _ -> return (Error `Not_logged_in)
+          | Logged_in { username; _ } | Lobby { username; _ } ->
+            Updates_manager.broadcast t.lobby_updates
+              (Chat (username, msg));
+            return (Ok ())
+          | In_room { player; room } ->
+            Updates_manager.broadcast room.updates
+              (Broadcast (Chat (player.username, msg)));
+            return (Ok ())
+      )
+    ; in_room Protocol.Is_ready.rpc
+        (fun ~username ~room is_ready ->
+          Updates_manager.broadcast room.updates
+            (Broadcast (Player_ready { who = username; is_ready }));
+          return (Game.set_ready room.game ~username ~is_ready)
           >>|? function
-          | `Started round -> setup_round round
+          | `Started round -> Room_manager.setup_round room round
           | `Still_waiting _wait -> ()
       )
-    ; for_existing_user Protocol.Chat.rpc
-        (fun ~username msg ->
-          Connection_manager.broadcast conns (Chat (username, msg));
-          return (Ok ()))
+    ; during_game Protocol.Time_remaining.rpc
+        (fun ~username:_ ~room:_ ~round () ->
+          let span = Time_ns.diff round.end_time (Time_ns.now ()) in
+          return (Ok span)
+      )
     ; during_game Protocol.Get_update.rpc
-        (fun ~username ~round which ->
+        (fun ~username ~room ~round which ->
           begin match which with
           | Hand ->
             Result.iter (Game.Round.get_hand round ~username) ~f:(fun hand ->
-              Connection_manager.player_update conns ~username
-                (Hand hand))
+              Updates_manager.update room.updates ~username (Hand hand))
           | Market ->
-            Connection_manager.player_update conns ~username
-              (Market round.market)
+              Updates_manager.update room.updates ~username
+                (Market round.market)
           end;
-          return (Ok ()))
+          return (Ok ())
+      )
     ; during_game Protocol.Order.rpc
-        (fun ~username ~round order ->
+        (fun ~username ~room ~round order ->
           match Game.Round.add_order round ~order ~sender:username with
           | (Error _) as e -> return e
           | Ok exec ->
-            Connection_manager.broadcasts conns
-              [ Exec (order, exec)
-              ; Scores (Game.scores game)
+            Updates_manager.broadcasts room.updates
+              [ Broadcast (Exec (order, exec))
+              ; Broadcast (Scores (Game.scores room.game))
               ];
-            return (Ok `Ack))
+            return (Ok `Ack)
+      )
     ; during_game Protocol.Cancel.rpc
-        (fun ~username ~round id ->
+        (fun ~username ~room ~round id ->
           match Game.Round.cancel_order round ~id ~sender:username with
           | (Error _) as e -> return e
           | Ok order ->
-            Connection_manager.broadcast conns (Out order);
-            return (Ok `Ack))
+            Updates_manager.broadcast room.updates (Broadcast (Out order));
+            return (Ok `Ack)
+      )
     ; during_game Protocol.Cancel_all.rpc
-        (fun ~username ~round () ->
+        (fun ~username ~room ~round () ->
           match Game.Round.cancel_orders round ~sender:username with
           | (Error _) as e -> return e
           | Ok orders ->
             List.iter orders ~f:(fun order ->
-              Connection_manager.broadcast conns (Out order));
-            return (Ok `Ack))
+              Updates_manager.broadcast room.updates
+                (Broadcast (Out order)));
+            return (Ok `Ack)
+      )
     ]
 
 let main ~tcp_port ~web_port =
-  let implementations = implementations () in
+  let t = create () in
+  let implementations = implementations t in
   let%bind _server =
     Rpc.Connection.serve
       ~initial_connection_state:(fun addr conn ->
