@@ -62,10 +62,10 @@ module Room_manager = struct
     ; updates : Protocol.Game_update.t Updates_manager.t
     }
 
-  let create ~id =
+  let create ~game_config ~id =
     { id
     ; room = Lobby.Room.empty
-    ; game = Game.create ()
+    ; game = Game.create ~config:game_config
     ; updates = Updates_manager.create ()
     }
 
@@ -110,6 +110,7 @@ end
 type t =
   { lobby_updates : Protocol.Lobby_update.t Updates_manager.t
   ; rooms : Room_manager.t Lobby.Room.Id.Table.t
+  ; game_config : Game.Config.t
   }
 
 let lobby_snapshot t =
@@ -117,7 +118,7 @@ let lobby_snapshot t =
     ~f:(fun ~key ~data acc -> Map.add acc ~key ~data:data.room)
 
 let new_room_exn t ~id =
-  let new_room = Room_manager.create ~id in
+  let new_room = Room_manager.create ~id ~game_config:t.game_config in
   Hashtbl.add_exn t.rooms ~key:id ~data:new_room;
   Updates_manager.broadcast t.lobby_updates
     (New_room { id; room = new_room.room })
@@ -139,10 +140,11 @@ let ensure_empty_room_exists t =
     new_room_exn t ~id:(unused_room_id t)
   )
 
-let create () =
+let create ~game_config =
   let t = 
     { lobby_updates = Updates_manager.create ()
     ; rooms = Lobby.Room.Id.Table.create ()
+    ; game_config
     }
   in
   ensure_empty_room_exists t;
@@ -320,8 +322,8 @@ let implementations t =
       )
     ]
 
-let main ~tcp_port ~web_port =
-  let t = create () in
+let main ~tcp_port ~web_port ~game_config =
+  let t = create ~game_config in
   let implementations = implementations t in
   let%bind _server =
     Rpc.Connection.serve
@@ -373,10 +375,11 @@ let command =
       and log_level =
         flag "-log-level" (optional_with_default `Info Log.Level.arg)
           ~doc:"LEVEL Error, Info, or Debug"
+      and game_config = Game.Config.arg
       in
       fun () ->
         Log.Global.set_level log_level;
         Random.self_init ();
-        main ~tcp_port ~web_port
+        main ~tcp_port ~web_port ~game_config
         >>= never_returns
     ]

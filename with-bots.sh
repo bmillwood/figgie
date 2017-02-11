@@ -1,5 +1,5 @@
 #!/bin/bash
-./server.byte &
+./server.byte -length-of-round 1m &
 victims=$!
 sleep 0.5
 for which in 1 2

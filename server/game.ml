@@ -1,5 +1,20 @@
 open Core.Std
 
+module Config = struct
+  type t = { length_of_round : Time_ns.Span.t }
+
+  let arg =
+    let open Command.Let_syntax in
+    [%map_open
+      let length_of_round =
+        flag "-length-of-round"
+          (required (Arg_type.create Time_ns.Span.of_string))
+          ~doc:"SPAN duration of a single game round"
+      in
+      { length_of_round }
+    ]
+end
+
 module Player = struct
   type t = {
     mutable username : Username.t;
@@ -97,7 +112,7 @@ module Round = struct
     let hands = Map.map t.players ~f:(fun player -> player.hand) in
     { Protocol.Round_results.gold = t.gold; hands; scores_this_round }
 
-  let start ~players =
+  let start ~(config : Config.t) ~players =
     let num_players = Map.length players in
     assert (Market.Size.to_int Params.num_cards_in_deck mod num_players = 0);
     let hands, gold =
@@ -140,7 +155,7 @@ module Round = struct
     in
     (* Note we don't actually schedule anything to happen at this time.
        That's done by the server, for reasons. *)
-    let end_time = Time_ns.(add (now ()) Params.length_of_round) in
+    let end_time = Time_ns.(add (now ()) config.length_of_round) in
     { players; pot = !pot; market = Market.Book.empty; gold; end_time }
 
   let add_player_order t
@@ -262,9 +277,15 @@ module Phase = struct
     | Playing of Round.t
 end
 
-type t = { mutable phase : Phase.t }
+type t =
+  { config : Config.t
+  ; mutable phase : Phase.t
+  }
 
-let create () = { phase = Waiting_for_players { players = Username.Table.create () } }
+let create ~config =
+  { config
+  ; phase = Waiting_for_players { players = Username.Table.create () }
+  }
 
 let num_players t =
   match t.phase with
@@ -311,7 +332,7 @@ let set_ready t ~username ~is_ready =
           |> Username.Map.of_alist_exn
           |> Map.map ~f:(fun player -> player.p)
         in
-        let round = Round.start ~players:round_players in
+        let round = Round.start ~config:t.config ~players:round_players in
         t.phase <- Playing round;
         Ok (`Started round)
       end else Ok (`Still_waiting waiting)
