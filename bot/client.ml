@@ -39,6 +39,10 @@ let log_level_flag =
   flag "-log-level" (optional_with_default `Info Log.Level.arg)
     ~doc:"L Debug, Info, or Error"
 
+let which_user ~stem i =
+  stem ^ Option.value_map i ~default:"" ~f:Int.to_string
+  |> Username.of_string
+
 let make_command ~summary ~param ~username ~room_id ~f =
   let open Command.Let_syntax in
   Command.async_or_error'

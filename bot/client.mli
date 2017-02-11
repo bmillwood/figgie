@@ -9,6 +9,8 @@ type t = {
 
 val log_level_flag : Log.Level.t Command.Param.t
 
+val which_user : stem:string -> int option -> Username.t
+
 val make_command
   :  summary:string
   -> param:'a Command.Param.t
