@@ -3,7 +3,7 @@ open Market
 type t =
   { known   : Size.t Card.Hand.t
   ; unknown : Size.t
-  }
+  } [@@deriving sexp_of]
 
 let empty =
   { known = Card.Hand.create_all Size.zero

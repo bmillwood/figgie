@@ -341,7 +341,7 @@ module App = struct
         { my_hand = Card.Hand.create_all Size.zero
         ; other_hands =
             Map.map login.others ~f:(fun _ ->
-              Partial_hand.create_unknown (Size.of_int 10))
+              Partial_hand.create_unknown Params.num_cards_per_hand)
         ; market = Book.empty
         ; trades = Fqueue.empty
         ; trades_scroll

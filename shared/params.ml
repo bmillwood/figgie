@@ -1,9 +1,9 @@
 open Core_kernel.Std
 
-let length_of_round = Time_ns.Span.of_sec 10.
+let length_of_round = Time_ns.Span.of_min 1.
 
 let gold_card_value = Market.Price.of_int 10
-let pot_per_player ~num_players:_ = Market.Price.of_int 50
+let pot_per_player = Market.Price.of_int 50
 
 (* In a four-player game, the most you can possibly win from one card purchase
    is 100, when the gold suit has 8 cards so there's 120 in the pot, and you
@@ -31,3 +31,5 @@ let cards_in_suit suit ~long ~short =
 
 let num_cards_in_deck =
   Market.Size.O.(2 * normal_suit_cards + long_suit_cards + short_suit_cards)
+
+let num_cards_per_hand = Market.Size.of_int 10

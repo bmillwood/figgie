@@ -127,7 +127,7 @@ module Round = struct
       done;
       Array.map hands ~f:(Hand.map ~f:(fun r -> !r)), Suit.opposite long
     in
-    let to_pot = Params.pot_per_player ~num_players in
+    let to_pot = Params.pot_per_player in
     let pot = ref Market.Price.zero in
     let players =
       List.map2_exn (Map.data players) (Array.to_list hands) ~f:(fun p hand ->

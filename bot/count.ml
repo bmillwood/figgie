@@ -6,8 +6,8 @@ open Market
 
 module Counts = struct
   type t = {
-    per_player : Size.t Hand.t Username.Table.t
-  } [@@deriving sexp]
+    per_player : Partial_hand.t Username.Table.t
+  } [@@deriving sexp_of]
 
   let create () = { per_player = Username.Table.create () }
 
@@ -15,7 +15,10 @@ module Counts = struct
 
   let update t player ~f =
     Hashtbl.update t.per_player player ~f:(fun hand ->
-      let hand = Option.value hand ~default:(Hand.create_all Size.zero) in
+      let hand =
+        Option.value hand
+          ~default:(Partial_hand.create_unknown Params.num_cards_per_hand)
+      in
       f hand)
 
   let see_order t (order : Order.t) =
@@ -23,17 +26,15 @@ module Counts = struct
     | Buy -> ()
     | Sell ->
       update t order.owner
-        ~f:(Hand.modify ~suit:order.symbol ~f:(Size.max order.size))
+        ~f:(Partial_hand.selling ~suit:order.symbol ~size:order.size)
 
   let see_exec t ~(order : Order.t) (exec : Exec.t) =
     let suit = order.symbol in
     let apply_fill ~(filled : Order.t) ~size =
       update t filled.owner
-        ~f:(Hand.modify ~suit ~f:(fun c ->
-          Size.(+) c (Size.with_dir size ~dir:filled.dir)));
+        ~f:(Partial_hand.traded ~suit ~size ~dir:filled.dir);
       update t order.owner
-        ~f:(Hand.modify ~suit ~f:(fun c ->
-          Size.(+) c (Size.with_dir size ~dir:order.dir)))
+        ~f:(Partial_hand.traded ~suit ~size ~dir:order.dir)
     in
     List.iter exec.fully_filled ~f:(fun filled ->
       apply_fill ~filled ~size:filled.size);
@@ -42,7 +43,8 @@ module Counts = struct
 
   let per_suit t ~suit =
     Hashtbl.fold t.per_player ~init:Size.zero
-      ~f:(fun ~key:_ ~data:hand acc -> Size.(+) acc (Hand.get hand ~suit))
+      ~f:(fun ~key:_ ~data:hand acc ->
+        Size.(+) acc (Hand.get hand.known ~suit))
 
   let per_suits t = Hand.init ~f:(fun suit -> per_suit t ~suit)
 
@@ -140,15 +142,20 @@ let command =
               "My order" (order.dir : Dir.t) (order.symbol : Suit.t)]
           end;
           Log.Global.sexp ~level:`Debug
-            [%sexp (Counts.ps_gold counts : float Hand.t)];
+            [%message "update"
+              ~counts:(Counts.per_suits counts : Market.Size.t Card.Hand.t)
+              ~gold:(Counts.ps_gold counts : float Hand.t)
+          ];
           Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc client.conn Market
           >>| Protocol.playing_exn
         | Hand hand ->
-          Counts.update counts client.username ~f:(Fn.const hand);
+          Counts.update counts client.username
+            ~f:(fun _ -> Partial_hand.create_known hand);
           Deferred.unit
         | Market book when Option.is_none !pending_ack ->
+          let ps = Counts.ps_gold counts in
           Deferred.List.iter ~how:`Parallel Suit.all ~f:(fun suit ->
-            let p_gold = Hand.get (Counts.ps_gold counts) ~suit in
+            let p_gold = Hand.get ps ~suit in
             let { Dirpair.buy; sell } = Hand.get book ~suit in
             Deferred.List.iter ~how:`Parallel
               (buy @ sell)
@@ -170,10 +177,12 @@ let command =
                   then begin
                     if Username.equal order.owner client.username
                     then begin
-                      Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc client.conn order.id
+                      Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc client.conn
+                        order.id
                       >>= function
                       | Error e ->
-                        Log.Global.sexp ~level:`Error [%sexp (e : Protocol.Cancel.error)];
+                        Log.Global.sexp ~level:`Error
+                          [%sexp (e : Protocol.Cancel.error)];
                         Deferred.unit
                       | Ok `Ack -> Deferred.unit
                     end else begin
