@@ -16,8 +16,6 @@ module Model = struct
     else sprintf "%02d:%02d" min sec
 end
 
-let kill (t : Model.t) = Clock_ns.Event.abort t.tick_event
-
 module Action = struct
   type t = Tick [@@deriving sexp_of]
 

@@ -21,6 +21,8 @@ module Message = struct
     [@@deriving sexp_of]
 end
 
+let history_id = "history"
+
 module Model = struct
   type t =
     { messages  : Message.t Fqueue.t
@@ -29,7 +31,7 @@ module Model = struct
 
   let initial =
     { messages = Fqueue.empty
-    ; scrolling = Scrolling.Model.create ~id:"history"
+    ; scrolling = Scrolling.Model.create ~id:history_id
     }
 
   let add_message t message =
@@ -80,7 +82,7 @@ let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
   in
   Node.div [Attr.id "historycmd"]
     [ Node.ul
-        [ Attr.id t.scrolling.id
+        [ Attr.id history_id
         ; Scrolling.on_scroll t.scrolling
             ~inject:(fun scroll -> inject (Scroll_chat scroll))
         ]
