@@ -43,7 +43,6 @@ module Playing = struct
       | Hand of Size.t Card.Hand.t
       | Trade of Order.t * Cpty.t
       | Scroll_trades of Scrolling.Action.t
-      | Score of Price.t
       | Send_order of {
           symbol : Card.Suit.t;
           dir    : Dir.t;
@@ -259,7 +258,6 @@ module App = struct
       { round with
         trades_scroll = Scrolling.apply_action round.trades_scroll act
       }
-    | Score _ -> round
     | Send_order { symbol; dir; price } ->
       let order =
         { Order.owner = login.me.username
