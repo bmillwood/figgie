@@ -102,32 +102,21 @@ module Counts = struct
     Hand.init ~f:(fun suit -> p_gold t ~suit)
 end
 
-let param =
-  let open Command.Let_syntax in
-  let%map_open which =
-    flag "-which" (optional int)
-      ~doc:"N modulate username"
-  and log_level = Bot.log_level_flag
-  in
-  Log.Global.set_level log_level;
-  which
-
 let command =
   Bot.make_command
     ~summary:"Count cards"
-    ~param
-    ~username:(fun i -> Bot.which_user ~stem:"countbot" i)
-    ~room_id:(fun _ -> Lobby.Room.Id.of_string "0")
-    ~f:(fun client _which ->
+    ~config_param:(Command.Param.return ())
+    ~username_stem:"countbot"
+    ~f:(fun t ->
       let counts = Counts.create () in
       let pending_ack = ref None in
-      Pipe.iter client.updates ~f:(function
+      Pipe.iter t.updates ~f:(function
         | Broadcast (Round_over results) ->
           Counts.clear counts;
           Log.Global.sexp ~level:`Info [%message "round over"
             (results.gold : Suit.t)
           ];
-          Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc client.conn true
+          Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc t.conn true
           |> Deferred.ignore
         | Broadcast (Exec (order, exec)) ->
           if Option.exists !pending_ack ~f:(Order.Id.equal order.id)
@@ -136,7 +125,7 @@ let command =
           );
           Counts.see_order counts order;
           Counts.see_exec  counts ~order exec;
-          begin if Username.equal order.owner client.username
+          begin if Username.equal order.owner t.username
           then
             Log.Global.sexp ~level:`Debug [%message
               "My order" (order.dir : Dir.t) (order.symbol : Suit.t)]
@@ -146,10 +135,10 @@ let command =
               ~counts:(Counts.per_suits counts : Market.Size.t Card.Hand.t)
               ~gold:(Counts.ps_gold counts : float Hand.t)
           ];
-          Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc client.conn Market
+          Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc t.conn Market
           >>| Protocol.playing_exn
         | Hand hand ->
-          Counts.update counts client.username
+          Counts.update counts t.username
             ~f:(fun _ -> Partial_hand.create_known hand);
           Deferred.unit
         | Market book when Option.is_none !pending_ack ->
@@ -175,9 +164,9 @@ let command =
                   in
                   if want_to_trade
                   then begin
-                    if Username.equal order.owner client.username
+                    if Username.equal order.owner t.username
                     then begin
-                      Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc client.conn
+                      Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc t.conn
                         order.id
                       >>= function
                       | Error e ->
@@ -186,10 +175,10 @@ let command =
                         Deferred.unit
                       | Ok `Ack -> Deferred.unit
                     end else begin
-                      let id = client.new_order_id () in
+                      let id = t.new_order_id () in
                       pending_ack := Some id;
-                      Rpc.Rpc.dispatch_exn Protocol.Order.rpc client.conn
-                        { owner = client.username
+                      Rpc.Rpc.dispatch_exn Protocol.Order.rpc t.conn
+                        { owner = t.username
                         ; id
                         ; symbol = order.symbol
                         ; dir = Dir.other order.dir

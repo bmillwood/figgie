@@ -1,20 +1,16 @@
 open Async.Std
 
-type t = {
-  username : Username.t;
-  conn : Rpc.Connection.t;
-  updates : Protocol.Game_update.t Pipe.Reader.t;
-  new_order_id : unit -> Market.Order.Id.t;
-}
-
-val log_level_flag : Log.Level.t Command.Param.t
-
-val which_user : stem:string -> int option -> Username.t
+type 'a t =
+  { config : 'a
+  ; username : Username.t
+  ; conn : Rpc.Connection.t
+  ; updates : Protocol.Game_update.t Pipe.Reader.t
+  ; new_order_id : unit -> Market.Order.Id.t
+  }
 
 val make_command
   :  summary:string
-  -> param:'a Command.Param.t
-  -> username:('a -> Username.t)
-  -> room_id:('a -> Lobby.Room.Id.t)
-  -> f:(t -> 'a -> unit Deferred.t)
+  -> config_param:'a Command.Param.t
+  -> username_stem:string
+  -> f:('a t -> unit Deferred.t)
   -> Command.t
