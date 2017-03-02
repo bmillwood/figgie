@@ -47,9 +47,9 @@ let run ~server ~config ~username ~(room_choice : Room_choice.t) ~f =
               Pipe.read lobby_updates
               >>= function
               | `Eof -> failwith "Server hung up on us"
-              | `Ok (Snapshot lobby) ->
+              | `Ok (Lobby_update (Snapshot lobby)) ->
                 begin match
-                  List.find (Map.to_alist lobby) ~f:(fun (_id, room) ->
+                  List.find (Map.to_alist lobby.rooms) ~f:(fun (_id, room) ->
                     not (Lobby.Room.is_full room))
                 with
                 | Some (id, room) ->
@@ -64,7 +64,7 @@ let run ~server ~config ~username ~(room_choice : Room_choice.t) ~f =
                   ];
                   return (`Repeat true)
                 end
-              | `Ok (New_room { id; room })
+              | `Ok (Lobby_update (New_room { id; room }))
                 when waiting_for_rooms && not (Lobby.Room.is_full room) ->
                 finished id
               | _ -> return (`Repeat waiting_for_rooms)

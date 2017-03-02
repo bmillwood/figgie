@@ -145,18 +145,22 @@ end
 type t =
   { lobby_updates : Protocol.Lobby_update.t Updates_manager.t
   ; rooms : Room_manager.t Lobby.Room.Id.Table.t
+  ; others : int Username.Map.t
   ; game_config : Game.Config.t
   }
 
-let lobby_snapshot t =
-  Hashtbl.fold t.rooms ~init:Lobby.Room.Id.Map.empty
-    ~f:(fun ~key ~data acc -> Map.add acc ~key ~data:data.room)
+let lobby_snapshot t : Lobby.t =
+  { rooms =
+      Hashtbl.fold t.rooms ~init:Lobby.Room.Id.Map.empty
+        ~f:(fun ~key ~data acc -> Map.add acc ~key ~data:data.room)
+  ; others = t.others
+  }
 
 let new_room_exn t ~id =
   let new_room = Room_manager.create ~id ~game_config:t.game_config in
   Hashtbl.add_exn t.rooms ~key:id ~data:new_room;
   Updates_manager.broadcast t.lobby_updates
-    (New_room { id; room = new_room.room })
+    (Lobby_update (New_room { id; room = new_room.room }))
 
 let unused_room_id t =
   let rec try_ i =
@@ -179,6 +183,7 @@ let create ~game_config =
   let t = 
     { lobby_updates = Updates_manager.create ()
     ; rooms = Lobby.Room.Id.Table.create ()
+    ; others = Username.Map.empty
     ; game_config
     }
   in
@@ -210,6 +215,8 @@ let implementations t =
           match !state with
           | Not_logged_in { conn } ->
             state := Logged_in { conn; username; room = None };
+            Updates_manager.broadcast t.lobby_updates
+              (Lobby_update (Other_login username));
             return (Ok ())
           | _other ->
             return (Error `Already_logged_in))
@@ -228,7 +235,7 @@ let implementations t =
           in
           Updates_manager.subscribe t.lobby_updates client;
           Pipe.write_without_pushback updates_w
-            (Snapshot (lobby_snapshot t));
+            (Lobby_update (Snapshot (lobby_snapshot t)));
           return (Ok updates_r))
     ; Rpc.Pipe_rpc.implement Protocol.Join_room.rpc
         (fun (state : Connection_state.t) room_id ->
@@ -246,7 +253,8 @@ let implementations t =
           return (Room_manager.player_join room ~username)
           >>=? fun updates_r ->
           Updates_manager.broadcast t.lobby_updates
-            (Player_joined_room { player = username; room_id });
+            (Lobby_update
+              (Player_joined_room { player = username; room_id }));
           ensure_empty_room_exists t;
           state := Logged_in { username; conn; room = Some room };
           return (Ok updates_r)

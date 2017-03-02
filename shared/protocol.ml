@@ -17,15 +17,7 @@ end
 
 module Lobby_update = struct
   type t =
-    | Snapshot of Lobby.t
-    | New_room of
-      { id : Lobby.Room.Id.t
-      ; room : Lobby.Room.t
-      }
-    | Room_closed of Lobby.Room.Id.t
-    | Player_joined_room of { player : Username.t; room_id : Lobby.Room.Id.t }
-    | Other_login of Username.t
-    | Other_logout of Username.t
+    | Lobby_update of Lobby.Update.t
     | Chat of Username.t * string
     [@@deriving bin_io, sexp]
 end

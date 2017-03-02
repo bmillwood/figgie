@@ -13,14 +13,29 @@ div.room ul {
 	margin: 0;
 	padding: 0;
 }
-button.roomctl {
+button.join {
 	margin: 0;
 	padding: 0;
 	width: 100%;
 	font-weight: bold;
 }
 div.room li {
-	background-color: #004;
 	margin: 0.2em;
 	min-width: 5em;
+}
+div.room li.name {
+	background-color: #004;
+}
+div.room .roomName {
+  font-weight: bold;
+  color: white;
+}
+div.room li.roomName {
+	margin: 0.2em;
+	min-width: 5em;
+}
+input.roomName {
+  width: 7em;
+  padding: 0 0.2em;
+	background-color: #448;
 }
