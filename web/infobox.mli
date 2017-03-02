@@ -4,8 +4,6 @@ open Vdom
 
 val empty : Node.t
 
-val login : inject_login:(Username.t -> Event.t) -> Node.t
-
 val waiting
   :  inject_I'm_ready:(bool -> Event.t)
   -> me:Player.Persistent.t

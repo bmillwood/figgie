@@ -1,12 +1,3 @@
-input#connectTo {
-	margin-left: 0.5em;
-	padding-left: 0.2em;
-	background-color: #ccc;
-}
-input#login {
-	width: 7em;
-}
-
 .Spades, .Clubs    { color: black;   }
 .Hearts, .Diamonds { color: darkred; }
 .Unknown           { color: grey;    }

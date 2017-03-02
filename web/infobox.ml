@@ -30,17 +30,6 @@ let container = Node.div [Attr.id "infoboxes"]
 
 let empty = container []
 
-let login ~inject_login =
-  let initial_value = List.Assoc.find Url.Current.arguments "username" in
-  let login_textbox =
-    Widget.textbox ~id:Ids.login ~classes:["name"; "me"]
-      ~placeholder:"username" ?initial_value
-      ~on_submit:(fun user -> inject_login (Username.of_string user))
-      ()
-  in
-  container
-    [infobox ~pos:Me ~name:login_textbox ~score:None ~info:[]]
-
 let player ~pos ~(pers : Player.Persistent.t) ~ranking ~info =
   let score =
     Node.span

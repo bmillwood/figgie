@@ -748,9 +748,6 @@ module App = struct
     in
     let infoboxes =
       match get_conn model with
-      | Some { login = None; _ } ->
-        Infobox.login ~inject_login:(fun user ->
-          inject (Connected (Start_login user)))
       | Some { login = Some login; _ } ->
         begin match login.game with
         | Playing playing ->
@@ -776,7 +773,7 @@ module App = struct
             ~me:login.me
             ~who_is_ready:ready
         end
-      | None -> Infobox.empty
+      | _ -> Infobox.empty
     in
     let me, others, exchange =
       match get_conn model with

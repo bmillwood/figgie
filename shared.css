@@ -42,6 +42,18 @@ button:hover {
 #status.Connected,    #status.LoggedIn   { background-color: #006; }
 #status.ConnectionFailed                  { background-color: #602; }
 
+#status input {
+	margin-left: 0.5em;
+	padding-left: 0.2em;
+}
+input#connectTo {
+	background-color: #ccc;
+}
+input#login {
+	width: 7em;
+	font-size: large;
+}
+
 div#historycmd {
 	width: 40em;
 	display: inline-block;

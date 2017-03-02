@@ -70,7 +70,18 @@ let view (model : Model.t) ~(inject : Action.t -> _) =
       ~status:[Node.text ("Connecting to " ^ Host_and_port.to_string hp)]
   | Connected hp ->
     line ~class_:"Connected"
-      ~status:[Node.text ("Connected to " ^ Host_and_port.to_string hp)]
+      ~status:
+        [ Widget.textbox ~id:Ids.login
+            ~classes:["name"; Player.Style.class_ Me]
+            ~placeholder:"username"
+            ?initial_value:Url_vars.username
+            ~on_submit:(fun user ->
+                inject (Log_in (Username.of_string user))
+              )
+            ~clear_on_submit:false
+            ()
+        ; Node.text (" connected to " ^ Host_and_port.to_string hp)
+        ]
   | Logged_in { connected_to; username; room_name; clock } ->
     line ~class_:"Connected"
       ~status:(
