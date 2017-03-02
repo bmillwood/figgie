@@ -49,7 +49,7 @@ let player ~pos ~(pers : Player.Persistent.t) ~ranking ~info =
   in
   let name =
     Node.span
-      [ Attr.classes ["name"; Player.Persistent.class_ pers] ]
+      [ Attr.classes ["name"; Player.Style.class_ pers.style] ]
       [ Node.text (Username.to_string pers.username) ]
   in
   infobox ~pos ~name ~score:(Some score) ~info

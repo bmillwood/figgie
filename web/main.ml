@@ -418,7 +418,7 @@ module App = struct
           Option.value (Logged_in.player login ~username:who)
             ~default:Player.Persistent.nobody
         in
-        let class_ = Player.Persistent.class_ player in
+        let class_ = Player.Style.class_ player.style in
         just_schedule (Add_message (Chat ((who, class_), msg)))
       | Broadcast (Out _) ->
         don't_wait_for begin
@@ -641,9 +641,8 @@ module App = struct
                 |> Option.value ~default:Player.nobody
               in
               Node.td [] [
-                Node.span
-                  [Attr.class_ (Player.Persistent.class_ player.pers)]
-                  [Node.text (Price.to_string order.price)]
+                Player.Persistent.style_text player.pers
+                  (Price.to_string order.price)
               ])
         in
         List.take (cells @ empty_cells) market_depth)
@@ -667,13 +666,13 @@ module App = struct
   let tape_table ~(players : Player.t Username.Map.t) trades =
     let row_of_order ~traded_with (trade : Order.t) =
       let person_td username =
-        let attrs =
+        let person =
+          let user_s = Username.to_string username in
           match Map.find players username with
-          | None -> []
-          | Some other -> Player.Persistent.attrs other.pers
+          | None -> Node.text user_s
+          | Some other -> Player.Persistent.style_text other.pers user_s
         in
-        Node.td []
-          [Node.span attrs [Node.text (Username.to_string username)]]
+        Node.td [] [person]
       in
       [ person_td trade.owner
       ; Node.td [Attr.class_ (Dir.to_string trade.dir)]
