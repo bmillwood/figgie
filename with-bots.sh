@@ -2,7 +2,7 @@
 ./server.byte -length-of-round 1m &
 victims=$!
 sleep 1
-for which in 1 2 3 4 5 6
+for which in 1 2
 do
   ./bot.byte sell -server localhost:58828 \
     -log-level Debug \

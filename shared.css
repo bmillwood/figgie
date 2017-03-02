@@ -37,6 +37,7 @@ button:hover {
 	font-size: large;
 	text-align: left;
 }
+#status .error { background-color: #f66; }
 #status.Disconnected, #status.Connecting { background-color: #445; }
 #status.Connected,    #status.LoggedIn   { background-color: #006; }
 #status.ConnectionFailed                  { background-color: #602; }

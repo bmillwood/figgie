@@ -154,21 +154,37 @@ module App = struct
   module Model = struct
     module Connection_state = struct
       type t =
-        | Disconnected
+        | Not_connected of Connection_error.t option
         | Connecting of Host_and_port.t
         | Connected of Connected.Model.t
-        | Connection_failed
+    end
+
+    module For_status_line = struct
+      type t =
+        { input_error : bool
+        ; connectbox_prefill : string option
+        }
     end
 
     type t =
       { messages : Chat.Model.t
       ; state : Connection_state.t
+      ; for_status_line : For_status_line.t
       }
 
     let initial =
       { messages = Chat.Model.initial
-      ; state = Disconnected
+      ; state = Not_connected None
+      ; for_status_line =
+        { input_error = false
+        ; connectbox_prefill = Url_vars.prefill_connect_to
+        }
       }
+
+    let get_conn t =
+      match t.state with
+      | Connected conn -> Some conn
+      | _ -> None
 
     let cutoff = phys_equal
   end
@@ -178,19 +194,19 @@ module App = struct
     type t =
       | Add_message of Chat.Message.t
       | Scroll_chat of Scrolling.Action.t
-      | Start_connecting of Host_and_port.t
+      | Status_line of Status_line.Action.t
       | Finish_connecting of
         { host_and_port : Host_and_port.t
         ; conn : Rpc.Connection.t
         }
       | Connection_failed
+      | Connection_lost
       | Connected of Connected.Action.t
       [@@deriving sexp_of]
 
     let should_log _ = false
 
-    let connected cact = Connected cact
-    let logged_in lact = connected (Logged_in lact)
+    let logged_in lact = Connected (Logged_in lact)
     let game gact      = logged_in (Game gact)
     let playing pact   = game (Playing pact)
     let clock cdact    = playing (Clock cdact)
@@ -333,8 +349,6 @@ module App = struct
     | Playing round, Playing pact ->
       Playing (apply_playing_action pact ~schedule ~conn ~login round)
     | Waiting _wait, Start_playing ->
-      schedule (Add_message New_round);
-      let trades_scroll = Scrolling.Model.create ~id:Ids.tape in
       Playing
         { my_hand = Card.Hand.create_all Size.zero
         ; other_hands =
@@ -342,7 +356,7 @@ module App = struct
               Partial_hand.create_unknown Params.num_cards_per_hand)
         ; market = Book.empty
         ; trades = Fqueue.empty
-        ; trades_scroll
+        ; trades_scroll = Scrolling.Model.create ~id:Ids.tape
         ; next_order = Order.Id.zero
         ; clock = None
         }
@@ -390,6 +404,7 @@ module App = struct
       | Broadcast (Player_joined username) ->
         Logged_in.add_new_player login ~username
       | Broadcast New_round ->
+        schedule (Add_message New_round);
         schedule (Action.game Start_playing);
         don't_wait_for begin
           (* Sample the time *before* we send the RPC. Then the game end
@@ -432,7 +447,7 @@ module App = struct
 
   let apply_connected_action
       (t : Connected.Action.t)
-      ~schedule
+      ~(schedule : Action.t -> _)
       (conn : Connected.Model.t) : Connected.Model.t
     =
     match t with
@@ -447,11 +462,11 @@ module App = struct
         Rpc.Pipe_rpc.dispatch_exn Protocol.Join_room.rpc
           conn.conn (Lobby.Room.Id.of_string "0")
         >>= fun (pipe, _pipe_metadata) ->
-        schedule (Action.connected (Finish_login username));
+        schedule (Connected (Finish_login username));
         Pipe.iter_without_pushback pipe
           ~f:(fun update -> schedule (Action.logged_in (Update update)))
-        >>| fun () ->
-        schedule Connection_failed
+        >>= fun () ->
+        Rpc.Connection.close conn.conn
       end;
       conn
     | Finish_login username ->
@@ -480,7 +495,20 @@ module App = struct
       { model with messages = Chat.Model.add_message model.messages msg }
     | Scroll_chat act ->
       { model with messages = Chat.apply_scrolling_action model.messages act }
-    | Start_connecting host_and_port ->
+    | Status_line Input_error ->
+      { model with for_status_line =
+        { model.for_status_line with input_error = true }
+      }
+    | Status_line Input_ok ->
+      { model with for_status_line =
+        { model.for_status_line with input_error = false }
+      }
+    | Status_line (Log_in username) ->
+      state.schedule (Connected (Start_login username));
+      { model with for_status_line =
+        { model.for_status_line with input_error = false }
+      }
+    | Status_line (Start_connecting_to host_and_port) ->
       let host, port = Host_and_port.tuple host_and_port in
       don't_wait_for begin
         Websocket_rpc_transport.connect (Host_and_port.create ~host ~port)
@@ -490,20 +518,33 @@ module App = struct
           Deferred.unit
         | Ok transport ->
           Rpc.Connection.create
-            ~connection_state:ignore
+            ~connection_state:(fun _conn -> ())
             transport
           >>| function
           | Error exn ->
             ignore exn;
             state.schedule Connection_failed
           | Ok conn ->
-            state.schedule (Finish_connecting { host_and_port; conn })
+            state.schedule (Finish_connecting { host_and_port; conn });
+            don't_wait_for (
+              Rpc.Connection.close_finished conn
+              >>| fun () ->
+              state.schedule Connection_lost
+            )
       end;
-      { model with state = Connecting host_and_port }
+      { model with
+        state = Connecting host_and_port
+      ; for_status_line =
+        { input_error = false
+        ; connectbox_prefill = Some (Host_and_port.to_string host_and_port)
+        }
+      }
     | Finish_connecting { host_and_port; conn } ->
       { model with state = Connected { host_and_port; conn; login = None } }
+    | Connection_lost ->
+      { model with state = Not_connected (Some Connection_lost) }
     | Connection_failed ->
-      { model with state = Connection_failed }
+      { model with state = Not_connected (Some Failed_to_connect) }
     | Connected cact ->
       begin match model.state with
       | Connected conn ->
@@ -513,67 +554,6 @@ module App = struct
         { model with state = Connected conn }
       | _ -> model
       end
-
-  let parse_host_and_port hps =
-    match Host_and_port.of_string hps with
-    | exception _ ->
-      Host_and_port.create
-        ~host:hps
-        ~port:Protocol.default_websocket_port
-    | host_and_port -> host_and_port
-
-  let status_line
-      ~(inject : Action.t -> _)
-      (state : Model.Connection_state.t)
-    =
-    let class_, status =
-      let textf fmt = ksprintf (fun s -> Node.text s) fmt in
-      match state with
-      | Connecting host_and_port ->
-        ( "Connecting"
-        , [textf !"Connecting to %{Host_and_port}" host_and_port]
-        )
-      | Connected { login = None; host_and_port; conn = _ } ->
-        ( "Connected"
-        , [textf !"Connected to %{Host_and_port}" host_and_port]
-        )
-      | Connected { login = Some login; _ } ->
-        ( "LoggedIn"
-        , begin match login.game with
-          | Waiting _ -> [textf "Waiting for players"]
-          | Playing _ -> [textf "Play!"]
-          end
-        )
-      | Connection_failed ->
-        ( "ConnectionFailed"
-        , [textf "Connection failed"]
-        )
-      | Disconnected ->
-        let address_from_query_string =
-          List.Assoc.find Url.Current.arguments
-            ~equal:String.Caseless.equal "address"
-        in
-        ( "Disconnected"
-        , [ textf "Connect to:"
-          ; Widget.textbox ~id:Ids.connectTo
-              ?initial_value:address_from_query_string
-              ~placeholder:"host[:port]" ~clear_on_submit:false
-              ~on_submit:(fun hps ->
-                inject (Start_connecting (parse_host_and_port hps)))
-              ()
-          ]
-        )
-    in
-    let clock =
-      match state with
-      | Connected { login = Some { game = Playing { clock; _}; _ }; _ } ->
-        Option.map clock ~f:(fun clock ->
-          (Node.span [Attr.class_ "clock"]
-            [Node.text (Countdown.Model.to_string clock)]))
-      | _ -> None
-    in
-    Node.p [Attr.id "status"; Attr.class_ class_]
-      (status @ Option.to_list clock)
 
   let order_entry ~(market : Book.t) ~inject ~hotkeys ~symbol ~dir =
     let id = Ids.order ~dir ~suit:symbol in
@@ -714,14 +694,13 @@ module App = struct
     |]
 
   let send_chat (model : Model.t) msg =
-    match model.state with
-    | Connected { conn; _ } ->
+    Option.iter (get_conn model) ~f:(fun { conn; _ } ->
       don't_wait_for begin
         Rpc.Rpc.dispatch_exn Protocol.Chat.rpc conn msg
         >>| function
         | Error `Not_logged_in | Ok () -> ()
       end
-    | _ -> ()
+    )
 
   let chat_view (model : Model.t) ~(inject : Action.t -> _) =
     let chat_inject : Chat.Action.t -> _ = function
@@ -731,22 +710,48 @@ module App = struct
       | Scroll_chat act ->
         inject (Scroll_chat act)
     in
-    let is_connected =
-      match model.state with
-      | Connected _ -> true
-      | _ -> false
-    in
-    Chat.view model.messages ~is_connected ~inject:chat_inject
+    Chat.view model.messages
+      ~is_connected:(Option.is_some (get_conn model))
+      ~inject:chat_inject
 
-  let view (incr_model : Model.t Incr.t) ~inject =
+  let status_line (model : Model.t) : Status_line.Model.t =
+    match model.state with
+    | Not_connected conn_error ->
+      Not_connected
+        { conn_error
+        ; input_error = model.for_status_line.input_error
+        ; connectbox_prefill = model.for_status_line.connectbox_prefill
+        }
+    | Connecting hp -> Connecting hp
+    | Connected { host_and_port; login; _ } ->
+      begin match login with
+      | None -> Connected host_and_port
+      | Some login ->
+          Logged_in
+            { connected_to = host_and_port
+            ; username = login.me.username
+            ; room_name = None
+            ; clock =
+                match login.game with
+                | Playing { clock; _ } -> clock
+                | _ -> None
+            }
+      end
+
+  let view (incr_model : Model.t Incr.t) ~(inject : Action.t -> _) =
     let open Incr.Let_syntax in
     let%map model = incr_model in
+    let status_line =
+      Status_line.view
+        (status_line model)
+        ~inject:(fun act -> inject (Status_line act))
+    in
     let infoboxes =
-      match model.state with
-      | Connected { login = None; _ } ->
+      match get_conn model with
+      | Some { login = None; _ } ->
         Infobox.login ~inject_login:(fun user ->
-          inject (Action.connected (Start_login user)))
-      | Connected { login = Some login; _ } ->
+          inject (Connected (Start_login user)))
+      | Some { login = Some login; _ } ->
         begin match login.game with
         | Playing playing ->
           let others = 
@@ -771,11 +776,11 @@ module App = struct
             ~me:login.me
             ~who_is_ready:ready
         end
-      | _ -> Infobox.empty
+      | None -> Infobox.empty
     in
     let me, others, exchange =
-      match model.state with
-      | Connected { login = Some login; _ } ->
+      match get_conn model with
+      | Some { login = Some login; _ } ->
         begin match login.game with
         | Playing { my_hand; other_hands; market; trades; _ } ->
           let me =
@@ -805,7 +810,7 @@ module App = struct
     let on_keypress = Vdom.Attr.on_keypress (Hotkeys.on_keypress hotkeys) in
     let open Node in
     body [on_keypress] [div [Attr.id "container"]
-      [ status_line ~inject model.state
+      [ status_line
       ; table [Attr.id "exchange"]
         [ tr []
           [ td [] [market_table ~hotkeys ~players ~inject market]
@@ -818,28 +823,19 @@ module App = struct
     ]
 
   let on_startup ~schedule _model =
-    Option.iter (List.Assoc.find Url.Current.arguments "autoconnect")
-      ~f:(fun v -> schedule (Action.Start_connecting (parse_host_and_port v)));
+    Option.iter Url_vars.auto_connect_to
+      ~f:(fun hp -> schedule (Action.Status_line (Start_connecting_to hp)));
     return { State.schedule }
 
   let on_display ~(old : Model.t) (new_ : Model.t) (state : State.t) =
-    begin match old.state, new_.state with
-    | Connecting _, Connected _ ->
-      Focus.with_input ~id:Ids.login ~f:(fun input ->
-        input##focus;
-        let n = String.length (Js.to_string input##.value) in
-        input##.selectionStart := n;
-        input##.selectionEnd := n)
-    | Connected { login = None; _ }, Connected { login = Some _; _ } ->
-      (* would like to focus ready button here, but buttonElement doesn't
-         seem to have a focus method *)
-      ()
-    | _, Connected { login = Some { game = Playing p; _ }; _ } ->
+    begin match get_conn new_ with
+    | Some { login = Some { game = Playing p; _ }; _ } ->
       Scrolling.on_display p.trades_scroll
         ~schedule:(fun act ->
           state.schedule (Action.playing (Scroll_trades act)))
     | _ -> ()
     end;
+    Status_line.on_display ~old:(status_line old) (status_line new_);
     Chat.on_display
       ~old:old.messages
       new_.messages
