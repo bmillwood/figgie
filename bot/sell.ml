@@ -1,5 +1,5 @@
-open Core.Std
-open Async.Std
+open Core
+open Async
 
 type t = {
   initial_sell_price : Market.Price.t;

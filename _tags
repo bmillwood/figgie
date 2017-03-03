@@ -19,10 +19,10 @@ true: thread,debug,annot
 	package(websocket.async), \
 	ppx-driver(ppx_jane)
 <web/*>: \
+	package(async_js), \
 	package(async_kernel), \
 	package(async_rpc_kernel), \
 	package(core_kernel), \
 	package(js_of_ocaml), \
-	package(js_of_ocaml.async), \
 	package(incr_dom), \
 	ppx-driver(ppx_jane+js_of_ocaml.ppx.driver)

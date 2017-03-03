@@ -1,3 +1,3 @@
-open Core.Std
+open Core
 
 let () = Command.run Server.command

@@ -1,5 +1,5 @@
-open Core.Std
-open Async.Std
+open Core
+open Async
 module Rpc_kernel = Async_rpc_kernel.Std
 
 module Updates_manager = struct

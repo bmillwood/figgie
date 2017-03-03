@@ -1,5 +1,5 @@
 open Async_rpc_kernel.Std
-open Async_kernel.Std
+open Async_kernel
 open Core_kernel.Std
 
 module T = struct

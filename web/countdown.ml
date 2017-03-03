@@ -1,5 +1,5 @@
 open Core_kernel.Std
-open Async_kernel.Std
+open Async_kernel
 
 module Model = struct
   type t = {

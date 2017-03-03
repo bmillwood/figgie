@@ -1,5 +1,5 @@
-open Core.Std
-open Async.Std
+open Core
+open Async
 
 module Room_choice = struct
   type t =

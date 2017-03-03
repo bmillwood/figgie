@@ -1,4 +1,4 @@
-open Async.Std
+open Async
 
 type 'a t =
   { config : 'a

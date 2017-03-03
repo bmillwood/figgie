@@ -1,7 +1,7 @@
 open Core_kernel.Std
-open Async_kernel.Std
+open Async_kernel
 open Async_rpc_kernel.Std
-open Incr_dom.Std
+open Incr_dom
 open Vdom
 
 open Market

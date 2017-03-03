@@ -6,4 +6,4 @@ do
   [ -e "$thing.byte" ] \
     || ln -s "_build/$thing/main.byte" "$thing.byte"
 done
-js_of_ocaml +bin_prot.js +core_kernel.js +nat.js +weak.js web.byte
+js_of_ocaml base.js +bin_prot.js core_kernel.js +nat.js +weak.js web.byte

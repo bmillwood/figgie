@@ -1,4 +1,4 @@
-open Core.Std
+open Core
 
 module Config = struct
   type t = { length_of_round : Time_ns.Span.t }
