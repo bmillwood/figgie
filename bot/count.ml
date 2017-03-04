@@ -158,6 +158,8 @@ let command =
                        three-quarters of the pot and the 10 for the gold
                        card. Future work: use knowledge of our own and
                        others' hand sizes to bound loss further. *)
+                    (* countbot also doesn't know its own position, so the sell
+                       can fail. That's fine. It ignores the reject. *)
                     match order.dir with
                     | Buy -> 100. *. p_gold <. Price.to_float order.price
                     | Sell -> 10. *. p_gold >. Price.to_float order.price
@@ -186,6 +188,10 @@ let command =
                         ; size = order.size
                         }
                       >>= function
+                      | Error (`Game_not_in_progress | `Not_enough_to_sell as e) ->
+                        Log.Global.sexp ~level:`Info
+                          [%message "Reject" (e : Protocol.Order.error)];
+                        Deferred.unit
                       | Error e ->
                         raise_s [%sexp (e : Protocol.Order.error)]
                       | Ok `Ack -> Deferred.unit
