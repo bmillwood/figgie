@@ -529,26 +529,19 @@ module App = struct
     | Status_line (Start_connecting_to host_and_port) ->
       let host, port = Host_and_port.tuple host_and_port in
       don't_wait_for begin
-        Websocket_rpc_transport.connect (Host_and_port.create ~host ~port)
-        >>= function
-        | Error () ->
-          state.schedule Connection_failed;
-          Deferred.unit
-        | Ok transport ->
-          Rpc.Connection.create
-            ~connection_state:(fun _conn -> ())
-            transport
-          >>| function
-          | Error exn ->
-            ignore exn;
-            state.schedule Connection_failed
-          | Ok conn ->
-            state.schedule (Finish_connecting { host_and_port; conn });
-            don't_wait_for (
-              Rpc.Connection.close_finished conn
-              >>| fun () ->
-              state.schedule Connection_lost
-            )
+        Async_js.Rpc.Connection.client
+          ~address:(Host_and_port.create ~host ~port)
+          ()
+        >>| function
+        | Error _error ->
+          state.schedule Connection_failed
+        | Ok conn ->
+          state.schedule (Finish_connecting { host_and_port; conn });
+          don't_wait_for (
+            Rpc.Connection.close_finished conn
+            >>| fun () ->
+            state.schedule Connection_lost
+          )
       end;
       { model with
         state = Connecting host_and_port
