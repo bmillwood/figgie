@@ -25,9 +25,16 @@
 table#market {
 }
 table#market td {
+	position: relative;
 	padding: 0.05em 0.8em;
 	font-size: 18pt;
 	text-align: center;
+}
+span.owner {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	font-size: small;
 }
 tr.sell  td { background-color: #313; }
 tr.buy   td { background-color: #133; }

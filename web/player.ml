@@ -19,7 +19,8 @@ module Style = struct
     | Them i -> "them" ^ Int.to_string i
     | Nobody -> "nobody"
 
-  let style_text t text = Node.span [Attr.class_ (class_ t)] [Node.text text]
+  let style_text ?(classes=[]) t text =
+    Node.span [Attr.classes (class_ t :: classes)] [Node.text text]
 end
 
 module Persistent = struct
@@ -35,7 +36,7 @@ module Persistent = struct
     ; score = Price.zero
     }
 
-  let style_text t text = Style.style_text t.style text
+  let style_text ?classes t text = Style.style_text ?classes t.style text
 end
 
 type t = {

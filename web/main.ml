@@ -622,6 +622,11 @@ module App = struct
           Node.td [] [order_entry ~hotkeys ~market ~inject ~symbol ~dir]))
     in
     let cells ~dir =
+      let shortname_s (player : Player.t) =
+        let everyone = Map.keys players in
+        Username.Shortener.(short (of_list everyone) player.pers.username)
+        |> Username.to_string
+      in
       List.map Card.Suit.all ~f:(fun symbol ->
         let halfbook = Dirpair.get (Per_symbol.get market ~symbol) ~dir in
         let cells =
@@ -631,10 +636,12 @@ module App = struct
                 Map.find players order.owner
                 |> Option.value ~default:Player.nobody
               in
-              Node.td [] [
-                Player.Persistent.style_text player.pers
-                  (Price.to_string order.price)
-              ])
+              Node.td []
+                [ Player.Persistent.style_text ~classes:["owner"] player.pers
+                    (shortname_s player)
+                ; Player.Persistent.style_text player.pers
+                    (Price.to_string order.price)
+                ])
         in
         List.take (cells @ empty_cells) market_depth)
       |> List.transpose_exn
