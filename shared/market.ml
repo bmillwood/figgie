@@ -177,7 +177,7 @@ module Halfbook = struct
     let rec go acc = function
       | [] -> Error `No_such_order
       | (o : Order.t) :: os ->
-        if Order.Id.equal order.id o.id
+        if Username.equal order.owner o.owner && Order.Id.equal order.id o.id
         then Ok (List.rev_append acc os)
         else go (o :: acc) os
     in
