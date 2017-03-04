@@ -164,7 +164,7 @@ let new_room_exn t ~id =
 
 let unused_room_id t =
   let rec try_ i =
-    let id = Lobby.Room.Id.of_string (Int.to_string i) in
+    let id = Lobby.Room.Id.of_string (sprintf "Room #%d" (i + 1)) in
     if Hashtbl.mem t.rooms id then (
       try_ (i + 1)
     ) else (
