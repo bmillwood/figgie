@@ -62,8 +62,12 @@ module Round = struct
 
     let sellable_hand t =
       Hashtbl.fold t.orders ~init:t.hand ~f:(fun ~key:_ ~data:order acc ->
-        Card.Hand.modify acc ~suit:order.symbol
-          ~f:(fun s -> Market.Size.O.(s - order.size)))
+        match order.dir with
+        | Sell ->
+          Card.Hand.modify acc ~suit:order.symbol
+            ~f:(fun s -> Market.Size.O.(s - order.size))
+        | Buy -> acc
+      )
   end
 
   type t = {
