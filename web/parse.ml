@@ -8,6 +8,7 @@ let host_and_port hps =
         [ Char.is_alpha
         ; Char.is_digit
         ; Char.equal '-'
+        ; Char.equal '.'
         ]
     in
     if not (String.is_empty hps)
