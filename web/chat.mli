@@ -10,11 +10,16 @@ end
 
 module Message : sig
   type t =
+    | Connected_to_server of Host_and_port.t
+    | Disconnected_from_server
+    | Other_login of Username.t
+    | Chat of Username_with_class.t * string
+    | Player_joined_room of { player : Username.t; room_id : Lobby.Room.Id.t }
+    | Joined_room of Lobby.Room.Id.t
     | New_round
     | Round_over of Protocol.Round_results.t
     | Order_reject of Order.t * Protocol.Order.error
     | Cancel_reject of [ `All | `Id of Order.Id.t ] * Protocol.Cancel.error
-    | Chat of Username_with_class.t * string
     [@@deriving sexp_of]
 end
 

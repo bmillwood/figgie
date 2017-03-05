@@ -9,7 +9,7 @@ do
     -size 1 -fade 1 -at 6 \
     -which $which 2>&1 | sed -re "s/^/sell$which /" &
   victims="$victims $!"
-  sleep 1
+  sleep 3
 done
 ./bot.byte count -server localhost:58828 \
   -log-level Debug \

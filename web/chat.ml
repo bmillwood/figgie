@@ -6,18 +6,23 @@ open Market
 
 module Username_with_class = struct
   type t = Username.t * string [@@deriving sexp_of]
-  
+
   let span (u, c) =
     Node.span [Attr.class_ c] [Node.text (Username.to_string u)]
 end
 
 module Message = struct
   type t =
+    | Connected_to_server of Host_and_port.t
+    | Disconnected_from_server
+    | Other_login of Username.t
+    | Chat of Username_with_class.t * string
+    | Player_joined_room of { player : Username.t; room_id : Lobby.Room.Id.t }
+    | Joined_room of Lobby.Room.Id.t
     | New_round
     | Round_over of Protocol.Round_results.t
     | Order_reject of Order.t * Protocol.Order.error
     | Cancel_reject of [ `All | `Id of Order.Id.t ] * Protocol.Cancel.error
-    | Chat of Username_with_class.t * string
     [@@deriving sexp_of]
 end
 
@@ -49,36 +54,50 @@ let apply_scrolling_action (t : Model.t) (act : Scrolling.Action.t) =
   { t with scrolling = Scrolling.apply_action t.scrolling act }
 
 let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
-  let attrs_of_message : Message.t -> _ =
+  let node_of_message : Message.t -> _ =
+    let horizontal_rule = Node.create "hr" [] [] in
+    let status nodes = Node.li [Attr.class_ "status"] nodes in
+    let error  nodes = Node.li [Attr.classes ["status"; "error"]] nodes in
+    let simple mk fmt = ksprintf (fun s -> mk [Node.text s]) fmt in
     function
-    | Chat _ -> []
-    | _ -> [Attr.class_ "status"]
-  in
-  let nodes_of_message : Message.t -> _ =
-    function
-    | New_round -> [ Node.text "Everyone's ready: game is starting!" ]
-    | Round_over results ->
-      [ Node.text "Time's up! The gold suit was "
-      ; Node.span [Attr.classes [Card.Suit.name results.gold; "gold"]]
-        [ Node.text (Card.Suit.to_utf8 results.gold)
-        ; Node.text " "
-        ; Node.text (Card.Suit.name results.gold)
+    | Connected_to_server where ->
+      simple status !"Connected to %{Host_and_port}" where
+    | Disconnected_from_server ->
+      error
+        [ Node.text "Disconnected"
+        ; horizontal_rule
         ]
-      ; Node.create "hr" [] []
-      ]
-    | Order_reject (_order, reject) ->
-      [ Node.text
-          (Protocol.Order.sexp_of_error reject |> Sexp.to_string)
-      ]
-    | Cancel_reject (_oid_or_all, reject) ->
-      [ Node.text
-          (Protocol.Cancel.sexp_of_error reject |> Sexp.to_string)
-      ]
+    | Other_login who ->
+      simple status !"%{Username} connected" who
     | Chat (who, msg) ->
-      [ Username_with_class.span who
-      ; Node.text ": "
-      ; Node.text msg
-      ]
+      Node.li []
+        [ Username_with_class.span who
+        ; Node.text ": "
+        ; Node.text msg
+        ]
+    | Player_joined_room { player; room_id } ->
+      simple status !"%{Username} joined %{Lobby.Room.Id}" player room_id
+    | Joined_room room_id ->
+      status
+        [ horizontal_rule
+        ; Node.text (sprintf !"Joined %{Lobby.Room.Id}" room_id)
+        ]
+    | New_round ->
+      simple status "Everyone's ready: game is starting!"
+    | Round_over results ->
+      status
+        [ Node.text "Time's up! The gold suit was "
+        ; Node.span [Attr.classes [Card.Suit.name results.gold; "gold"]]
+          [ Node.text (Card.Suit.to_utf8 results.gold)
+          ; Node.text " "
+          ; Node.text (Card.Suit.name results.gold)
+          ]
+        ; horizontal_rule
+        ]
+    | Order_reject (_order, reject) ->
+      simple error !"%{sexp:Protocol.Order.error}" reject
+    | Cancel_reject (_oid_or_all, reject) ->
+      simple error !"%{sexp:Protocol.Cancel.error}" reject
   in
   Node.div [Attr.id "historycmd"]
     [ Node.ul
@@ -86,8 +105,7 @@ let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
         ; Scrolling.on_scroll t.scrolling
             ~inject:(fun scroll -> inject (Scroll_chat scroll))
         ]
-        (List.map (Fqueue.to_list t.messages) ~f:(fun msg ->
-          Node.li (attrs_of_message msg) (nodes_of_message msg)))
+        (List.map (Fqueue.to_list t.messages) ~f:node_of_message)
     ; Widget.textbox ~id:Ids.cmdline
         ~disabled:(not is_connected)
         ~on_submit:(fun msg -> inject (Send_chat msg))

@@ -366,6 +366,13 @@ module App = struct
           schedule (Add_message (Chat ((username, "nobody"), msg)));
           login
         | Lobby_update up ->
+          begin match up with
+          | Other_login user ->
+            schedule (Add_message (Other_login user))
+          | Player_joined_room { player; room_id } ->
+            schedule (Add_message (Player_joined_room { player; room_id }))
+          | _ -> ()
+          end;
           let new_lobby = Lobby.Update.apply up lobby in
           { login with game = Lobby { lobby = new_lobby; updates } }
         end
@@ -379,6 +386,7 @@ module App = struct
         | Lobby { lobby = _; updates } -> Pipe.close_read updates
         | _ -> ()
         end;
+        schedule (Add_message (Joined_room id));
         Pipe.iter_without_pushback pipe
           ~f:(fun update -> schedule (Action.logged_in (Game_update update)))
       end;
@@ -551,8 +559,10 @@ module App = struct
         }
       }
     | Finish_connecting { host_and_port; conn } ->
+      state.schedule (Add_message (Connected_to_server host_and_port));
       { model with state = Connected { host_and_port; conn; login = None } }
     | Connection_lost ->
+      state.schedule (Add_message Disconnected_from_server);
       { model with state = Not_connected (Some Connection_lost) }
     | Connection_failed ->
       { model with state = Not_connected (Some Failed_to_connect) }

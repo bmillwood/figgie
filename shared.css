@@ -71,6 +71,9 @@ ul#history {
 ul#history li.status {
 	font-weight: bold;
 }
+ul#history li.error {
+  color: red;
+}
 input#cmdline {
 	border: 1px solid #669;
 	padding: 0.1em 0.5em;
