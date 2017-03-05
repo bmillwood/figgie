@@ -7,13 +7,14 @@ module Action = struct
     | Join_room of Lobby.Room.Id.t
 end
 
-let view (model : Lobby.t) ~(inject : Action.t -> _) =
+let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
   let view_room ~id ~(room : Lobby.Room.t) =
     let nobody =
       let nbsp = "\xc2\xa0" in
       Node.li [Attr.class_ "name"] [Node.text nbsp]
     in
-    let num_players = List.length room.players in
+    let players = List.filter room.players ~f:(Username.(<>) my_name) in
+    let num_players = List.length players in
     let id_item =
       Node.li [Attr.class_ "roomName"]
         [Node.text (Lobby.Room.Id.to_string id)]
@@ -28,7 +29,7 @@ let view (model : Lobby.t) ~(inject : Action.t -> _) =
         ]
     in
     let players =
-      [ List.mapi room.players ~f:(fun i username ->
+      [ List.mapi players ~f:(fun i username ->
           Node.li [Attr.classes ["name"; Player.Style.class_ (Them i)]]
             [Node.text (Username.to_string username)]
         )

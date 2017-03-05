@@ -39,68 +39,74 @@ let run ~server ~config ~username ~(room_choice : Room_choice.t) ~f =
           >>= begin function
           | Error `Not_logged_in -> assert false
           | Ok (lobby_updates, _metadata) ->
-            let finished id =
-              Pipe.close_read lobby_updates;
-              return (`Finished id)
+            let can_join room =
+              Lobby.Room.has_player room ~username
+              || not (Lobby.Room.is_full room)
             in
-            Deferred.repeat_until_finished false (fun waiting_for_rooms ->
+            let try_to_join id =
+              Log.Global.sexp ~level:`Debug [%message
+                "joining room"
+                  (id : Lobby.Room.Id.t)
+              ];
+              Rpc.Pipe_rpc.dispatch Protocol.Join_room.rpc conn id
+              >>| ok_exn
+              >>| function
+              | Ok (updates, _pipe_metadata) ->
+                Pipe.close_read lobby_updates;
+                `Finished updates
+              | Error (`Already_in_a_room | `Not_logged_in) -> assert false
+              | Error
+                ( `No_such_room
+                | `Game_already_started
+                | `Game_is_full
+                ) -> `Repeat ()
+            in
+            Deferred.repeat_until_finished () (fun () ->
               Pipe.read lobby_updates
               >>= function
               | `Eof -> failwith "Server hung up on us"
               | `Ok (Lobby_update (Snapshot lobby)) ->
                 begin match
                   List.find (Map.to_alist lobby.rooms) ~f:(fun (_id, room) ->
-                    not (Lobby.Room.is_full room))
+                    can_join room)
                 with
                 | Some (id, room) ->
                   Log.Global.sexp ~level:`Debug [%message
                     "doesn't look full, joining"
                       (id : Lobby.Room.Id.t) (room : Lobby.Room.t)
                   ];
-                  finished id
+                  try_to_join id
                 | None ->
                   Log.Global.sexp ~level:`Debug [%message
                     "couldn't see an empty room, waiting"
                   ];
-                  return (`Repeat true)
+                  return (`Repeat ())
                 end
               | `Ok (Lobby_update (New_room { id; room }))
-                when waiting_for_rooms && not (Lobby.Room.is_full room) ->
-                finished id
-              | _ -> return (`Repeat waiting_for_rooms)
+                when can_join room ->
+                try_to_join id
+              | _ -> return (`Repeat ())
             )
           end
-        | Named id -> return id
+        | Named id ->
+          Rpc.Pipe_rpc.dispatch_exn Protocol.Join_room.rpc conn id
+          >>| fun (updates, _metadata) ->
+          updates
         end
-        >>= fun room_id ->
-        Log.Global.sexp ~level:`Debug [%message
-          "joining room"
-            (room_id : Lobby.Room.Id.t)
-        ];
-        Rpc.Pipe_rpc.dispatch Protocol.Join_room.rpc conn room_id
-        >>| ok_exn
+        >>= fun updates ->
+        Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn true
         >>= function
-        | Error (`Not_logged_in | `Already_in_a_room) -> assert false
-        | Error error ->
-          (* should retry if room is full and room_choice = First_available *)
-          raise_s [%message
-            "joining room failed"
-              (error : Protocol.Join_room.error)
-          ]
-        | Ok (updates, _metadata) ->
-          Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn true
-          >>= function
-          | Error (`Not_logged_in | `Not_in_a_room | `Already_playing) ->
-            assert false
-          | Ok () ->
-            let new_order_id =
-              let r = ref Market.Order.Id.zero in
-              fun () ->
-                let id = !r in
-                r := Market.Order.Id.next id;
-                id
-            in
-            f { config; username; conn; updates; new_order_id })
+        | Error (`Not_logged_in | `Not_in_a_room | `Already_playing) ->
+          assert false
+        | Ok () ->
+          let new_order_id =
+            let r = ref Market.Order.Id.zero in
+            fun () ->
+              let id = !r in
+              r := Market.Order.Id.next id;
+              id
+          in
+          f { config; username; conn; updates; new_order_id })
   >>| Or_error.of_exn_result
 
 let make_command ~summary ~config_param ~username_stem ~f =

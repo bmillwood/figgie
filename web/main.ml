@@ -814,7 +814,9 @@ module App = struct
             ~who_is_ready:ready
         ] |> view
       | Lobby { lobby; updates = _ } ->
-        [ Lobby_view.view lobby ~inject:(fun (Join_room id) ->
+        [ Lobby_view.view lobby
+            ~my_name:login.me.username
+            ~inject:(fun (Join_room id) ->
               inject (Action.logged_in (Join_room id))
             )
         ] |> view
