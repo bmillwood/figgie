@@ -4,19 +4,12 @@ open Vdom
 
 open Market
 
-module Username_with_class = struct
-  type t = Username.t * string [@@deriving sexp_of]
-
-  let span (u, c) =
-    Node.span [Attr.class_ c] [Node.text (Username.to_string u)]
-end
-
 module Message = struct
   type t =
     | Connected_to_server of Host_and_port.t
     | Disconnected_from_server
     | Other_login of Username.t
-    | Chat of Username_with_class.t * string
+    | Chat of Username.t * string
     | Player_joined_room of { player : Username.t; room_id : Lobby.Room.Id.t }
     | Joined_room of Lobby.Room.Id.t
     | New_round
@@ -53,7 +46,7 @@ end
 let apply_scrolling_action (t : Model.t) (act : Scrolling.Action.t) =
   { t with scrolling = Scrolling.apply_action t.scrolling act }
 
-let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
+let view (t : Model.t) ~is_connected ~my_name ~(inject : Action.t -> _) =
   let node_of_message : Message.t -> _ =
     let horizontal_rule = Node.create "hr" [] [] in
     let status nodes = Node.li [Attr.class_ "status"] nodes in
@@ -71,7 +64,9 @@ let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
       simple status !"%{Username} connected" who
     | Chat (who, msg) ->
       Node.li []
-        [ Username_with_class.span who
+        [ Hash_colour.username_span
+            ~is_me:(Option.exists my_name ~f:(Username.equal who))
+            who
         ; Node.text ": "
         ; Node.text msg
         ]

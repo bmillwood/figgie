@@ -25,12 +25,6 @@ button:hover {
 	background-color: #004;
 }
 
-.me    { color: #000; background-color: #99f; }
-.them1 { color: #ff6; }
-.them2 { color: #6ff; }
-.them3 { color: #f6f; }
-.them4 { color: #99f; }
-
 #status {
 	position: relative;
 	padding: 0.1em 0.5em;

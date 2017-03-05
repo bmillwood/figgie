@@ -13,6 +13,10 @@ val textbox
        self:Dom_html.inputElement Js.t
     -> Dom_html.keyboardEvent Js.t
     -> Event.t)
+  -> ?on_input:(
+       self:Dom_html.inputElement Js.t
+    -> string
+    -> Event.t)
   -> on_submit:(string -> Event.t)
   -> unit
   -> Node.t

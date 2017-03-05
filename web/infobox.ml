@@ -36,10 +36,14 @@ let player ~pos ~(pers : Player.Persistent.t) ~ranking ~info =
       [Attr.classes ["score"; ranking]]
       [Node.text (Price.to_string pers.score)]
   in
+  let is_me =
+    match pos with
+    | Position.Me -> true
+    | _ -> false
+  in
   let name =
-    Node.span
-      [ Attr.classes ["name"; Player.Style.class_ pers.style] ]
-      [ Node.text (Username.to_string pers.username) ]
+    Hash_colour.username_span ~attrs:[Attr.class_ "name"] ~is_me
+      pers.username
   in
   infobox ~pos ~name ~score:(Some score) ~info
 

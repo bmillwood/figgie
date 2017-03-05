@@ -74,18 +74,6 @@ module Logged_in = struct
     }
   end
 
-  let new_player (t : Model.t) ~username =
-    let n =
-      let rec loop n =
-        if Map.exists t.others
-          ~f:(fun other -> Player.Style.equal other.style (Them n))
-        then loop (n + 1)
-        else n
-      in
-      loop 1
-    in
-    { Player.Persistent.username; style = Them n; score = Price.zero }
-
   let update_round_if_playing (t : Model.t) ~f =
     match t.game with
     | Playing round -> { t with game = Playing (f round) }
@@ -103,7 +91,8 @@ module Logged_in = struct
       let others =
         Map.update t.others username
           ~f:(fun maybe_existing ->
-            Option.value maybe_existing ~default:(new_player t ~username)
+            Option.value maybe_existing
+              ~default:{ username; score = Price.zero }
             |> f)
       in
       { t with others }
@@ -363,7 +352,7 @@ module App = struct
       | Lobby { lobby; updates } ->
         begin match up with
         | Chat (username, msg) ->
-          schedule (Add_message (Chat ((username, "nobody"), msg)));
+          schedule (Add_message (Chat (username, msg)));
           login
         | Lobby_update up ->
           begin match up with
@@ -457,12 +446,7 @@ module App = struct
             Logged_in.update_player login ~username
               ~f:(fun player -> { player with score }))
       | Broadcast (Chat (who, msg)) ->
-        let player =
-          Option.value (Logged_in.player login ~username:who)
-            ~default:Player.Persistent.nobody
-        in
-        let class_ = Player.Style.class_ player.style in
-        just_schedule (Add_message (Chat ((who, class_), msg)))
+        just_schedule (Add_message (Chat (who, msg)))
       | Broadcast (Out _) ->
         don't_wait_for begin
           Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
@@ -497,7 +481,7 @@ module App = struct
       conn
     | Finish_login { username; lobby_pipe } ->
       let me : Player.Persistent.t =
-        { username; style = Me; score = Price.zero }
+        { username; score = Price.zero }
       in
       let logged_in =
         { Logged_in.Model.me; others = Username.Map.empty
@@ -617,7 +601,7 @@ module App = struct
       ()
 
   let market_table
-    ~hotkeys ~players ~(inject : Action.t -> _) (market : Book.t)
+    ~hotkeys ~players ~my_name ~(inject : Action.t -> _) (market : Book.t)
     =
     let market_depth = 3 in
     let nbsp = "\xc2\xa0" in
@@ -632,9 +616,9 @@ module App = struct
           Node.td [] [order_entry ~hotkeys ~market ~inject ~symbol ~dir]))
     in
     let cells ~dir =
-      let shortname_s (player : Player.t) =
+      let shortname_s username =
         let everyone = Map.keys players in
-        Username.Shortener.(short (of_list everyone) player.pers.username)
+        Username.Shortener.(short (of_list everyone) username)
         |> Username.to_string
       in
       List.map Card.Suit.all ~f:(fun symbol ->
@@ -642,14 +626,18 @@ module App = struct
         let cells =
           List.map (List.take halfbook market_depth)
             ~f:(fun order ->
-              let player =
-                Map.find players order.owner
-                |> Option.value ~default:Player.nobody
+              let is_me = Username.equal my_name order.owner in
+              let span ~attrs text =
+                Node.span
+                  (Attr.style
+                    (Hash_colour.username_style ~is_me order.owner)
+                  :: attrs)
+                  [Node.text text]
               in
               Node.td []
-                [ Player.Persistent.style_text ~classes:["owner"] player.pers
-                    (shortname_s player)
-                ; Player.Persistent.style_text player.pers
+                [ span ~attrs:[Attr.class_ "owner"]
+                    (shortname_s order.owner)
+                ; span ~attrs:[]
                     (Price.to_string order.price)
                 ])
         in
@@ -671,16 +659,12 @@ module App = struct
         ; cells ~dir:Buy
         ])
 
-  let tape_table ~(players : Player.t Username.Map.t) trades =
+  let tape_table ~my_name trades =
     let row_of_order ~traded_with (trade : Order.t) =
       let person_td username =
-        let person =
-          let user_s = Username.to_string username in
-          match Map.find players username with
-          | None -> Node.text user_s
-          | Some other -> Player.Persistent.style_text other.pers user_s
-        in
-        Node.td [] [person]
+        Hash_colour.username_span
+          ~is_me:(Username.equal username my_name)
+          username
       in
       [ person_td trade.owner
       ; Node.td [Attr.class_ (Dir.to_string trade.dir)]
@@ -738,7 +722,14 @@ module App = struct
       | Scroll_chat act ->
         inject (Scroll_chat act)
     in
+    let my_name =
+      match model.state with
+      | Connected { login = Some login; _ } ->
+        Some login.me.username
+      | _ -> None
+    in
     Chat.view model.messages
+      ~my_name
       ~is_connected:(Option.is_some (get_conn model))
       ~inject:chat_inject
 
@@ -769,14 +760,6 @@ module App = struct
   let view (incr_model : Model.t Incr.t) ~(inject : Action.t -> _) =
     let open Incr.Let_syntax in
     let%map model = incr_model in
-    let exchange ~market ~trades ~players =
-      Node.table [Attr.id "exchange"]
-        [ Node.tr []
-          [ Node.td [] [market_table ~hotkeys ~players ~inject market]
-          ; Node.td [] [tape_table ~players trades]
-          ]
-        ]
-    in
     let view bits_in_between =
       Node.body
         [ Vdom.Attr.on_keypress (Hotkeys.on_keypress hotkeys) ]
@@ -794,6 +777,17 @@ module App = struct
     match get_conn model with
     | None | Some { login = None; _ } -> view []
     | Some { login = Some login; _ } ->
+      let my_name = login.me.username in
+      let exchange ~market ~trades ~players =
+        Node.table [Attr.id "exchange"]
+          [ Node.tr []
+            [ Node.td []
+                [market_table ~my_name ~hotkeys ~players ~inject market]
+            ; Node.td []
+                [tape_table ~my_name trades]
+            ]
+          ]
+      in
       begin match login.game with
       | Playing { my_hand; other_hands; market; trades; _ } ->
         let me =
@@ -807,7 +801,7 @@ module App = struct
             | `Both (pers, hand) -> Some { Player.pers; hand }
             | `Left _ | `Right _ -> None)
         in
-        let players = Map.add others ~key:me.pers.username ~data:me in
+        let players = Map.add others ~key:my_name ~data:me in
         [ exchange ~market ~trades ~players
         ; Infobox.playing ~others ~me
         ] |> view
@@ -825,7 +819,7 @@ module App = struct
         ] |> view
       | Lobby { lobby; updates = _ } ->
         [ Lobby_view.view lobby
-            ~my_name:login.me.username
+            ~my_name
             ~inject:(fun (Join_room id) ->
               inject (Action.logged_in (Join_room id))
             )

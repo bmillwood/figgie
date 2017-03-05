@@ -1,42 +1,17 @@
 open Core_kernel.Std
-open Incr_dom
-open Vdom
 
 open Market
 
-module Style = struct
-  type t =
-    | Me
-    | Them of int
-    | Nobody
-    [@@deriving compare, sexp]
-
-  let equal t1 t2 = compare t1 t2 = 0
-
-  let class_ =
-    function
-    | Me -> "me"
-    | Them i -> "them" ^ Int.to_string i
-    | Nobody -> "nobody"
-
-  let style_text ?(classes=[]) t text =
-    Node.span [Attr.classes (class_ t :: classes)] [Node.text text]
-end
-
 module Persistent = struct
   type t = {
-    style : Style.t;
     username : Username.t;
     score : Price.t;
   } [@@deriving sexp]
 
   let nobody =
-    { style = Nobody
-    ; username = Username.of_string "[nobody]"
+    { username = Username.of_string "[nobody]"
     ; score = Price.zero
     }
-
-  let style_text ?classes t text = Style.style_text ?classes t.style text
 end
 
 type t = {

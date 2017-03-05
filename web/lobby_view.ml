@@ -29,8 +29,11 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
         ]
     in
     let players =
-      [ List.mapi players ~f:(fun i username ->
-          Node.li [Attr.classes ["name"; Player.Style.class_ (Them i)]]
+      [ List.map players ~f:(fun username ->
+          let style =
+            Hash_colour.username_style ~is_me:false username
+          in
+          Node.li [Attr.class_ "name"; Attr.style style]
             [Node.text (Username.to_string username)]
         )
       ; List.init (Int.max 0 (Lobby.room_size - num_players - 1))

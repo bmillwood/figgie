@@ -19,6 +19,12 @@ module Model = struct
         }
 end
 
+let set_username_field_colour ~self input =
+  (* this is so silly but I love it *)
+  self##.style##.backgroundColor := Js.string (
+    Hash_colour.username_colour (Username.of_string input)
+  )
+
 module Action = struct
   type t =
     | Input_error
@@ -39,7 +45,13 @@ let view (model : Model.t) ~(inject : Action.t -> _) =
       Widget.textbox ~id:Ids.connectTo ?classes
         ?initial_value:noconn.connectbox_prefill
         ~placeholder:"host[:port]" ~clear_on_submit:false
-        ~on_keypress:(fun ~self:_ _ev -> inject Input_ok)
+        ~on_input:(fun ~self:_ hps ->
+            inject (
+              match Parse.host_and_port hps with
+              | Some _ -> Input_ok
+              | None   -> Input_error
+            )
+          )
         ~on_submit:(fun hps ->
             inject (
               match Parse.host_and_port hps with
@@ -72,20 +84,23 @@ let view (model : Model.t) ~(inject : Action.t -> _) =
     line ~class_:"Connected"
       ~status:
         [ Widget.textbox ~id:Ids.login
-            ~classes:["name"; Player.Style.class_ Me]
             ~placeholder:"username"
             ?initial_value:Url_vars.username
             ~on_submit:(fun user ->
                 inject (Log_in (Username.of_string user))
               )
             ~clear_on_submit:false
+            ~on_input:(fun ~self input ->
+                set_username_field_colour ~self input;
+                Event.Ignore
+              )
             ()
         ; Node.text (" connected to " ^ Host_and_port.to_string hp)
         ]
   | Logged_in { connected_to; username; room_name; clock } ->
     line ~class_:"Connected"
       ~status:(
-          [ Some (Player.Style.style_text Me (Username.to_string username))
+          [ Some (Hash_colour.username_span ~is_me:true username)
           ; Some (Node.text (
               " connected to " ^ Host_and_port.to_string connected_to
             ))
@@ -105,8 +120,10 @@ let on_display ~(old : Model.t) (new_ : Model.t) =
     begin match old with
     | Not_connected _ | Connecting _ ->
       Focus.with_input ~id:Ids.login ~f:(fun input ->
+        let content = Js.to_string input##.value in
+        set_username_field_colour ~self:input content;
         input##focus;
-        let n = String.length (Js.to_string input##.value) in
+        let n = String.length content in
         input##.selectionStart := n;
         input##.selectionEnd := n)
     | Connected _ | Logged_in _ -> ()
