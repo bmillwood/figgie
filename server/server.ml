@@ -3,49 +3,41 @@ open Async
 module Rpc_kernel = Async_rpc_kernel.Std
 
 module Updates_manager = struct
-  (* One username may have many of these clients *)
-  module Client = struct
-    type 'update t = {
-      username : Username.t;
-      updates  : 'update Pipe.Writer.t;
-    }
-  end
-
   type 'update t =
-    { clients : 'update Client.t Doubly_linked.t Username.Table.t }
+    { clients : 'update Pipe.Writer.t Doubly_linked.t Username.Table.t }
 
   let create () = { clients = Username.Table.create () }
 
-  let subscribe t (client : _ Client.t) =
-    Hashtbl.update t.clients client.username
-      ~f:(fun clients ->
-        let clients =
-          match clients with
+  let subscribe t ~username ~updates:pipe =
+    Hashtbl.update t.clients username
+      ~f:(fun pipes ->
+        let pipes =
+          match pipes with
           | None -> Doubly_linked.create ()
-          | Some clients -> clients
+          | Some pipes -> pipes
         in
-        let elt = Doubly_linked.insert_first clients client in
+        let elt = Doubly_linked.insert_first pipes pipe in
         don't_wait_for begin
-          Pipe.closed client.updates
+          Pipe.closed pipe
           >>| fun () ->
-          Doubly_linked.remove clients elt
+          Doubly_linked.remove pipes elt
         end;
-        clients
+        pipes
     )
 
-  let write_update_to_logins (logins : _ Client.t Doubly_linked.t) update =
-    Doubly_linked.iter logins ~f:(fun login ->
-      Pipe.write_without_pushback login.updates update
+  let write_update_to_logins pipes update =
+    Doubly_linked.iter pipes ~f:(fun pipe ->
+      Pipe.write_without_pushback pipe update
     )
 
   let update t ~username update =
-    Option.iter (Hashtbl.find t.clients username) ~f:(fun logins ->
-      write_update_to_logins logins update
+    Option.iter (Hashtbl.find t.clients username) ~f:(fun pipes ->
+      write_update_to_logins pipes update
     )
 
   let broadcast t broadcast =
-    Hashtbl.iteri t.clients ~f:(fun ~key:_ ~data:logins ->
-      write_update_to_logins logins broadcast
+    Hashtbl.iteri t.clients ~f:(fun ~key:_ ~data:pipes ->
+      write_update_to_logins pipes broadcast
     )
 
   let broadcasts t = List.iter ~f:(broadcast t)
@@ -80,10 +72,7 @@ module Room_manager = struct
     end
     >>| fun () ->
     let updates_r, updates_w = Pipe.create () in
-    let player : _ Updates_manager.Client.t =
-      { username; updates = updates_w }
-    in
-    Updates_manager.subscribe t.updates player;
+    Updates_manager.subscribe t.updates ~username ~updates:updates_w;
     let catch_up =
       let open Protocol.Game_update in
       [ [Broadcast (Scores (Game.scores t.game))]
@@ -230,10 +219,8 @@ let implementations t =
           end
           >>=? fun username ->
           let (updates_r, updates_w) = Pipe.create () in
-          let client : _ Updates_manager.Client.t =
-            { username; updates = updates_w }
-          in
-          Updates_manager.subscribe t.lobby_updates client;
+          Updates_manager.subscribe t.lobby_updates
+            ~username ~updates:updates_w;
           Pipe.write_without_pushback updates_w
             (Lobby_update (Snapshot (lobby_snapshot t)));
           return (Ok updates_r))
