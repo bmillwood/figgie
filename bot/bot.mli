@@ -1,5 +1,7 @@
 open Async
 
+open Figgie
+
 type 'a t =
   { config : 'a
   ; username : Username.t

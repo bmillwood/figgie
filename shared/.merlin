@@ -1,3 +1,0 @@
-PKG async_kernel async_rpc_kernel core_kernel
-PKG ppx_jane
-B ../_build/shared

@@ -1,9 +1,8 @@
 #!/bin/bash -eux
-ocamlbuild -use-ocamlfind -no-links -plugin-tag "package(ppx_driver.ocamlbuild)" \
-	{bot,server,web}/main.byte
-for thing in bot server web
+jbuilder build {bot,server}/main.exe web/main.js
+for thing in bot server
 do
-  [ -e "$thing.byte" ] \
-    || ln -s "_build/$thing/main.byte" "$thing.byte"
+  [ -e "$thing.exe" ] \
+    || ln -sf "_build/system/$thing/main.exe" "$thing.exe"
 done
-js_of_ocaml base.js +bin_prot.js core_kernel.js +nat.js +weak.js web.byte
+[ -e web.js ] || ln -s _build/system/web/main.js web.js

@@ -1,5 +1,7 @@
 open Core_kernel.Std
 
+open Figgie
+
 let host_and_port hps =
   match Host_and_port.of_string hps with
   | exception _ ->

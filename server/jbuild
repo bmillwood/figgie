@@ -1,0 +1,12 @@
+(executables (
+  (names (main))
+  (libraries (
+    figgie
+
+    async
+    async_rpc_kernel
+    core
+    websocket.async
+  ))
+  (preprocess (pps (ppx_jane ppx_driver.runner)))
+))

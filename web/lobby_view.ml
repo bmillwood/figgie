@@ -2,6 +2,8 @@ open Core_kernel.Std
 open Incr_dom
 open Vdom
 
+open Figgie
+
 module Action = struct
   type t =
     | Join_room of Lobby.Room.Id.t

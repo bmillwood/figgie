@@ -1,0 +1,32 @@
+(rule (
+  (targets (main.js))
+  (deps    (main.bc))
+  (action  (run
+    js_of_ocaml -o ${@}
+      +base/runtime.js
+      +bin_prot/runtime.js
+      +core_kernel/runtime.js
+      +nat.js
+      +weak.js
+      ${<}
+   ))
+))
+
+(executables (
+  (names (main))
+  (libraries (
+    figgie
+
+    async_js
+    async_kernel
+    async_rpc_kernel
+    core_kernel
+    js_of_ocaml
+    incr_dom
+  ))
+  (preprocess (pps (
+    ppx_jane
+    js_of_ocaml.ppx.driver
+    ppx_driver.runner
+  )))
+))

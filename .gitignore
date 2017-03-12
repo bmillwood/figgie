@@ -1,3 +1,4 @@
-*.byte
+*.exe
+.merlin
 _build
 web.js

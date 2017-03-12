@@ -2,6 +2,8 @@ open Core
 open Async
 module Rpc_kernel = Async_rpc_kernel.Std
 
+open Figgie
+
 module Updates_manager = struct
   type 'update t =
     { clients : 'update Pipe.Writer.t Doubly_linked.t Username.Table.t }

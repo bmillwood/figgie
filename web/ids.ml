@@ -1,3 +1,5 @@
+open Figgie
+
 let login = "login"
 let connectTo = "connectTo"
 let ready_button = "readyButton"

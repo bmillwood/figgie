@@ -1,0 +1,10 @@
+(executables (
+  (names (main))
+  (libraries (
+    figgie
+
+    async
+    core
+  ))
+  (preprocess (pps (ppx_jane ppx_driver.runner)))
+))

@@ -4,6 +4,7 @@ open Async_rpc_kernel.Std
 open Incr_dom
 open Vdom
 
+open Figgie
 open Market
 
 module Waiting = struct

@@ -1,0 +1,9 @@
+(library (
+  (name figgie)
+  (libraries (
+    async_kernel
+    async_rpc_kernel
+    core_kernel
+  ))
+  (preprocess (pps (ppx_jane ppx_driver.runner)))
+))

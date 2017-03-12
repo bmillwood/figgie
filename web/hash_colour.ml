@@ -2,6 +2,8 @@ open Core_kernel.Std
 open Incr_dom
 open Vdom
 
+open Figgie
+
 (* http://phrogz.net/css/distinct-colors.html *)
 let colours =
   [|

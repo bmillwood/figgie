@@ -1,6 +1,8 @@
 open Core
 open Async
 
+open Figgie
+
 type t = {
   initial_sell_price : Market.Price.t;
   fade : Market.Price.t;

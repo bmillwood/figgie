@@ -1,6 +1,7 @@
 open Core
 open Async
 
+open Figgie
 open Card
 open Market
 

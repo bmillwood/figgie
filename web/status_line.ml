@@ -2,6 +2,8 @@ open Core_kernel.Std
 open Incr_dom
 open Vdom
 
+open Figgie
+
 module Model = struct
   type t =
     | Not_connected of

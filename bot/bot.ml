@@ -1,6 +1,8 @@
 open Core
 open Async
 
+open Figgie
+
 module Room_choice = struct
   type t =
     | First_available

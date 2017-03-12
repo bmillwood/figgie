@@ -1,5 +1,7 @@
 open Core
 
+open Figgie
+
 module Config = struct
   type t = { length_of_round : Time_ns.Span.t }
 

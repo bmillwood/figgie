@@ -1,5 +1,6 @@
 open Core_kernel.Std
 
+open Figgie
 open Market
 
 module Persistent = struct
