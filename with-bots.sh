@@ -2,7 +2,7 @@
 SERVER=./server.exe
 BOT=./bot.exe
 
-"$SERVER" -length-of-round 1m &
+"$SERVER" -length-of-round 1m -enable-chat true &
 victims=$!
 sleep 1
 for which in 1 2

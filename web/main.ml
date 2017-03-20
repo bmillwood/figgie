@@ -182,6 +182,7 @@ module App = struct
   module Action = struct
     type t =
       | Add_message of Chat.Message.t
+      | Send_chat of string
       | Scroll_chat of Scrolling.Action.t
       | Status_line of Status_line.Action.t
       | Finish_connecting of
@@ -504,6 +505,19 @@ module App = struct
     match action with
     | Add_message msg ->
       { model with messages = Chat.Model.add_message model.messages msg }
+    | Send_chat msg ->
+      Option.iter (get_conn model) ~f:(fun { conn; _ } ->
+        don't_wait_for begin
+          Rpc.Rpc.dispatch_exn Protocol.Chat.rpc conn msg
+          >>| function
+          | Error `Chat_disabled ->
+            state.schedule (Action.Add_message (Chat_failed `Chat_disabled))
+          | Error `Not_logged_in ->
+            state.schedule (Action.Add_message (Chat_failed `Not_logged_in))
+          | Ok () -> ()
+        end
+      );
+      model
     | Scroll_chat act ->
       { model with messages = Chat.apply_scrolling_action model.messages act }
     | Status_line Input_error ->
@@ -706,20 +720,10 @@ module App = struct
     ;  'c', Ids.cancel
     |]
 
-  let send_chat (model : Model.t) msg =
-    Option.iter (get_conn model) ~f:(fun { conn; _ } ->
-      don't_wait_for begin
-        Rpc.Rpc.dispatch_exn Protocol.Chat.rpc conn msg
-        >>| function
-        | Error `Not_logged_in | Ok () -> ()
-      end
-    )
-
   let chat_view (model : Model.t) ~(inject : Action.t -> _) =
     let chat_inject : Chat.Action.t -> _ = function
       | Send_chat msg ->
-        send_chat model msg;
-        Event.Ignore
+        inject (Send_chat msg)
       | Scroll_chat act ->
         inject (Scroll_chat act)
     in

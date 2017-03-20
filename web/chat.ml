@@ -11,6 +11,7 @@ module Message = struct
     | Disconnected_from_server
     | Other_login of Username.t
     | Chat of Username.t * string
+    | Chat_failed of [ `Chat_disabled | `Not_logged_in ]
     | Player_joined_room of { player : Username.t; room_id : Lobby.Room.Id.t }
     | Joined_room of Lobby.Room.Id.t
     | New_round
@@ -71,6 +72,10 @@ let view (t : Model.t) ~is_connected ~my_name ~(inject : Action.t -> _) =
         ; Node.text ": "
         ; Node.text msg
         ]
+    | Chat_failed `Chat_disabled ->
+      error [ Node.text "Chat system administratively disabled" ]
+    | Chat_failed `Not_logged_in ->
+      error [ Node.text "Must log in to chat" ]
     | Player_joined_room { player; room_id } ->
       simple status !"%{Username} joined %{Lobby.Room.Id}" player room_id
     | Joined_room room_id ->

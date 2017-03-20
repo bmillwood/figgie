@@ -11,6 +11,7 @@ module Message : sig
     | Disconnected_from_server
     | Other_login of Username.t
     | Chat of Username.t * string
+    | Chat_failed of [ `Chat_disabled | `Not_logged_in ]
     | Player_joined_room of { player : Username.t; room_id : Lobby.Room.Id.t }
     | Joined_room of Lobby.Room.Id.t
     | New_round

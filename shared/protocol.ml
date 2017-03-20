@@ -94,7 +94,7 @@ end
 
 module Chat = struct
   type query = string [@@deriving bin_io, sexp]
-  type response = (unit, not_logged_in) Result.t
+  type response = (unit, [ not_logged_in | `Chat_disabled ]) Result.t
     [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"chat" ~version:1 ~bin_query ~bin_response
 end

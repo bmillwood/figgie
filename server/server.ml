@@ -138,6 +138,7 @@ type t =
   ; rooms : Room_manager.t Lobby.Room.Id.Table.t
   ; others : int Username.Map.t
   ; game_config : Game.Config.t
+  ; chat_enabled : bool
   }
 
 let lobby_snapshot t : Lobby.t =
@@ -170,12 +171,13 @@ let ensure_empty_room_exists t =
     new_room_exn t ~id:(unused_room_id t)
   )
 
-let create ~game_config =
+let create ~game_config ~chat_enabled =
   let t = 
     { lobby_updates = Updates_manager.create ()
     ; rooms = Lobby.Room.Id.Table.create ()
     ; others = Username.Map.empty
     ; game_config
+    ; chat_enabled
     }
   in
   ensure_empty_room_exists t;
@@ -250,16 +252,20 @@ let implementations t =
       )
     ; Rpc.Rpc.implement Protocol.Chat.rpc
         (fun (state : Connection_state.t) msg ->
-          match !state with
-          | Not_logged_in _ -> return (Error `Not_logged_in)
-          | Logged_in { room = None; username; conn = _ } ->
-            Updates_manager.broadcast t.lobby_updates
-              (Chat (username, msg));
-            return (Ok ())
-          | Logged_in { room = Some room; username; conn = _ } ->
-            Updates_manager.broadcast room.updates
-              (Broadcast (Chat (username, msg)));
-            return (Ok ())
+          if not t.chat_enabled then (
+            return (Error `Chat_disabled)
+          ) else (
+            match !state with
+            | Not_logged_in _ -> return (Error `Not_logged_in)
+            | Logged_in { room = None; username; conn = _ } ->
+              Updates_manager.broadcast t.lobby_updates
+                (Chat (username, msg));
+              return (Ok ())
+            | Logged_in { room = Some room; username; conn = _ } ->
+              Updates_manager.broadcast room.updates
+                (Broadcast (Chat (username, msg)));
+              return (Ok ())
+          )
       )
     ; in_room Protocol.Is_ready.rpc
         (fun ~username ~room is_ready ->
@@ -318,8 +324,8 @@ let implementations t =
       )
     ]
 
-let main ~tcp_port ~web_port ~game_config =
-  let t = create ~game_config in
+let main ~tcp_port ~web_port ~game_config ~chat_enabled =
+  let t = create ~game_config ~chat_enabled in
   let implementations = implementations t in
   let%bind _server =
     Rpc.Connection.serve
@@ -372,10 +378,13 @@ let command =
         flag "-log-level" (optional_with_default `Info Log.Level.arg)
           ~doc:"LEVEL Error, Info, or Debug"
       and game_config = Game.Config.arg
+      and chat_enabled =
+        flag "-enable-chat" (required bool)
+          ~doc:"BOOL enable player-player comnunications"
       in
       fun () ->
         Log.Global.set_level log_level;
         Random.self_init ();
-        main ~tcp_port ~web_port ~game_config
+        main ~tcp_port ~web_port ~game_config ~chat_enabled
         >>= never_returns
     ]
