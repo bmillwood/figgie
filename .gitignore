@@ -1,4 +1,4 @@
 *.exe
 .merlin
 _build
-web.js
+*.js
