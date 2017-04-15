@@ -24,7 +24,7 @@ module Room = struct
   let has_player t ~username = Map.mem t.users username
 
   let set_player t ~username ~is_connected =
-    { users = Map.add t.users username { username; is_connected } }
+    { users = Map.add t.users ~key:username ~data:{ username; is_connected } }
 
   let add_player t ~username =
     set_player t ~username ~is_connected:true
