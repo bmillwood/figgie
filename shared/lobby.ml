@@ -2,21 +2,34 @@ open Core_kernel.Std
 
 let room_size = 4
 
+module User = struct
+  module T = struct
+    type t =
+      { username : Username.t
+      ; is_connected : bool
+      } [@@deriving bin_io, compare, sexp]
+  end
+  include T
+  include Comparable.Make_binable(T)
+end
+
 module Room = struct
   module Id : Identifiable.S = String
   type t = {
-    players : Username.t list;
+    users : User.t Username.Map.t;
   } [@@deriving bin_io, sexp]
 
-  let empty = { players = [] }
+  let empty = { users = Username.Map.empty }
 
-  let has_player t ~username =
-    List.mem t.players username ~equal:Username.equal
+  let has_player t ~username = Map.mem t.users username
+
+  let set_player t ~username ~is_connected =
+    { users = Map.add t.users username { username; is_connected } }
 
   let add_player t ~username =
-    { players = username :: t.players }
+    set_player t ~username ~is_connected:true
 
-  let is_full t = List.length t.players >= room_size
+  let is_full t = Map.length t.users >= room_size
 end
 
 module T = struct
@@ -38,13 +51,24 @@ let decr_count_map t key =
 let empty = { rooms = Room.Id.Map.empty; others = Username.Map.empty }
 
 module Update = struct
+  module Player_event = struct
+    type t =
+      | Joined_room
+      | Disconnected
+      [@@deriving bin_io, sexp]
+  end
+
   type t =
     | Snapshot of T.t
     | New_room of { id : Room.Id.t; room : Room.t }
     | Room_closed of Room.Id.t
-    | Player_joined_room of { player : Username.t; room_id : Room.Id.t }
+    | Player_event of
+      { username : Username.t
+      ; room_id : Room.Id.t
+      ; event : Player_event.t
+      }
     | Other_login of Username.t
-    | Other_logout of Username.t
+    | Other_disconnect of Username.t
     [@@deriving bin_io, sexp]
 
   let apply t lobby =
@@ -54,19 +78,24 @@ module Update = struct
       { lobby with rooms = Map.add lobby.rooms ~key:id ~data:room }
     | Room_closed id ->
       { lobby with rooms = Map.remove lobby.rooms id }
-    | Player_joined_room { player; room_id } ->
-      { rooms =
-          Map.update lobby.rooms room_id ~f:(fun room ->
-            let room = Option.value room ~default:Room.empty in
-            Room.add_player room ~username:player
-          )
-      ; others = decr_count_map lobby.others player
-      }
+    | Player_event { username; room_id; event } ->
+      let is_connected, others =
+        match event with
+        | Joined_room  -> true,  decr_count_map lobby.others username
+        | Disconnected -> false, lobby.others
+      in
+      let rooms =
+        Map.update lobby.rooms room_id ~f:(fun room ->
+          let room = Option.value room ~default:Room.empty in
+          Room.set_player room ~username ~is_connected
+        )
+      in
+      { rooms; others }
     | Other_login username ->
       { lobby with others =
           Map.update lobby.others username ~f:(fun maybe_count ->
             1 + Option.value maybe_count ~default:0)
       }
-    | Other_logout username ->
+    | Other_disconnect username ->
       { lobby with others = decr_count_map lobby.others username }
 end

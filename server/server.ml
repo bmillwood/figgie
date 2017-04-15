@@ -245,7 +245,7 @@ let implementations t =
           >>=? fun updates_r ->
           Updates_manager.broadcast t.lobby_updates
             (Lobby_update
-              (Player_joined_room { player = username; room_id }));
+              (Player_event { username; room_id; event = Joined_room }));
           ensure_empty_room_exists t;
           state := Logged_in { username; conn; room = Some room };
           return (Ok updates_r)

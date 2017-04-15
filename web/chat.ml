@@ -12,7 +12,11 @@ module Message = struct
     | Other_login of Username.t
     | Chat of Username.t * string
     | Chat_failed of [ `Chat_disabled | `Not_logged_in ]
-    | Player_joined_room of { player : Username.t; room_id : Lobby.Room.Id.t }
+    | Player_room_event of
+        { username : Username.t
+        ; room_id : Lobby.Room.Id.t
+        ; event : Lobby.Update.Player_event.t
+        }
     | Joined_room of Lobby.Room.Id.t
     | New_round
     | Round_over of Protocol.Round_results.t
@@ -76,8 +80,13 @@ let view (t : Model.t) ~is_connected ~my_name ~(inject : Action.t -> _) =
       error [ Node.text "Chat system administratively disabled" ]
     | Chat_failed `Not_logged_in ->
       error [ Node.text "Must log in to chat" ]
-    | Player_joined_room { player; room_id } ->
-      simple status !"%{Username} joined %{Lobby.Room.Id}" player room_id
+    | Player_room_event { username; room_id; event } ->
+      let verb =
+        match event with
+        | Joined_room -> "joined"
+        | Disconnected -> "disconnected from"
+      in
+      simple status !"%{Username} %s %{Lobby.Room.Id}" username verb room_id
     | Joined_room room_id ->
       status
         [ horizontal_rule

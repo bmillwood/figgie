@@ -25,6 +25,10 @@ button:hover {
 	background-color: #004;
 }
 
+.disconnectedName {
+	text-decoration: line-through;
+}
+
 #status {
 	position: relative;
 	padding: 0.1em 0.5em;

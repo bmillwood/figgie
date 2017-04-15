@@ -15,8 +15,8 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
       let nbsp = "\xc2\xa0" in
       Node.li [Attr.class_ "name"] [Node.text nbsp]
     in
-    let players = List.filter room.players ~f:(Username.(<>) my_name) in
-    let num_players = List.length players in
+    let players = Map.filter_keys room.users ~f:(Username.(<>) my_name) in
+    let num_players = Map.length players in
     let id_item =
       Node.li [Attr.class_ "roomName"]
         [Node.text (Lobby.Room.Id.to_string id)]
@@ -31,11 +31,14 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
         ]
     in
     let players =
-      [ List.map players ~f:(fun username ->
+      [ List.map (Map.to_alist players) ~f:(fun (username, user) ->
           let style =
             Hash_colour.username_style ~is_me:false username
           in
-          Node.li [Attr.class_ "name"; Attr.style style]
+          let classes =
+            "name" :: if user.is_connected then [] else ["disconnectedName"]
+          in
+          Node.li [Attr.classes classes; Attr.style style]
             [Node.text (Username.to_string username)]
         )
       ; List.init (Int.max 0 (Lobby.room_size - num_players - 1))

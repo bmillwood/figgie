@@ -360,8 +360,9 @@ module App = struct
           begin match up with
           | Other_login user ->
             schedule (Add_message (Other_login user))
-          | Player_joined_room { player; room_id } ->
-            schedule (Add_message (Player_joined_room { player; room_id }))
+          | Player_event { username; room_id; event } ->
+            schedule
+              (Add_message (Player_room_event { username; room_id; event }))
           | _ -> ()
           end;
           let new_lobby = Lobby.Update.apply up lobby in

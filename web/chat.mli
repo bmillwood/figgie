@@ -12,7 +12,11 @@ module Message : sig
     | Other_login of Username.t
     | Chat of Username.t * string
     | Chat_failed of [ `Chat_disabled | `Not_logged_in ]
-    | Player_joined_room of { player : Username.t; room_id : Lobby.Room.Id.t }
+    | Player_room_event of
+        { username : Username.t
+        ; room_id : Lobby.Room.Id.t
+        ; event : Lobby.Update.Player_event.t
+        }
     | Joined_room of Lobby.Room.Id.t
     | New_round
     | Round_over of Protocol.Round_results.t
