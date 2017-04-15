@@ -26,9 +26,6 @@ module Room = struct
   let set_player t ~username ~is_connected =
     { users = Map.add t.users ~key:username ~data:{ username; is_connected } }
 
-  let add_player t ~username =
-    set_player t ~username ~is_connected:true
-
   let is_full t = Map.length t.users >= room_size
 end
 
@@ -53,7 +50,7 @@ let empty = { rooms = Room.Id.Map.empty; others = Username.Map.empty }
 module Update = struct
   module Player_event = struct
     type t =
-      | Joined_room
+      | Joined
       | Disconnected
       [@@deriving bin_io, sexp]
   end
@@ -81,7 +78,7 @@ module Update = struct
     | Player_event { username; room_id; event } ->
       let is_connected, others =
         match event with
-        | Joined_room  -> true,  decr_count_map lobby.others username
+        | Joined       -> true,  decr_count_map lobby.others username
         | Disconnected -> false, lobby.others
       in
       let rooms =

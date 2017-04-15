@@ -43,7 +43,10 @@ let player ~pos ~(pers : Player.Persistent.t) ~ranking ~info =
     | _ -> false
   in
   let name =
-    Hash_colour.username_span ~attrs:[Attr.class_ "name"] ~is_me
+    let classes =
+      "name" :: if pers.is_connected then [] else ["disconnected"]
+    in
+    Hash_colour.username_span ~attrs:[Attr.classes classes] ~is_me
       pers.username
   in
   infobox ~pos ~name ~score:(Some score) ~info

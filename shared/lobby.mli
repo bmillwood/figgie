@@ -17,7 +17,7 @@ module Room : sig
 
   val empty : t
   val has_player : t -> username:Username.t -> bool
-  val add_player : t -> username:Username.t -> t
+  val set_player : t -> username:Username.t -> is_connected:bool -> t
   val is_full : t -> bool
 end
 
@@ -33,7 +33,7 @@ module Update : sig
 
   module Player_event : sig
     type t =
-      | Joined_room
+      | Joined
       | Disconnected
       [@@deriving bin_io, sexp]
   end

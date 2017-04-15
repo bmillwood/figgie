@@ -4,13 +4,15 @@ open Figgie
 open Market
 
 module Persistent = struct
-  type t = {
-    username : Username.t;
-    score : Price.t;
-  } [@@deriving sexp]
+  type t =
+    { username : Username.t
+    ; is_connected : bool
+    ; score : Price.t
+    } [@@deriving sexp]
 
   let nobody =
     { username = Username.of_string "[nobody]"
+    ; is_connected = true
     ; score = Price.zero
     }
 end

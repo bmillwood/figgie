@@ -93,14 +93,11 @@ module Logged_in = struct
         Map.update t.others username
           ~f:(fun maybe_existing ->
             Option.value maybe_existing
-              ~default:{ username; score = Price.zero }
+              ~default:{ username; is_connected = true; score = Price.zero }
             |> f)
       in
       { t with others }
     end
-
-  let add_new_player (t : Model.t) ~username =
-    update_player t ~username ~f:Fn.id
 
   let player (t : Model.t) ~username =
     if Username.equal t.me.username username
@@ -358,11 +355,18 @@ module App = struct
           login
         | Lobby_update up ->
           begin match up with
-          | Other_login user ->
-            schedule (Add_message (Other_login user))
+          | Other_login username ->
+            schedule (Add_message (Player_room_event
+              { username; room_id = None; event = Joined }
+            ))
+          | Other_disconnect username ->
+            schedule (Add_message (Player_room_event
+              { username; room_id = None; event = Disconnected }
+            ))
           | Player_event { username; room_id; event } ->
-            schedule
-              (Add_message (Player_room_event { username; room_id; event }))
+            schedule (Add_message (Player_room_event
+              { username; room_id = Some room_id; event }
+            ))
           | _ -> ()
           end;
           let new_lobby = Lobby.Update.apply up lobby in
@@ -386,6 +390,11 @@ module App = struct
     | Game_update up ->
       let just_schedule act = schedule act; login in
       match up with
+      | Room_snapshot room ->
+        Map.fold room.users ~init:login ~f:(fun ~key:_ ~data:user login ->
+            Logged_in.update_player login ~username:user.username
+              ~f:(fun p -> { p with is_connected = user.is_connected })
+          )
       | Hand hand     -> just_schedule (Action.playing (Hand hand))
       | Market market -> just_schedule (Action.playing (Market market))
       | Broadcast (Exec (order, exec)) ->
@@ -411,8 +420,17 @@ module App = struct
           ()
         end;
         login
-      | Broadcast (Player_joined username) ->
-        Logged_in.add_new_player login ~username
+      | Broadcast (Player_room_event { username; event }) ->
+        schedule (Add_message (Player_room_event
+          { username; room_id = None; event }
+        ));
+        let is_connected =
+          match event with
+          | Joined -> true
+          | Disconnected -> false
+        in
+        Logged_in.update_player login ~username
+          ~f:(fun t -> { t with is_connected })
       | Broadcast New_round ->
         schedule (Add_message New_round);
         don't_wait_for begin
@@ -484,7 +502,7 @@ module App = struct
       conn
     | Finish_login { username; lobby_pipe } ->
       let me : Player.Persistent.t =
-        { username; score = Price.zero }
+        { username; is_connected = true; score = Price.zero }
       in
       let logged_in =
         { Logged_in.Model.me; others = Username.Map.empty

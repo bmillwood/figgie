@@ -36,7 +36,7 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
             Hash_colour.username_style ~is_me:false username
           in
           let classes =
-            "name" :: if user.is_connected then [] else ["disconnectedName"]
+            "name" :: if user.is_connected then [] else ["disconnected"]
           in
           Node.li [Attr.classes classes; Attr.style style]
             [Node.text (Username.to_string username)]

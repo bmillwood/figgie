@@ -9,12 +9,11 @@ module Message = struct
   type t =
     | Connected_to_server of Host_and_port.t
     | Disconnected_from_server
-    | Other_login of Username.t
     | Chat of Username.t * string
     | Chat_failed of [ `Chat_disabled | `Not_logged_in ]
     | Player_room_event of
         { username : Username.t
-        ; room_id : Lobby.Room.Id.t
+        ; room_id : Lobby.Room.Id.t option
         ; event : Lobby.Update.Player_event.t
         }
     | Joined_room of Lobby.Room.Id.t
@@ -66,8 +65,6 @@ let view (t : Model.t) ~is_connected ~my_name ~(inject : Action.t -> _) =
         [ Node.text "Disconnected"
         ; horizontal_rule
         ]
-    | Other_login who ->
-      simple status !"%{Username} connected" who
     | Chat (who, msg) ->
       Node.li []
         [ Hash_colour.username_span
@@ -81,12 +78,14 @@ let view (t : Model.t) ~is_connected ~my_name ~(inject : Action.t -> _) =
     | Chat_failed `Not_logged_in ->
       error [ Node.text "Must log in to chat" ]
     | Player_room_event { username; room_id; event } ->
-      let verb =
-        match event with
-        | Joined_room -> "joined"
-        | Disconnected -> "disconnected from"
+      let message =
+        match event, Option.map room_id ~f:Lobby.Room.Id.to_string with
+        | Joined,       None    ->         "joined"
+        | Joined,       Some id -> sprintf "joined %s" id
+        | Disconnected, None    ->         "disconnected"
+        | Disconnected, Some id -> sprintf "disconnected from %s" id
       in
-      simple status !"%{Username} %s %{Lobby.Room.Id}" username verb room_id
+      simple status !"%{Username} %s" username message
     | Joined_room room_id ->
       status
         [ horizontal_rule

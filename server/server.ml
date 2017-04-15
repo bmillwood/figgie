@@ -5,41 +5,48 @@ module Rpc_kernel = Async_rpc_kernel.Std
 open Figgie
 
 module Updates_manager = struct
+  module Client = struct
+    type 'update t = { updates : 'update Pipe.Writer.t }
+
+    let create ~updates = { updates }
+
+    let closed t = Pipe.closed t.updates
+
+    let is_closed t = Pipe.is_closed t.updates
+
+    let ghost t = Pipe.close t.updates
+
+    let update t update =
+      Pipe.write_without_pushback_if_open t.updates update
+  end
+
   type 'update t =
-    { clients : 'update Pipe.Writer.t Doubly_linked.t Username.Table.t }
+    { clients : 'update Client.t Username.Table.t }
 
   let create () = { clients = Username.Table.create () }
 
-  let subscribe t ~username ~updates:pipe =
+  let subscribe t ~username ~updates =
     Hashtbl.update t.clients username
-      ~f:(fun pipes ->
-        let pipes =
-          match pipes with
-          | None -> Doubly_linked.create ()
-          | Some pipes -> pipes
-        in
-        let elt = Doubly_linked.insert_first pipes pipe in
+      ~f:(fun old_client ->
+        Option.iter old_client ~f:Client.ghost;
+        let new_client = Client.create ~updates in
         don't_wait_for begin
-          Pipe.closed pipe
+          Client.closed new_client
           >>| fun () ->
-          Doubly_linked.remove pipes elt
+          Hashtbl.change t.clients username ~f:(Option.filter ~f:(fun c ->
+            not (Client.is_closed c)))
         end;
-        pipes
-    )
-
-  let write_update_to_logins pipes update =
-    Doubly_linked.iter pipes ~f:(fun pipe ->
-      Pipe.write_without_pushback pipe update
+        new_client
     )
 
   let update t ~username update =
-    Option.iter (Hashtbl.find t.clients username) ~f:(fun pipes ->
-      write_update_to_logins pipes update
+    Option.iter (Hashtbl.find t.clients username) ~f:(fun client ->
+      Client.update client update
     )
 
   let broadcast t broadcast =
-    Hashtbl.iteri t.clients ~f:(fun ~key:_ ~data:pipes ->
-      write_update_to_logins pipes broadcast
+    Hashtbl.iteri t.clients ~f:(fun ~key:_ ~data:client ->
+      Client.update client broadcast
     )
 
   let broadcasts t = List.iter ~f:(broadcast t)
@@ -67,17 +74,18 @@ module Room_manager = struct
       ) else (
         Game.player_join t.game ~username
         >>| fun () ->
-        t.room <- Lobby.Room.add_player t.room ~username;
-        Updates_manager.broadcast t.updates
-          (Broadcast (Player_joined username))
+        t.room <- Lobby.Room.set_player t.room ~username ~is_connected:true
       )
     end
     >>| fun () ->
     let updates_r, updates_w = Pipe.create () in
     Updates_manager.subscribe t.updates ~username ~updates:updates_w;
+    Updates_manager.broadcast t.updates
+      (Broadcast (Player_room_event { username; event = Joined }));
     let catch_up =
       let open Protocol.Game_update in
-      [ [Broadcast (Scores (Game.scores t.game))]
+      [ [ Room_snapshot t.room ]
+      ; [ Broadcast (Scores (Game.scores t.game)) ]
       ; match t.game.phase with
         | Waiting_for_players waiting ->
           List.map (Hashtbl.data waiting.players) ~f:(fun wp ->
@@ -112,7 +120,25 @@ module Room_manager = struct
     Updates_manager.broadcasts t.updates
       [ Broadcast New_round
       ; Broadcast (Scores (Game.scores t.game))
-      ];
+      ]
+
+  let player_ready t ~username ~is_ready =
+    let open Result.Monad_infix in
+    Updates_manager.broadcast t.updates
+      (Broadcast (Player_ready { who = username; is_ready }));
+    Game.set_ready t.game ~username ~is_ready
+    >>| function
+    | `Started round -> setup_round t round
+    | `Still_waiting _wait -> ()
+
+  let player_disconnected t ~username =
+    begin match player_ready t ~username ~is_ready:false with
+    | Error `Already_playing -> ()
+    | Ok () -> ()
+    end;
+    t.room <- Lobby.Room.set_player t.room ~username ~is_connected:false;
+    Updates_manager.broadcast t.updates
+      (Broadcast (Player_room_event { username; event = Disconnected }))
 end
 
 module Connection_state = struct
@@ -183,6 +209,21 @@ let create ~game_config ~chat_enabled =
   ensure_empty_room_exists t;
   t
 
+let player_disconnected t ~(connection_state : Connection_state.t) =
+  match !connection_state with
+  | Not_logged_in _ -> ()
+  | Logged_in { conn = _; username; room } ->
+    match room with
+    | None ->
+      Updates_manager.broadcast t.lobby_updates
+        (Lobby_update (Other_disconnect username))
+    | Some room ->
+      Room_manager.player_disconnected room ~username;
+      Updates_manager.broadcast t.lobby_updates
+        (Lobby_update (Player_event
+          { username; room_id = room.id; event = Disconnected }
+        ))
+
 let implementations t =
   let in_room rpc f =
     Rpc.Rpc.implement rpc
@@ -245,7 +286,7 @@ let implementations t =
           >>=? fun updates_r ->
           Updates_manager.broadcast t.lobby_updates
             (Lobby_update
-              (Player_event { username; room_id; event = Joined_room }));
+              (Player_event { username; room_id; event = Joined }));
           ensure_empty_room_exists t;
           state := Logged_in { username; conn; room = Some room };
           return (Ok updates_r)
@@ -269,12 +310,7 @@ let implementations t =
       )
     ; in_room Protocol.Is_ready.rpc
         (fun ~username ~room is_ready ->
-          Updates_manager.broadcast room.updates
-            (Broadcast (Player_ready { who = username; is_ready }));
-          return (Game.set_ready room.game ~username ~is_ready)
-          >>|? function
-          | `Started round -> Room_manager.setup_round room round
-          | `Still_waiting _wait -> ()
+          return (Room_manager.player_ready room ~username ~is_ready)
       )
     ; during_game Protocol.Time_remaining.rpc
         (fun ~username:_ ~room:_ ~round () ->
@@ -327,18 +363,22 @@ let implementations t =
 let main ~tcp_port ~web_port ~game_config ~chat_enabled =
   let t = create ~game_config ~chat_enabled in
   let implementations = implementations t in
+  let initial_connection_state addr conn =
+    let state = Connection_state.create ~conn in
+    Deferred.upon (Rpc.Connection.close_reason conn ~on_close:`started)
+      (fun reason ->
+        player_disconnected t ~connection_state:state;
+        Log.Global.sexp ~level:`Info [%message
+          "disconnected"
+            (addr : Socket.Address.Inet.t)
+            (reason : Info.t)
+          ]
+      );
+    state
+  in
   let%bind _server =
     Rpc.Connection.serve
-      ~initial_connection_state:(fun addr conn ->
-        Deferred.upon (Rpc.Connection.close_reason conn ~on_close:`started)
-          (fun reason ->
-            Log.Global.sexp ~level:`Info [%message
-              "disconnected"
-                (addr : Socket.Address.Inet.t)
-                (reason : Info.t)
-            ]
-          );
-        Connection_state.create ~conn)
+      ~initial_connection_state
       ~implementations
       ~where_to_listen:(Tcp.on_port tcp_port)
       ()
@@ -348,13 +388,7 @@ let main ~tcp_port ~web_port ~game_config ~chat_enabled =
         Rpc_kernel.Rpc.Connection.server_with_close transport
           ~implementations
           ~on_handshake_error:`Raise
-          ~connection_state:(fun conn ->
-              Log.Global.sexp ~level:`Info [%message
-                "Web client connected"
-                  (addr : Socket.Address.Inet.t)
-              ];
-              Connection_state.create ~conn
-            )
+          ~connection_state:(fun conn -> initial_connection_state addr conn)
       )
     >>| function
     | Ok () | Error () -> ()

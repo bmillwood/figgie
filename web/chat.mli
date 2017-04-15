@@ -9,12 +9,11 @@ module Message : sig
   type t =
     | Connected_to_server of Host_and_port.t
     | Disconnected_from_server
-    | Other_login of Username.t
     | Chat of Username.t * string
     | Chat_failed of [ `Chat_disabled | `Not_logged_in ]
     | Player_room_event of
         { username : Username.t
-        ; room_id : Lobby.Room.Id.t
+        ; room_id : Lobby.Room.Id.t option
         ; event : Lobby.Update.Player_event.t
         }
     | Joined_room of Lobby.Room.Id.t

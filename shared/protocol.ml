@@ -43,7 +43,10 @@ end
 
 module Broadcast = struct
   type t =
-    | Player_joined of Username.t
+    | Player_room_event of
+      { username : Username.t
+      ; event : Lobby.Update.Player_event.t
+      }
     | Player_ready of { who : Username.t; is_ready : bool }
     | Chat of Username.t * string
     | New_round
@@ -56,6 +59,7 @@ end
 
 module Game_update = struct
   type t =
+    | Room_snapshot of Lobby.Room.t
     | Broadcast of Broadcast.t
     | Hand of Market.Size.t Card.Hand.t
     | Market of Market.Book.t
