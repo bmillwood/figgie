@@ -81,9 +81,20 @@ module Join_room = struct
 
   let rpc =
     Rpc.Pipe_rpc.create
-      ~name:"join_room" ~version:1
+      ~name:"join-room" ~version:1
       ~bin_query ~bin_response ~bin_error
       ()
+end
+
+module Delete_room = struct
+  type query = Lobby.Room.Id.t [@@deriving bin_io, sexp]
+  type response =
+    ( unit
+    , [ `No_such_room | `Room_in_use ]
+    ) Result.t [@@deriving bin_io, sexp]
+
+  let rpc =
+    Rpc.Rpc.create ~name:"delete-room" ~version:1 ~bin_query ~bin_response
 end
 
 module Is_ready = struct

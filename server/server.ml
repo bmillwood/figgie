@@ -291,6 +291,21 @@ let implementations t =
           state := Logged_in { username; conn; room = Some room };
           return (Ok updates_r)
       )
+    ; Rpc.Rpc.implement Protocol.Delete_room.rpc
+        (fun (_state : Connection_state.t) room_id ->
+          match Hashtbl.find t.rooms room_id with
+          | None -> return (Error `No_such_room)
+          | Some rm ->
+            if not (Lobby.Room.can_delete rm.room) then (
+              return (Error `Room_in_use)
+            ) else (
+              Hashtbl.remove t.rooms room_id;
+              Updates_manager.broadcast t.lobby_updates
+                (Lobby_update (Room_closed room_id));
+              ensure_empty_room_exists t;
+              return (Ok ())
+            )
+      )
     ; Rpc.Rpc.implement Protocol.Chat.rpc
         (fun (state : Connection_state.t) msg ->
           if not t.chat_enabled then (

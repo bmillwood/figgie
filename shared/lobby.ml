@@ -27,6 +27,9 @@ module Room = struct
     { users = Map.add t.users ~key:username ~data:{ username; is_connected } }
 
   let is_full t = Map.length t.users >= room_size
+
+  let can_delete t =
+    Map.for_all t.users ~f:(fun user -> not user.is_connected)
 end
 
 module T = struct

@@ -19,6 +19,8 @@ module Room : sig
   val has_player : t -> username:Username.t -> bool
   val set_player : t -> username:Username.t -> is_connected:bool -> t
   val is_full : t -> bool
+
+  val can_delete : t -> bool
 end
 
 type t =

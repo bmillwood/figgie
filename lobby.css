@@ -19,6 +19,14 @@ button.join {
 	width: 100%;
 	font-weight: bold;
 }
+button.delete {
+	float: right;
+	margin: 0;
+	padding: 0;
+}
+button.delete:hover {
+	background-color: #904;
+}
 div.room li {
 	margin: 0.2em;
 	min-width: 5em;

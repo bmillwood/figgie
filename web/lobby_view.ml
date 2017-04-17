@@ -7,6 +7,7 @@ open Figgie
 module Action = struct
   type t =
     | Join_room of Lobby.Room.Id.t
+    | Delete_room of Lobby.Room.Id.t
 end
 
 let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
@@ -17,9 +18,19 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
     in
     let players = Map.filter_keys room.users ~f:(Username.(<>) my_name) in
     let num_players = Map.length players in
+    let delete_button =
+      Node.button
+        [ Attr.class_ "delete"
+        ; Attr.on_click (fun _mouseEvent -> inject (Delete_room id))
+        ]
+        [ Node.text "\xc3\x97" ]
+    in
     let id_item =
-      Node.li [Attr.class_ "roomName"]
-        [Node.text (Lobby.Room.Id.to_string id)]
+      Node.li
+        [Attr.class_ "roomName"]
+        (Node.text (Lobby.Room.Id.to_string id)
+          :: if Lobby.Room.can_delete room then [delete_button] else []
+        )
     in
     let join_button =
       Node.li [Attr.class_ "name"]

@@ -800,7 +800,7 @@ module App = struct
     in
     match get_conn model with
     | None | Some { login = None; _ } -> view []
-    | Some { login = Some login; _ } ->
+    | Some { login = Some login; conn; host_and_port = _ } ->
       let my_name = login.me.username in
       let exchange ~market ~trades ~players =
         Node.table [Attr.id "exchange"]
@@ -844,8 +844,18 @@ module App = struct
       | Lobby { lobby; updates = _ } ->
         [ Lobby_view.view lobby
             ~my_name
-            ~inject:(fun (Join_room id) ->
-              inject (Action.logged_in (Join_room id))
+            ~inject:(function
+              | Join_room id ->
+                inject (Action.logged_in (Join_room id))
+              | Delete_room id ->
+                don't_wait_for begin
+                  let open Async_kernel in
+                  Rpc.Rpc.dispatch_exn Protocol.Delete_room.rpc conn id
+                  >>| function
+                  | Error (`No_such_room | `Room_in_use) -> ()
+                  | Ok () -> ()
+                end;
+                Event.Ignore
             )
         ] |> view
       end
