@@ -26,6 +26,9 @@ div.room li {
 div.room li.name {
 	background-color: #004;
 }
+div.room li.name.disconnected {
+	text-decoration: line-through;
+}
 div.room .roomName {
   font-weight: bold;
   color: white;

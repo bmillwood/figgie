@@ -73,6 +73,9 @@ div#infoboxes .name {
 	padding: 0 0.5em;
 	font-size: 0.8em;
 }
+div#infoboxes .name.disconnected {
+	text-decoration: line-through;
+}
 .score {
 	float: right;
 	color: black;
