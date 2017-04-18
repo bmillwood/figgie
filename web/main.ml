@@ -736,7 +736,6 @@ module App = struct
     ;  's', Ids.order ~dir:Buy  ~suit:Hearts
     ;  'd', Ids.order ~dir:Buy  ~suit:Diamonds
     ;  'f', Ids.order ~dir:Buy  ~suit:Clubs
-    ;  'c', Ids.cancel
     |]
 
   let chat_view (model : Model.t) ~(inject : Action.t -> _) =
