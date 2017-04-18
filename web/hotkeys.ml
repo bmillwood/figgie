@@ -40,3 +40,22 @@ let on_keypress (t : t) (ev : Dom_html.keyboardEvent Js.t) =
       Focus.focus_input ~id;
       Vdom.Event.(Many [Stop_propagation; Prevent_default])
     end
+
+module Global = struct
+  let t : t =
+    [| 'q', Ids.order ~dir:Sell ~suit:Spades
+    ;  'w', Ids.order ~dir:Sell ~suit:Hearts
+    ;  'e', Ids.order ~dir:Sell ~suit:Diamonds
+    ;  'r', Ids.order ~dir:Sell ~suit:Clubs
+    ;  'a', Ids.order ~dir:Buy  ~suit:Spades
+    ;  's', Ids.order ~dir:Buy  ~suit:Hearts
+    ;  'd', Ids.order ~dir:Buy  ~suit:Diamonds
+    ;  'f', Ids.order ~dir:Buy  ~suit:Clubs
+    |]
+
+  let placeholder_of_id s = placeholder_of_id t s
+
+  let lookup_id s = lookup_id t s
+
+  let handler = Vdom.Attr.on_keypress (on_keypress t)
+end

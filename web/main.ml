@@ -594,10 +594,10 @@ module App = struct
       | _ -> model
       end
 
-  let order_entry ~(market : Book.t) ~inject ~hotkeys ~symbol ~dir =
+  let order_entry ~(market : Book.t) ~inject ~symbol ~dir =
     let id = Ids.order ~dir ~suit:symbol in
-    let hotkey = Hotkeys.lookup_id hotkeys id in
-    let placeholder = Hotkeys.placeholder_of_id hotkeys id in
+    let hotkey = Hotkeys.Global.lookup_id id in
+    let placeholder = Hotkeys.Global.placeholder_of_id id in
     let book = Card.Hand.get market ~suit:symbol in
     Widget.textbox ~id ?placeholder
       ~on_keypress:(fun ~self ev ->
@@ -635,7 +635,7 @@ module App = struct
       ()
 
   let market_table
-    ~hotkeys ~players ~my_name ~(inject : Action.t -> _) (market : Book.t)
+    ~players ~my_name ~(inject : Action.t -> _) (market : Book.t)
     =
     let market_depth = 3 in
     let nbsp = "\xc2\xa0" in
@@ -647,7 +647,7 @@ module App = struct
       let dir_s = Dir.to_string dir in
       Node.tr [Attr.id ("order" ^ dir_s); Attr.class_ dir_s]
         (List.map Card.Suit.all ~f:(fun symbol ->
-          Node.td [] [order_entry ~hotkeys ~market ~inject ~symbol ~dir]))
+          Node.td [] [order_entry ~market ~inject ~symbol ~dir]))
     in
     let cells ~dir =
       let shortname_s username =
@@ -727,17 +727,6 @@ module App = struct
     in
     Node.table [Attr.id Ids.tape] trades
 
-  let hotkeys =
-    [| 'q', Ids.order ~dir:Sell ~suit:Spades
-    ;  'w', Ids.order ~dir:Sell ~suit:Hearts
-    ;  'e', Ids.order ~dir:Sell ~suit:Diamonds
-    ;  'r', Ids.order ~dir:Sell ~suit:Clubs
-    ;  'a', Ids.order ~dir:Buy  ~suit:Spades
-    ;  's', Ids.order ~dir:Buy  ~suit:Hearts
-    ;  'd', Ids.order ~dir:Buy  ~suit:Diamonds
-    ;  'f', Ids.order ~dir:Buy  ~suit:Clubs
-    |]
-
   let chat_view (model : Model.t) ~(inject : Action.t -> _) =
     let chat_inject : Chat.Action.t -> _ = function
       | Send_chat msg ->
@@ -785,7 +774,7 @@ module App = struct
     let%map model = incr_model in
     let view bits_in_between =
       Node.body
-        [ Vdom.Attr.on_keypress (Hotkeys.on_keypress hotkeys) ]
+        [ Hotkeys.Global.handler ]
         [ Node.div [Attr.id "container"] (
             [ [ Status_line.view
                   (status_line model)
@@ -805,7 +794,7 @@ module App = struct
         Node.table [Attr.id "exchange"]
           [ Node.tr []
             [ Node.td []
-                [market_table ~my_name ~hotkeys ~players ~inject market]
+                [market_table ~my_name ~players ~inject market]
             ; Node.td []
                 [tape_table ~my_name trades]
             ]
