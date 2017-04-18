@@ -1,9 +1,17 @@
 open Core_kernel.Std
+open Async_kernel
+open Async_rpc_kernel.Std
 open Incr_dom
 open Vdom
 
 open Figgie
 open Market
+
+module Model = struct
+  type t = { next_order : Order.Id.t }
+
+  let initial = { next_order = Order.Id.zero }
+end
 
 module Cancel_scope = struct
   type t =
@@ -23,6 +31,64 @@ module Action = struct
     | Send_cancel of Cancel_scope.t
     [@@deriving sexp_of]
 end
+
+let apply_action (action : Action.t) (model : Model.t)
+  ~my_name ~conn ~(market : Book.t)
+  ~(add_message : Chat.Message.t -> unit)
+  : Model.t
+  =
+  match action with
+  | Send_order { symbol; dir; price } ->
+    let order =
+      { Order.owner = my_name
+      ; id = model.next_order
+      ; symbol; dir; price
+      ; size = Size.of_int 1
+      }
+    in
+    don't_wait_for begin
+      Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn order
+      >>| function
+      | Ok `Ack -> ()
+      | Error reject ->
+        add_message (Order_reject (order, reject))
+    end;
+    { next_order = Order.Id.next model.next_order }
+  | Send_cancel (By_id oid) ->
+    don't_wait_for begin
+      Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn oid
+      >>| function
+      | Ok `Ack -> ()
+      | Error reject ->
+        add_message (Cancel_reject (`Id oid, reject))
+    end;
+    model
+  | Send_cancel (By_symbol_side { symbol; dir }) ->
+    don't_wait_for begin
+      Card.Hand.get market ~suit:symbol
+      |> Dirpair.get ~dir
+      |> Deferred.List.iter ~how:`Parallel ~f:(fun order ->
+          if Cpty.equal order.owner my_name
+          then begin
+            Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn order.id
+            >>| function
+            | Ok `Ack -> ()
+            | Error reject ->
+              add_message (Cancel_reject (`Id order.id, reject))
+          end
+          else Deferred.unit)
+    end;
+    model
+  | Send_cancel All ->
+    don't_wait_for begin
+      Rpc.Rpc.dispatch_exn Protocol.Cancel_all.rpc conn ()
+      >>| function
+      | Ok `Ack -> ()
+      | Error reject ->
+        let reject = (reject :> Protocol.Cancel.error) in
+        add_message (Cancel_reject (`All, reject))
+    end;
+    model
 
 let order_entry ~(market : Book.t) ~(inject : Action.t -> _) ~symbol ~dir =
   let id = Ids.order ~dir ~suit:symbol in

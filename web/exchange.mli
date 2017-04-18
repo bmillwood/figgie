@@ -1,7 +1,14 @@
 open Core_kernel
+open Async_rpc_kernel.Std
 open Incr_dom
 open Figgie
 open Market
+
+module Model : sig
+  type t
+
+  val initial : t
+end
 
 module Cancel_scope : sig
   type t =
@@ -21,6 +28,15 @@ module Action : sig
     | Send_cancel of Cancel_scope.t
     [@@deriving sexp_of]
 end
+
+val apply_action
+  :  Action.t
+  -> Model.t
+  -> my_name:Username.t
+  -> conn:Rpc.Connection.t
+  -> market:Book.t
+  -> add_message:(Chat.Message.t -> unit)
+  -> Model.t
 
 val view
   :  my_name:Username.t

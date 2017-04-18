@@ -25,7 +25,7 @@ module Playing = struct
       market        : Book.t;
       trades        : (Order.t * Cpty.t) Fqueue.t;
       trades_scroll : Scrolling.Model.t;
-      next_order    : Order.Id.t;
+      exchange      : Exchange.Model.t;
       clock         : Countdown.Model.t option;
     }
   end
@@ -247,58 +247,15 @@ module App = struct
       { round with
         trades_scroll = Scrolling.apply_action round.trades_scroll act
       }
-    | Exchange (Send_order { symbol; dir; price }) ->
-      let order =
-        { Order.owner = login.me.username
-        ; id = round.next_order
-        ; symbol; dir; price
-        ; size = Size.of_int 1
-        }
-      in
-      don't_wait_for begin
-        Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn order
-        >>| function
-        | Ok `Ack -> ()
-        | Error reject ->
-          schedule (Add_message (Order_reject (order, reject)))
-      end;
-      let next_order = Order.Id.next round.next_order in
-      { round with next_order }
-    | Exchange (Send_cancel (By_id oid)) ->
-      don't_wait_for begin
-        Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn oid
-        >>| function
-        | Ok `Ack -> ()
-        | Error reject ->
-          schedule (Add_message (Cancel_reject (`Id oid, reject)))
-      end;
-      round
-    | Exchange (Send_cancel (By_symbol_side { symbol; dir })) ->
-      don't_wait_for begin
-        Card.Hand.get round.market ~suit:symbol
-        |> Dirpair.get ~dir
-        |> Deferred.List.iter ~how:`Parallel ~f:(fun order ->
-            if Cpty.equal order.owner login.me.username
-            then begin
-              Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn order.id
-              >>| function
-              | Ok `Ack -> ()
-              | Error reject ->
-                schedule (Add_message (Cancel_reject (`Id order.id, reject)))
-            end
-            else Deferred.unit)
-      end;
-      round
-    | Exchange (Send_cancel All) ->
-      don't_wait_for begin
-        Rpc.Rpc.dispatch_exn Protocol.Cancel_all.rpc conn ()
-        >>| function
-        | Ok `Ack -> ()
-        | Error reject ->
-          let reject = (reject :> Protocol.Cancel.error) in
-          schedule (Add_message (Cancel_reject (`All, reject)))
-      end;
-      round
+    | Exchange exact ->
+      { round with
+        exchange =
+          Exchange.apply_action exact round.exchange
+            ~my_name:login.me.username
+            ~conn
+            ~market:round.market
+            ~add_message:(fun msg -> schedule (Add_message msg))
+      }
 
   let apply_logged_in_action
       (t : Logged_in.Action.t)
@@ -441,7 +398,7 @@ module App = struct
               ; market = Book.empty
               ; trades = Fqueue.empty
               ; trades_scroll = Scrolling.Model.create ~id:Ids.tape
-              ; next_order = Order.Id.zero
+              ; exchange = Exchange.Model.initial
               ; clock = None
               }
         }
