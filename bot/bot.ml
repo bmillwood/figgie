@@ -32,7 +32,7 @@ let run ~server ~config ~username ~(room_choice : Room_choice.t) ~f =
     (fun conn ->
       Rpc.Rpc.dispatch_exn Protocol.Login.rpc conn username
       >>= function
-      | Error `Already_logged_in -> assert false
+      | Error (`Already_logged_in | `Invalid_username) -> assert false
       | Ok () ->
         begin match room_choice with
         | First_available ->

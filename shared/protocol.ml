@@ -8,7 +8,7 @@ module Login = struct
   type query = Username.t [@@deriving bin_io, sexp]
   type response =
     ( unit
-    , [ `Already_logged_in ]
+    , [ `Invalid_username | `Already_logged_in ]
     ) Result.t [@@deriving bin_io, sexp]
   let rpc =
     Rpc.Rpc.create

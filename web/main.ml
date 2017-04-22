@@ -431,17 +431,15 @@ module App = struct
     | Start_login username ->
       don't_wait_for begin
         Rpc.Rpc.dispatch_exn Protocol.Login.rpc conn.conn username
-        >>= fun r ->
-        begin match r with
-        | Ok () -> ()
-        | Error `Already_logged_in -> assert false
-        end;
-        Rpc.Pipe_rpc.dispatch_exn Protocol.Get_lobby_updates.rpc
-          conn.conn ()
-        >>= fun (pipe, _pipe_metadata) ->
-        schedule (Connected (Finish_login { username; lobby_pipe = pipe }));
-        Pipe.iter_without_pushback pipe
-          ~f:(fun update -> schedule (Action.logged_in (Lobby_update update)))
+        >>= function
+        | Error (`Already_logged_in | `Invalid_username) -> Deferred.unit
+        | Ok () ->
+          Rpc.Pipe_rpc.dispatch_exn Protocol.Get_lobby_updates.rpc
+            conn.conn ()
+          >>= fun (pipe, _pipe_metadata) ->
+          schedule (Connected (Finish_login { username; lobby_pipe = pipe }));
+          Pipe.iter_without_pushback pipe
+            ~f:(fun update -> schedule (Action.logged_in (Lobby_update update)))
       end;
       conn
     | Finish_login { username; lobby_pipe } ->

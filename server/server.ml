@@ -248,11 +248,15 @@ let implementations t =
         (fun (state : Connection_state.t) username ->
           match !state with
           | Not_logged_in { conn } ->
-            state := Logged_in { conn; username; room = None };
-            Updates_manager.broadcast t.lobby_updates
-              (Lobby_update (Other_login username));
-            return (Ok ())
-          | _other ->
+            if Username.is_valid username then (
+              state := Logged_in { conn; username; room = None };
+              Updates_manager.broadcast t.lobby_updates
+                (Lobby_update (Other_login username));
+              return (Ok ())
+            ) else (
+              return (Error `Invalid_username)
+            )
+          | Logged_in _ ->
             return (Error `Already_logged_in))
     ; Rpc.Pipe_rpc.implement Protocol.Get_lobby_updates.rpc
         (fun (state : Connection_state.t) () ->

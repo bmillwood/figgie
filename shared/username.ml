@@ -1,5 +1,9 @@
 open Core_kernel.Std
 
+let is_valid username =
+  not (String.is_empty username)
+  && String.for_all username ~f:Char.is_print
+
 module Shortener = struct
   type t =
     { accept : bool

@@ -2,6 +2,8 @@ open Core_kernel.Std
 
 include Identifiable.S
 
+val is_valid : t -> bool
+
 module Shortener : sig
   type t
   type username
