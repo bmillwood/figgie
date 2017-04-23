@@ -57,15 +57,25 @@ module Room_manager = struct
     { id : Lobby.Room.Id.t
     ; mutable room : Lobby.Room.t
     ; game : Game.t
-    ; updates : Protocol.Game_update.t Updates_manager.t
+    ; lobby_updates : Protocol.Lobby_update.t Updates_manager.t
+    ; room_updates  : Protocol.Game_update.t  Updates_manager.t
     }
 
-  let create ~game_config ~id =
+  let create ~game_config ~id ~lobby_updates =
     { id
     ; room = Lobby.Room.empty
     ; game = Game.create ~config:game_config
-    ; updates = Updates_manager.create ()
+    ; lobby_updates
+    ; room_updates = Updates_manager.create ()
     }
+
+  let apply_room_update t update =
+    t.room <- Lobby.Room.Update.apply update t.room;
+    Updates_manager.broadcast t.room_updates (Broadcast (Room_update update));
+    Updates_manager.broadcast t.lobby_updates
+      (Lobby_update (User_update
+        { where = In_room t.id; update }
+      ))
 
   let player_join t ~username =
     let open Result.Monad_infix in
@@ -73,15 +83,12 @@ module Room_manager = struct
         Ok ()
       ) else (
         Game.player_join t.game ~username
-        >>| fun () ->
-        t.room <- Lobby.Room.set_player t.room ~username ~is_connected:true
       )
     end
     >>| fun () ->
     let updates_r, updates_w = Pipe.create () in
-    Updates_manager.subscribe t.updates ~username ~updates:updates_w;
-    Updates_manager.broadcast t.updates
-      (Broadcast (Player_room_event { username; event = Joined }));
+    Updates_manager.subscribe t.room_updates ~username ~updates:updates_w;
+    apply_room_update t { username; event = Joined };
     let catch_up =
       let open Protocol.Game_update in
       [ [ Room_snapshot t.room ]
@@ -109,22 +116,22 @@ module Room_manager = struct
       Clock_ns.at round.end_time
       >>| fun () ->
       let results = Game.end_round t.game round in
-      Updates_manager.broadcasts t.updates
+      Updates_manager.broadcasts t.room_updates
         [ Broadcast (Round_over results)
         ; Broadcast (Scores (Game.scores t.game))
         ]
     end;
     Map.iteri round.players ~f:(fun ~key:username ~data:p ->
-      Updates_manager.update t.updates ~username (Hand p.hand)
+      Updates_manager.update t.room_updates ~username (Hand p.hand)
     );
-    Updates_manager.broadcasts t.updates
+    Updates_manager.broadcasts t.room_updates
       [ Broadcast New_round
       ; Broadcast (Scores (Game.scores t.game))
       ]
 
   let player_ready t ~username ~is_ready =
     let open Result.Monad_infix in
-    Updates_manager.broadcast t.updates
+    Updates_manager.broadcast t.room_updates
       (Broadcast (Player_ready { who = username; is_ready }));
     Game.set_ready t.game ~username ~is_ready
     >>| function
@@ -136,9 +143,7 @@ module Room_manager = struct
     | Error `Already_playing -> ()
     | Ok () -> ()
     end;
-    t.room <- Lobby.Room.set_player t.room ~username ~is_connected:false;
-    Updates_manager.broadcast t.updates
-      (Broadcast (Player_room_event { username; event = Disconnected }))
+    apply_room_update t { username; event = Disconnected }
 end
 
 module Connection_state = struct
@@ -175,10 +180,13 @@ let lobby_snapshot t : Lobby.t =
   }
 
 let new_room_exn t ~id =
-  let new_room = Room_manager.create ~id ~game_config:t.game_config in
+  let new_room =
+    Room_manager.create ~id ~game_config:t.game_config
+      ~lobby_updates:t.lobby_updates
+  in
   Hashtbl.add_exn t.rooms ~key:id ~data:new_room;
   Updates_manager.broadcast t.lobby_updates
-    (Lobby_update (New_room { id; room = new_room.room }))
+    (Lobby_update (New_empty_room { room_id = id }))
 
 let unused_room_id t =
   let rec try_ i =
@@ -216,13 +224,11 @@ let player_disconnected t ~(connection_state : Connection_state.t) =
     match room with
     | None ->
       Updates_manager.broadcast t.lobby_updates
-        (Lobby_update (Other_disconnect username))
-    | Some room ->
-      Room_manager.player_disconnected room ~username;
-      Updates_manager.broadcast t.lobby_updates
-        (Lobby_update (Player_event
-          { username; room_id = room.id; event = Disconnected }
+        (Lobby_update (User_update
+          { where = Lobby; update = { username; event = Disconnected } }
         ))
+    | Some room ->
+      Room_manager.player_disconnected room ~username
 
 let implementations t =
   let in_room rpc f =
@@ -251,7 +257,9 @@ let implementations t =
             if Username.is_valid username then (
               state := Logged_in { conn; username; room = None };
               Updates_manager.broadcast t.lobby_updates
-                (Lobby_update (Other_login username));
+                (Lobby_update (User_update
+                  { where = Lobby; update = { username; event = Joined } }
+                ));
               return (Ok ())
             ) else (
               return (Error `Invalid_username)
@@ -271,7 +279,7 @@ let implementations t =
           Updates_manager.subscribe t.lobby_updates
             ~username ~updates:updates_w;
           Pipe.write_without_pushback updates_w
-            (Lobby_update (Snapshot (lobby_snapshot t)));
+            (Lobby_snapshot (lobby_snapshot t));
           return (Ok updates_r))
     ; Rpc.Pipe_rpc.implement Protocol.Join_room.rpc
         (fun (state : Connection_state.t) room_id ->
@@ -288,9 +296,6 @@ let implementations t =
           >>=? fun room ->
           return (Room_manager.player_join room ~username)
           >>=? fun updates_r ->
-          Updates_manager.broadcast t.lobby_updates
-            (Lobby_update
-              (Player_event { username; room_id; event = Joined }));
           ensure_empty_room_exists t;
           state := Logged_in { username; conn; room = Some room };
           return (Ok updates_r)
@@ -305,7 +310,7 @@ let implementations t =
             ) else (
               Hashtbl.remove t.rooms room_id;
               Updates_manager.broadcast t.lobby_updates
-                (Lobby_update (Room_closed room_id));
+                (Lobby_update (Room_closed { room_id }));
               ensure_empty_room_exists t;
               return (Ok ())
             )
@@ -322,7 +327,7 @@ let implementations t =
                 (Chat (username, msg));
               return (Ok ())
             | Logged_in { room = Some room; username; conn = _ } ->
-              Updates_manager.broadcast room.updates
+              Updates_manager.broadcast room.room_updates
                 (Broadcast (Chat (username, msg)));
               return (Ok ())
           )
@@ -341,9 +346,9 @@ let implementations t =
           begin match which with
           | Hand ->
             Result.iter (Game.Round.get_hand round ~username) ~f:(fun hand ->
-              Updates_manager.update room.updates ~username (Hand hand))
+              Updates_manager.update room.room_updates ~username (Hand hand))
           | Market ->
-              Updates_manager.update room.updates ~username
+              Updates_manager.update room.room_updates ~username
                 (Market round.market)
           end;
           return (Ok ())
@@ -353,7 +358,7 @@ let implementations t =
           match Game.Round.add_order round ~order ~sender:username with
           | (Error _) as e -> return e
           | Ok exec ->
-            Updates_manager.broadcasts room.updates
+            Updates_manager.broadcasts room.room_updates
               [ Broadcast (Exec (order, exec))
               ; Broadcast (Scores (Game.scores room.game))
               ];
@@ -364,7 +369,8 @@ let implementations t =
           match Game.Round.cancel_order round ~id ~sender:username with
           | (Error _) as e -> return e
           | Ok order ->
-            Updates_manager.broadcast room.updates (Broadcast (Out order));
+            Updates_manager.broadcast room.room_updates
+              (Broadcast (Out order));
             return (Ok `Ack)
       )
     ; during_game Protocol.Cancel_all.rpc
@@ -373,7 +379,7 @@ let implementations t =
           | (Error _) as e -> return e
           | Ok orders ->
             List.iter orders ~f:(fun order ->
-              Updates_manager.broadcast room.updates
+              Updates_manager.broadcast room.room_updates
                 (Broadcast (Out order)));
             return (Ok `Ack)
       )

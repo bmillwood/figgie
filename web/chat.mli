@@ -14,7 +14,7 @@ module Message : sig
     | Player_room_event of
         { username : Username.t
         ; room_id : Lobby.Room.Id.t option
-        ; event : Lobby.Update.Player_event.t
+        ; event : Lobby.Room.Update.User_event.t
         }
     | Joined_room of Lobby.Room.Id.t
     | New_round

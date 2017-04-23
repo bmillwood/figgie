@@ -13,14 +13,30 @@ end
 
 module Room : sig
   module Id : Identifiable.S
-  type t = { users : User.t Username.Map.t } [@@deriving bin_io, sexp]
+  type t [@@deriving bin_io, sexp]
 
   val empty : t
-  val has_player : t -> username:Username.t -> bool
-  val set_player : t -> username:Username.t -> is_connected:bool -> t
-  val is_full : t -> bool
 
+  val users      : t -> User.t Username.Map.t
+  val has_player : t -> username:Username.t -> bool
+  val is_full    : t -> bool
   val can_delete : t -> bool
+
+  module Update : sig
+    type room
+
+    module User_event : sig
+      type t =
+        | Joined
+        | Disconnected
+      [@@deriving bin_io, sexp]
+    end
+
+    type t = { username : Username.t; event : User_event.t }
+    [@@deriving bin_io, sexp]
+
+    val apply : t -> room -> room
+  end with type room := t
 end
 
 type t =
@@ -33,24 +49,16 @@ val empty : t
 module Update : sig
   type lobby
 
-  module Player_event : sig
+  module Where : sig
     type t =
-      | Joined
-      | Disconnected
-      [@@deriving bin_io, sexp]
+      | Lobby
+      | In_room of Room.Id.t
   end
 
   type t =
-    | Snapshot of lobby
-    | New_room of { id : Room.Id.t; room : Room.t }
-    | Room_closed of Room.Id.t
-    | Player_event of
-      { username : Username.t
-      ; room_id : Room.Id.t
-      ; event : Player_event.t
-      }
-    | Other_login of Username.t
-    | Other_disconnect of Username.t
+    | New_empty_room of { room_id : Room.Id.t }
+    | Room_closed    of { room_id : Room.Id.t }
+    | User_update    of { where : Where.t; update : Room.Update.t }
     [@@deriving bin_io, sexp]
 
   val apply : t -> lobby -> lobby

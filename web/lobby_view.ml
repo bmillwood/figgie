@@ -16,7 +16,10 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
       let nbsp = "\xc2\xa0" in
       Node.li [Attr.class_ "name"] [Node.text nbsp]
     in
-    let players = Map.filter_keys room.users ~f:(Username.(<>) my_name) in
+    let players =
+      Map.filter_keys (Lobby.Room.users room)
+        ~f:(Username.(<>) my_name)
+    in
     let num_players = Map.length players in
     let delete_button =
       Node.button

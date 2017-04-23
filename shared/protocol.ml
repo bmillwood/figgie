@@ -17,6 +17,7 @@ end
 
 module Lobby_update = struct
   type t =
+    | Lobby_snapshot of Lobby.t
     | Lobby_update of Lobby.Update.t
     | Chat of Username.t * string
     [@@deriving bin_io, sexp]
@@ -43,10 +44,7 @@ end
 
 module Broadcast = struct
   type t =
-    | Player_room_event of
-      { username : Username.t
-      ; event : Lobby.Update.Player_event.t
-      }
+    | Room_update of Lobby.Room.Update.t
     | Player_ready of { who : Username.t; is_ready : bool }
     | Chat of Username.t * string
     | New_round

@@ -298,20 +298,19 @@ module App = struct
           let is_me = Username.equal username login.me.username in
           schedule (Add_message (Chat { username; is_me; msg }));
           login
+        | Lobby_snapshot new_lobby ->
+          { login with game = Lobby { lobby = new_lobby; updates } }
         | Lobby_update up ->
           begin match up with
-          | Other_login username ->
-            schedule (Add_message (Player_room_event
-              { username; room_id = None; event = Joined }
-            ))
-          | Other_disconnect username ->
-            schedule (Add_message (Player_room_event
-              { username; room_id = None; event = Disconnected }
-            ))
-          | Player_event { username; room_id; event } ->
-            schedule (Add_message (Player_room_event
-              { username; room_id = Some room_id; event }
-            ))
+          | User_update { where; update = { username; event } } ->
+            let room_id =
+              match where with
+              | Lobby -> None
+              | In_room id -> Some id
+            in
+            schedule (Add_message
+              (Player_room_event { username; room_id; event })
+            )
           | _ -> ()
           end;
           let new_lobby = Lobby.Update.apply up lobby in
@@ -336,7 +335,8 @@ module App = struct
       let just_schedule act = schedule act; login in
       match up with
       | Room_snapshot room ->
-        Map.fold room.users ~init:login ~f:(fun ~key:_ ~data:user login ->
+        Map.fold (Lobby.Room.users room) ~init:login
+          ~f:(fun ~key:_ ~data:user login ->
             Logged_in.update_player login ~username:user.username
               ~f:(fun p -> { p with is_connected = user.is_connected })
           )
@@ -365,7 +365,7 @@ module App = struct
           ()
         end;
         login
-      | Broadcast (Player_room_event { username; event }) ->
+      | Broadcast (Room_update { username; event }) ->
         schedule (Add_message (Player_room_event
           { username; room_id = None; event }
         ));
