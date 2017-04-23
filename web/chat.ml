@@ -9,7 +9,7 @@ module Message = struct
   type t =
     | Connected_to_server of Host_and_port.t
     | Disconnected_from_server
-    | Chat of Username.t * string
+    | Chat of { username : Username.t; is_me : bool; msg : string }
     | Chat_failed of [ `Chat_disabled | `Not_logged_in ]
     | Player_room_event of
         { username : Username.t
@@ -51,7 +51,7 @@ end
 let apply_scrolling_action (t : Model.t) (act : Scrolling.Action.t) =
   { t with scrolling = Scrolling.apply_action t.scrolling act }
 
-let view (t : Model.t) ~is_connected ~my_name ~(inject : Action.t -> _) =
+let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
   let node_of_message : Message.t -> _ =
     let horizontal_rule = Node.create "hr" [] [] in
     let status nodes = Node.li [Attr.class_ "status"] nodes in
@@ -65,11 +65,9 @@ let view (t : Model.t) ~is_connected ~my_name ~(inject : Action.t -> _) =
         [ Node.text "Disconnected"
         ; horizontal_rule
         ]
-    | Chat (who, msg) ->
+    | Chat { username; is_me; msg } ->
       Node.li []
-        [ Hash_colour.username_span
-            ~is_me:(Option.exists my_name ~f:(Username.equal who))
-            who
+        [ Hash_colour.username_span ~is_me username
         ; Node.text ": "
         ; Node.text msg
         ]

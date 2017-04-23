@@ -295,7 +295,8 @@ module App = struct
       | Lobby { lobby; updates } ->
         begin match up with
         | Chat (username, msg) ->
-          schedule (Add_message (Chat (username, msg)));
+          let is_me = Username.equal username login.me.username in
+          schedule (Add_message (Chat { username; is_me; msg }));
           login
         | Lobby_update up ->
           begin match up with
@@ -410,8 +411,9 @@ module App = struct
           ~f:(fun ~key:username ~data:score login ->
             Logged_in.update_player login ~username
               ~f:(fun player -> { player with score }))
-      | Broadcast (Chat (who, msg)) ->
-        just_schedule (Add_message (Chat (who, msg)))
+      | Broadcast (Chat (username, msg)) ->
+        let is_me = Username.equal username login.me.username in
+        just_schedule (Add_message (Chat { username; is_me; msg }))
       | Broadcast (Out _) ->
         don't_wait_for begin
           Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
@@ -543,14 +545,7 @@ module App = struct
       | Scroll_chat act ->
         inject (Scroll_chat act)
     in
-    let my_name =
-      match model.state with
-      | Connected { login = Some login; _ } ->
-        Some login.me.username
-      | _ -> None
-    in
     Chat.view model.messages
-      ~my_name
       ~is_connected:(Option.is_some (get_conn model))
       ~inject:chat_inject
 

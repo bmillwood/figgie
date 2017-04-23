@@ -9,7 +9,7 @@ module Message : sig
   type t =
     | Connected_to_server of Host_and_port.t
     | Disconnected_from_server
-    | Chat of Username.t * string
+    | Chat of { username : Username.t; is_me : bool; msg : string }
     | Chat_failed of [ `Chat_disabled | `Not_logged_in ]
     | Player_room_event of
         { username : Username.t
@@ -41,7 +41,6 @@ val apply_scrolling_action : Model.t -> Scrolling.Action.t -> Model.t
 val view
   :  Model.t
   -> is_connected:bool
-  -> my_name:Username.t option
   -> inject:(Action.t -> Event.t)
   -> Node.t
 
