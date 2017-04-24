@@ -137,9 +137,8 @@ let playing
             :: acc)
         |> List.rev
     in
-    let unknown =
-      span_of_copies "Unknown" player.hand.unknown Partial_hand.unknown_utf8
-    in
+    let unknown_utf8 = "\xe2\x96\x88" in
+    let unknown = span_of_copies "Unknown" player.hand.unknown unknown_utf8 in
     (player.pers, known @ [unknown])
   in
   players

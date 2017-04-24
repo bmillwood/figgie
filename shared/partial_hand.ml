@@ -3,7 +3,7 @@ open Market
 type t =
   { known   : Size.t Card.Hand.t
   ; unknown : Size.t
-  } [@@deriving sexp_of]
+  } [@@deriving bin_io, sexp]
 
 let empty =
   { known = Card.Hand.create_all Size.zero
@@ -39,5 +39,3 @@ let sold t ~suit ~size:size_sold =
 
 let traded t ~suit ~size ~dir =
   Dir.fold dir ~buy:bought ~sell:sold t ~suit ~size
-
-let unknown_utf8 = "\xe2\x96\x88"
