@@ -31,7 +31,7 @@ let container = Node.div [Attr.id "infoboxes"]
 
 let empty = container []
 
-let player ~pos ~(pers : Player.Persistent.t) ~ranking ~info =
+let player ~pos ~(pers : Player.t) ~ranking ~info =
   let score =
     Node.span
       [Attr.classes ["score"; ranking]]
@@ -52,12 +52,12 @@ let player ~pos ~(pers : Player.Persistent.t) ~ranking ~info =
   infobox ~pos ~name ~score:(Some score) ~info
 
 let players ~others ~me =
-  let (my_pers : Player.Persistent.t), _ = me in
+  let (my_pers : Player.t), _ = me in
   let players = Map.add others ~key:my_pers.username ~data:me in
-  let nobody = Player.Persistent.nobody, [] in
+  let nobody = Player.nobody, [] in
   match Map.data others @ List.init 3 ~f:(fun _ -> nobody) with
   | left :: middle :: right :: _ ->
-    let p ~pos ((pers : Player.Persistent.t), info) =
+    let p ~pos ((pers : Player.t), info) =
       let better_players =
         Map.count players ~f:(fun (o, _) ->
           Price.O.(o.score > pers.score))
@@ -83,8 +83,8 @@ let players ~others ~me =
 
 let waiting
     ~inject_I'm_ready
-    ~(me : Player.Persistent.t)
-    ~(others : Player.Persistent.t Username.Map.t)
+    ~(me : Player.t)
+    ~(others : Player.t Username.Map.t)
     ~(who_is_ready : Username.Set.t)
   =
   let others =
@@ -139,7 +139,7 @@ let playing
     in
     let unknown_utf8 = "\xe2\x96\x88" in
     let unknown = span_of_copies "Unknown" player.hand.unknown unknown_utf8 in
-    (player.pers, known @ [unknown])
+    (player, known @ [unknown])
   in
   players
     ~others:(Map.map others ~f:pers_with_hand)

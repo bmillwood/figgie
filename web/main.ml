@@ -20,8 +20,6 @@ end
 module Playing = struct
   module Model = struct
     type t = {
-      my_hand       : Size.t Card.Hand.t;
-      other_hands   : Partial_hand.t Username.Map.t;
       market        : Book.t;
       trades        : (Order.t * Cpty.t) Fqueue.t;
       trades_scroll : Scrolling.Model.t;
@@ -33,7 +31,6 @@ module Playing = struct
   module Action = struct
     type t =
       | Market of Book.t
-      | Hand of Size.t Card.Hand.t
       | Trade of Order.t * Cpty.t
       | Exchange of Exchange.Action.t
       | Scroll_trades of Scrolling.Action.t
@@ -56,8 +53,8 @@ module Logged_in = struct
     end
 
     type t = {
-      me     : Player.Persistent.t;
-      others : Player.Persistent.t Username.Map.t;
+      me     : Player.t;
+      others : Player.t Username.Map.t;
       game   : Game.t;
     }
   end
@@ -80,7 +77,12 @@ module Logged_in = struct
         Map.update t.others username
           ~f:(fun maybe_existing ->
             Option.value maybe_existing
-              ~default:{ username; is_connected = true; score = Price.zero }
+              ~default:
+                { username
+                ; is_connected = true
+                ; score = Price.zero
+                ; hand = Partial_hand.empty
+                }
             |> f)
       in
       { t with others }
@@ -198,21 +200,7 @@ module App = struct
     =
     match t with
     | Market market ->
-      let other_hands =
-        Map.mapi round.other_hands ~f:(fun ~key:username ~data:hand ->
-          Card.Hand.foldi market ~init:hand
-            ~f:(fun suit hand book ->
-              let size =
-                List.sum (module Size) book.sell ~f:(fun order ->
-                  if Username.equal order.owner username
-                  then order.size
-                  else Size.zero)
-              in
-              Partial_hand.selling hand ~suit ~size))
-      in
-      { round with market; other_hands }
-    | Hand hand ->
-      { round with my_hand = hand }
+      { round with market }
     | Set_clock end_time ->
       let clock =
         Countdown.of_end_time
@@ -229,20 +217,7 @@ module App = struct
       in
       { round with clock }
     | Trade (order, with_) ->
-      let trades = Fqueue.enqueue round.trades (order, with_) in
-      let other_hands =
-        Map.mapi round.other_hands ~f:(fun ~key:username ~data:hand ->
-          let traded dir =
-            Partial_hand.traded
-              hand ~suit:order.symbol ~size:order.size ~dir
-          in
-          if Username.equal username order.owner
-          then traded order.dir
-          else if Username.equal username with_
-          then traded (Dir.other order.dir)
-          else hand)
-      in
-      { round with trades; other_hands }
+      { round with trades = Fqueue.enqueue round.trades (order, with_) }
     | Scroll_trades act ->
       { round with
         trades_scroll = Scrolling.apply_action round.trades_scroll act
@@ -340,26 +315,53 @@ module App = struct
             Logged_in.update_player login ~username:user.username
               ~f:(fun p -> { p with is_connected = user.is_connected })
           )
-      | Hand hand     -> just_schedule (Action.playing (Hand hand))
-      | Market market -> just_schedule (Action.playing (Market market))
+      | Hand hand ->
+        let hand = Partial_hand.create_known hand in
+        { login with me = { login.me with hand } }
+      | Market market ->
+        let others =
+          Map.map login.others ~f:(fun player ->
+            let new_hand =
+              Card.Hand.foldi market ~init:player.hand
+                ~f:(fun suit hand book ->
+                  let size =
+                    List.sum (module Size) book.sell ~f:(fun order ->
+                        if Username.equal order.owner player.username
+                        then order.size
+                        else Size.zero
+                      )
+                  in
+                  Partial_hand.selling hand ~suit ~size
+                )
+            in
+            { player with hand = new_hand }
+          )
+        in
+        schedule (Action.playing (Market market));
+        { login with others }
       | Broadcast (Exec (order, exec)) ->
-        List.iter exec.fully_filled ~f:(fun filled_order ->
-          let size = filled_order.size in
-          let price = filled_order.price in
-          schedule (Action.playing (Trade
-            ( { order with size; price }
-            , filled_order.owner
-            )
-          ))
-        );
-        Option.iter exec.partially_filled ~f:(fun partial_fill ->
-          let size = partial_fill.filled_by in
-          let price = partial_fill.original_order.price in
-          schedule (Action.playing (Trade
-            ( { order with size; price }
-            , partial_fill.original_order.owner
-            )
-          ))
+        let trades =
+          List.concat
+            [ List.map exec.fully_filled ~f:(fun filled_order ->
+                let size = filled_order.size in
+                let price = filled_order.price in
+                ( { order with size; price }
+                , filled_order.owner
+                )
+              )
+            ; exec.partially_filled
+              |> Option.map ~f:(fun partial_fill ->
+                  let size = partial_fill.filled_by in
+                  let price = partial_fill.original_order.price in
+                  ( { order with size; price }
+                  , partial_fill.original_order.owner
+                  )
+                )
+              |> Option.to_list
+            ]
+        in
+        List.iter trades ~f:(fun (traded, with_) ->
+          schedule (Action.playing (Trade (traded, with_)))
         );
         don't_wait_for begin
           let%map () =
@@ -371,7 +373,26 @@ module App = struct
           in
           ()
         end;
-        login
+        let others =
+          Map.map login.others ~f:(fun player ->
+            let new_hand =
+              List.fold trades
+                ~init:player.hand
+                ~f:(fun hand (trade, with_) ->
+                  let traded dir =
+                    Partial_hand.traded
+                      hand ~suit:trade.symbol ~size:trade.size ~dir
+                  in
+                  if Username.equal player.username trade.owner
+                  then traded trade.dir
+                  else if Username.equal player.username with_
+                  then traded (Dir.other order.dir)
+                  else hand)
+            in
+            { player with hand = new_hand }
+          )
+        in
+        { login with others }
       | Broadcast (Room_update { username; event }) ->
         schedule (Add_message (Player_room_event
           { username; room_id = None; event }
@@ -397,13 +418,17 @@ module App = struct
             let end_time = Time_ns.add current_time remaining in
             schedule (Action.playing (Set_clock end_time))
         end;
-        { login with game =
+        { me = { login.me with hand = Partial_hand.empty }
+        ; others =
+            Map.map login.others ~f:(fun player ->
+                let hand =
+                  Partial_hand.create_unknown Params.num_cards_per_hand
+                in
+                { player with hand }
+              )
+        ; game =
             Playing
-              { my_hand = Card.Hand.create_all Size.zero
-              ; other_hands =
-                  Map.map login.others ~f:(fun _ ->
-                    Partial_hand.create_unknown Params.num_cards_per_hand)
-              ; market = Book.empty
+              { market = Book.empty
               ; trades = Fqueue.empty
               ; trades_scroll = Scrolling.Model.create ~id:Ids.tape
               ; exchange = Exchange.Model.initial
@@ -452,8 +477,12 @@ module App = struct
       end;
       conn
     | Finish_login { username; lobby_pipe } ->
-      let me : Player.Persistent.t =
-        { username; is_connected = true; score = Price.zero }
+      let me : Player.t =
+        { username
+        ; is_connected = true
+        ; score = Price.zero
+        ; hand = Partial_hand.empty
+        }
       in
       let logged_in =
         { Logged_in.Model.me; others = Username.Map.empty
@@ -603,23 +632,12 @@ module App = struct
       let my_name = login.me.username in
       let exchange_inject act = inject (Action.playing (Exchange act)) in
       begin match login.game with
-      | Playing { my_hand; other_hands; market; trades; _ } ->
-        let me =
-          { Player.pers = login.me
-          ; hand = Partial_hand.create_known my_hand
-          }
-        in
-        let others =
-          Map.merge login.others other_hands ~f:(fun ~key:_ ->
-            function
-            | `Both (pers, hand) -> Some { Player.pers; hand }
-            | `Left _ | `Right _ -> None)
-        in
-        let players = Map.add others ~key:my_name ~data:me in
+      | Playing { market; trades; _ } ->
+        let players = Map.add login.others ~key:my_name ~data:login.me in
         [ Exchange.view ~my_name ~market ~trades
             ~players:(Set.of_map_keys players)
             ~inject:exchange_inject
-        ; Infobox.playing ~others ~me
+        ; Infobox.playing ~others:login.others ~me:login.me
         ] |> view
       | Waiting { ready } ->
         [ Exchange.view
