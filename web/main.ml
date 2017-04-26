@@ -344,16 +344,23 @@ module App = struct
       | Market market -> just_schedule (Action.playing (Market market))
       | Broadcast (Exec (order, exec)) ->
         List.iter exec.fully_filled ~f:(fun filled_order ->
+          let size = filled_order.size in
+          let price = filled_order.price in
           schedule (Action.playing (Trade
-            ( { order
-                with size = filled_order.size; price = filled_order.price }
+            ( { order with size; price }
             , filled_order.owner
-            ))));
+            )
+          ))
+        );
         Option.iter exec.partially_filled ~f:(fun partial_fill ->
+          let size = partial_fill.filled_by in
+          let price = partial_fill.original_order.price in
           schedule (Action.playing (Trade
-            ( { order with size = partial_fill.filled_by }
+            ( { order with size; price }
             , partial_fill.original_order.owner
-            ))));
+            )
+          ))
+        );
         don't_wait_for begin
           let%map () =
             Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
