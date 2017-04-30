@@ -27,25 +27,27 @@ button.delete {
 button.delete:hover {
 	background-color: #904;
 }
-div.room li {
+div.room td.name {
+	background-color: #004;
+	min-width: 5em;
 	margin: 0.2em;
 	min-width: 5em;
 }
-div.room li.name {
-	background-color: #004;
-}
-div.room li.name.disconnected {
+div.room td.name.disconnected {
 	text-decoration: line-through;
+}
+div.room td.score {
+	text-align: right;
 }
 div.room .roomName {
   font-weight: bold;
   color: white;
 }
-div.room li.roomName {
+div.room div.roomName {
 	margin: 0.2em;
 	min-width: 5em;
 }
-input.roomName {
+div.room input.roomName {
   width: 7em;
   padding: 0 0.2em;
 	background-color: #448;

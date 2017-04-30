@@ -69,22 +69,17 @@ tr#orderbuy  input { background-color: #355; }
 #tape .buy  { color: #0f4; }
 #tape .sell { color: #f04; }
 
-div#infoboxes .name {
+div#userinfo .name {
 	padding: 0 0.5em;
 	font-size: 0.8em;
 }
-div#infoboxes .name.disconnected {
+div#userinfo .name.disconnected {
 	text-decoration: line-through;
 }
-.score {
+div#userinfo .score {
 	float: right;
-	color: black;
 	font-size: 0.8em;
 }
-.first  { background-color: gold; }
-.second { background-color: silver; }
-.third  { background-color: brown; }
-.last   { background-color: #f00; color: white; }
 div#others > div, div.myself {
 	text-align: left;
 	display: inline-block;

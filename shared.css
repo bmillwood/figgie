@@ -78,3 +78,7 @@ input#cmdline {
 input#cmdline:disabled {
 	background-color: #223;
 }
+.first  { background-color: gold;   color: black; }
+.second { background-color: silver; color: black; }
+.third  { background-color: brown;  color: black; }
+.last   { background-color: red;    color: white; }

@@ -30,27 +30,32 @@ end
 module Position = struct
   type t = | Me | Left | Middle | Right
 
-  let attr t =
-    let class_ =
-      match t with
-      | Me -> "myself"
-      | Left -> "left"
-      | Middle -> "middle"
-      | Right -> "right"
-    in
-    Attr.class_ class_
+  let class_ =
+    function
+    | Me -> "myself"
+    | Left -> "left"
+    | Middle -> "middle"
+    | Right -> "right"
 end
 
-let container = Node.div [Attr.id "infoboxes"]
+let score_display scores_map score =
+  let ranking =
+    let is_better_score s = Price.O.(s > score) in
+    match Map.count scores_map ~f:is_better_score with
+    | 0 -> "first"
+    | 1 -> "second"
+    | 2 -> "third"
+    | _ -> "last"
+  in
+  Node.span
+    [Attr.classes ["score"; ranking]]
+    [Node.text (Price.to_string score)]
+
+let container = Node.div [Attr.id "userinfo"]
 
 let empty = container []
 
-let player ~pos ~(pers : Player.t) ~ranking ~info =
-  let score =
-    Node.span
-      [Attr.classes ["score"; ranking]]
-      [Node.text (Price.to_string pers.score)]
-  in
+let player ~pos ~(pers : Player.t) ~scores ~info =
   let is_me =
     match pos with
     | Position.Me -> true
@@ -63,9 +68,9 @@ let player ~pos ~(pers : Player.t) ~ranking ~info =
     Hash_colour.username_span ~attrs:[Attr.classes classes] ~is_me
       pers.username
   in
-  Node.div [Position.attr pos] (
+  Node.div [Attr.classes ["userinfo"; Position.class_ pos]] (
     [ [ name
-      ; score
+      ; score_display scores pers.score
       ; Node.create "br" [] []
       ]
     ; info
@@ -75,22 +80,12 @@ let player ~pos ~(pers : Player.t) ~ranking ~info =
 let players ~others ~me =
   let (my_pers : Player.t), _ = me in
   let players = Map.add others ~key:my_pers.username ~data:me in
+  let scores = Map.map players ~f:(fun (p, _) -> p.score) in
   let nobody = Player.nobody, [] in
   match Map.data others @ List.init 3 ~f:(fun _ -> nobody) with
   | left :: middle :: right :: _ ->
     let p ~pos ((pers : Player.t), info) =
-      let better_players =
-        Map.count players ~f:(fun (o, _) ->
-          Price.O.(o.score > pers.score))
-      in
-      let ranking =
-        match better_players with
-        | 0 -> "first"
-        | 1 -> "second"
-        | 2 -> "third"
-        | _ -> "last"
-      in
-      player ~pos ~pers ~ranking ~info
+      player ~pos ~pers ~scores ~info
     in
     container
       [ Node.div [Attr.id "others"]

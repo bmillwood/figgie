@@ -81,16 +81,20 @@ module Room_manager = struct
   let player_join t ~username =
     let open Result.Monad_infix in
     begin if Lobby.Room.has_user t.room ~username then (
-        Ok ()
+        Ok true
       ) else (
         Game.player_join t.game ~username
+        >>| fun () ->
+        false
       )
     end
-    >>| fun () ->
+    >>| fun rejoining ->
     let updates_r, updates_w = Pipe.create () in
     Updates_manager.subscribe t.room_updates ~username ~updates:updates_w;
     apply_room_update t { username; event = Joined };
-    apply_room_update t { username; event = Observer_started_playing };
+    if not rejoining then (
+      apply_room_update t { username; event = Observer_started_playing };
+    );
     let catch_up =
       let open Protocol.Game_update in
       [ [ Room_snapshot t.room ]

@@ -6,6 +6,11 @@ open Figgie
 
 val empty : Node.t
 
+val score_display
+  :  ('k, Market.Price.t, _) Map.t
+  -> Market.Price.t
+  -> Node.t
+
 val waiting
   :  inject_I'm_ready:(bool -> Event.t)
   -> users:Lobby.User.t Username.Map.t
