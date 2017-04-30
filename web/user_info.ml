@@ -41,14 +41,6 @@ module Position = struct
     Attr.class_ class_
 end
 
-let infobox ~pos ~name ~score ~info =
-  Node.div [Position.attr pos]
-    ([ [name]
-    ; Option.to_list score
-    ; [Node.create "br" [] []]
-    ; info
-    ] |> List.concat)
-
 let container = Node.div [Attr.id "infoboxes"]
 
 let empty = container []
@@ -71,7 +63,14 @@ let player ~pos ~(pers : Player.t) ~ranking ~info =
     Hash_colour.username_span ~attrs:[Attr.classes classes] ~is_me
       pers.username
   in
-  infobox ~pos ~name ~score:(Some score) ~info
+  Node.div [Position.attr pos] (
+    [ [ name
+      ; score
+      ; Node.create "br" [] []
+      ]
+    ; info
+    ] |> List.concat
+  )
 
 let players ~others ~me =
   let (my_pers : Player.t), _ = me in
