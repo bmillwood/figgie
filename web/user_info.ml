@@ -5,6 +5,28 @@ open Vdom
 open Figgie
 open Market
 
+module Player = struct
+  type t =
+    { username : Username.t
+    ; is_connected : bool
+    ; score : Price.t
+    ; hand : Partial_hand.t
+    }
+
+  let nobody =
+    { username = Username.of_string "[nobody]"
+    ; is_connected = true
+    ; score = Price.zero
+    ; hand = Partial_hand.empty
+    }
+
+  let of_user { Lobby.User.username; is_connected; role } =
+    match role with
+    | Player { score; hand } ->
+      Some { username; is_connected; score; hand }
+    | _ -> None
+end
+
 module Position = struct
   type t = | Me | Left | Middle | Right
 
@@ -81,12 +103,20 @@ let players ~others ~me =
       ]
   | _ -> assert false
 
+let others_and_me ~users ~my_name =
+  let players = Map.filter_map users ~f:Player.of_user in
+  let me =
+    match Map.find players my_name with
+    | None -> Player.nobody
+    | Some me -> me
+  in
+  Map.remove players my_name, me
+
 let waiting
-    ~inject_I'm_ready
-    ~(me : Player.t)
-    ~(others : Player.t Username.Map.t)
+    ~inject_I'm_ready ~users ~my_name
     ~(who_is_ready : Username.Set.t)
   =
+  let others, me = others_and_me ~users ~my_name in
   let others =
     Map.map others ~f:(fun o ->
       let ready_text =
@@ -113,10 +143,8 @@ let waiting
     ~others
     ~me:(me, [ready_button])
 
-let playing
-    ~(others : Player.t Username.Map.t)
-    ~(me : Player.t)
-    =
+let playing ~(users : Lobby.User.t Username.Map.t) ~my_name =
+  let others, me = others_and_me ~users ~my_name in
   let span_of_copies class_ n s =
     let content =
       List.init (Size.to_int n) ~f:(fun _ -> s)

@@ -52,11 +52,11 @@ module Logged_in = struct
         | Playing of Playing.Model.t
     end
 
-    type t = {
-      me     : Player.t;
-      others : Player.t Username.Map.t;
-      game   : Game.t;
-    }
+    type t =
+      { my_name : Username.t
+      ; users   : Lobby.User.t Username.Map.t
+      ; game    : Game.t
+      }
   end
 
   let update_round_if_playing (t : Model.t) ~f =
@@ -69,29 +69,18 @@ module Logged_in = struct
     | Playing _ | Lobby _ -> t
     | Waiting wait -> { t with game = Waiting (f wait) }
 
-  let update_player (t : Model.t) ~username ~f =
-    if Username.equal t.me.username username
-    then { t with me = f t.me }
-    else begin
-      let others =
-        Map.update t.others username
-          ~f:(fun maybe_existing ->
-            Option.value maybe_existing
-              ~default:
-                { username
-                ; is_connected = true
-                ; score = Price.zero
-                ; hand = Partial_hand.empty
-                }
-            |> f)
-      in
-      { t with others }
-    end
+  let modify_user (t : Model.t) ~username ~f =
+    let users =
+      Map.change t.users username ~f:(Option.map ~f)
+    in
+    { t with users }
 
-  let player (t : Model.t) ~username =
-    if Username.equal t.me.username username
-    then Some t.me
-    else Map.find t.others username
+  let modify_player (t : Model.t) ~username ~f =
+    modify_user t ~username ~f:(fun user ->
+        match user.role with
+        | Observer _ -> user
+        | Player { score; hand } -> { user with role = f ~score ~hand }
+      )
 
   module Action = struct
     type t =
@@ -99,7 +88,7 @@ module Logged_in = struct
       | Playing of Playing.Action.t
       | Lobby_update of Protocol.Lobby_update.t
       | Join_room of Lobby.Room.Id.t
-      | Game_update  of Protocol.Game_update.t
+      | Game_update of Protocol.Game_update.t
       [@@deriving sexp_of]
   end
 end
@@ -226,7 +215,7 @@ module App = struct
       { round with
         exchange =
           Exchange.apply_action exact round.exchange
-            ~my_name:login.me.username
+            ~my_name:login.my_name
             ~conn
             ~market:round.market
             ~add_message:(fun msg -> schedule (Add_message msg))
@@ -252,7 +241,7 @@ module App = struct
         { login with game =
             Waiting
               (Waiting.set_player_readiness wait
-                ~username:login.me.username
+                ~username:login.my_name
                 ~is_ready:readiness)
         }
       | _ -> login
@@ -270,21 +259,20 @@ module App = struct
       | Lobby { lobby; updates } ->
         begin match up with
         | Chat (username, msg) ->
-          let is_me = Username.equal username login.me.username in
+          let is_me = Username.equal username login.my_name in
           schedule (Add_message (Chat { username; is_me; msg }));
           login
         | Lobby_snapshot new_lobby ->
           { login with game = Lobby { lobby = new_lobby; updates } }
         | Lobby_update up ->
           begin match up with
-          | User_update { where; update = { username; event } } ->
-            let room_id =
-              match where with
-              | Lobby -> None
-              | In_room id -> Some id
-            in
+          | Room_update { room_id; update = { username; event } } ->
             schedule (Add_message
-              (Player_room_event { username; room_id; event })
+              (Player_room_event { username; room_id = Some room_id; event })
+            )
+          | Lobby_update { username; event } ->
+            schedule (Add_message
+              (Player_lobby_event { username; event })
             )
           | _ -> ()
           end;
@@ -310,35 +298,43 @@ module App = struct
       let just_schedule act = schedule act; login in
       match up with
       | Room_snapshot room ->
-        Map.fold (Lobby.Room.users room) ~init:login
-          ~f:(fun ~key:_ ~data:user login ->
-            Logged_in.update_player login ~username:user.username
-              ~f:(fun p -> { p with is_connected = user.is_connected })
-          )
+        { login with users = Lobby.Room.users room }
       | Hand hand ->
-        let hand = Partial_hand.create_known hand in
-        { login with me = { login.me with hand } }
+        let users =
+          Map.change login.users login.my_name
+            ~f:(Option.map ~f:(fun (user : Lobby.User.t) ->
+              match user.role with
+              | Observer _ -> user
+              | Player { score; hand = _ } ->
+                let hand = Partial_hand.create_known hand in
+                { user with role = Player { score; hand } }
+          ))
+        in
+        { login with users }
       | Market market ->
-        let others =
-          Map.map login.others ~f:(fun player ->
-            let new_hand =
-              Card.Hand.foldi market ~init:player.hand
-                ~f:(fun suit hand book ->
-                  let size =
-                    List.sum (module Size) book.sell ~f:(fun order ->
-                        if Username.equal order.owner player.username
-                        then order.size
-                        else Size.zero
-                      )
-                  in
-                  Partial_hand.selling hand ~suit ~size
-                )
-            in
-            { player with hand = new_hand }
+        schedule (Action.playing (Market market));
+        let users =
+          Map.map login.users ~f:(fun user ->
+            match user.role with
+            | Observer _ -> user
+            | Player { score; hand } ->
+              let hand =
+                Card.Hand.foldi market ~init:hand
+                  ~f:(fun suit hand book ->
+                    let size =
+                      List.sum (module Size) book.sell ~f:(fun order ->
+                          if Username.equal order.owner user.username
+                          then order.size
+                          else Size.zero
+                        )
+                    in
+                    Partial_hand.selling hand ~suit ~size
+                  )
+              in
+              { user with role = Player { score; hand } }
           )
         in
-        schedule (Action.playing (Market market));
-        { login with others }
+        { login with users }
       | Broadcast (Exec (order, exec)) ->
         let trades =
           List.concat
@@ -373,37 +369,77 @@ module App = struct
           in
           ()
         end;
-        let others =
-          Map.map login.others ~f:(fun player ->
-            let new_hand =
-              List.fold trades
-                ~init:player.hand
-                ~f:(fun hand (trade, with_) ->
-                  let traded dir =
-                    Partial_hand.traded
-                      hand ~suit:trade.symbol ~size:trade.size ~dir
-                  in
-                  if Username.equal player.username trade.owner
-                  then traded trade.dir
-                  else if Username.equal player.username with_
-                  then traded (Dir.other order.dir)
-                  else hand)
-            in
-            { player with hand = new_hand }
+        let users =
+          Map.map login.users ~f:(fun user ->
+            match user.role with
+            | Observer _ -> user
+            | Player { score; hand } ->
+              let new_hand =
+                List.fold trades
+                  ~init:hand
+                  ~f:(fun hand (trade, with_) ->
+                    let traded dir =
+                      Partial_hand.traded
+                        hand ~suit:trade.symbol ~size:trade.size ~dir
+                    in
+                    if Username.equal user.username trade.owner
+                    then traded trade.dir
+                    else if Username.equal user.username with_
+                    then traded (Dir.other order.dir)
+                    else hand)
+              in
+              { user with role = Player { score; hand = new_hand } }
           )
         in
-        { login with others }
+        { login with users }
       | Broadcast (Room_update { username; event }) ->
         schedule (Add_message (Player_room_event
           { username; room_id = None; event }
         ));
-        let is_connected =
-          match event with
-          | Joined -> true
-          | Disconnected -> false
-        in
-        Logged_in.update_player login ~username
-          ~f:(fun t -> { t with is_connected })
+        begin match event with
+        | Joined ->
+          let users =
+            Map.update login.users username
+              ~f:(function
+                | None ->
+                  { username
+                  ; role = Observer { is_omniscient = false }
+                  ; is_connected = true
+                  }
+                | Some user ->
+                  { user with is_connected = true }
+                )
+          in
+          { login with users }
+        | Observer_started_playing ->
+          Logged_in.modify_user login ~username ~f:(fun user ->
+              let score = Price.zero in
+              let hand = Partial_hand.empty in
+              { user with role = Player { score; hand } }
+            )
+        | Disconnected ->
+          Logged_in.modify_user login ~username ~f:(fun user ->
+              { user with is_connected = false }
+            )
+        | Observer_became_omniscient ->
+          Logged_in.modify_user login ~username ~f:(fun user ->
+              { user with role = Observer { is_omniscient = true } }
+            )
+        | Player_score score ->
+          Logged_in.modify_user login ~username ~f:(fun user ->
+              match user.role with
+              | Observer _ -> user
+              | Player { score = _; hand } ->
+                { user with role = Player { score; hand } }
+            )
+        | Player_hand hand ->
+          Logged_in.modify_user login ~username ~f:(fun user ->
+              match user.role with
+              | Observer _ -> user
+              | Player { score; hand = _ } ->
+                { user with role = Player { score; hand } }
+            )
+        end
       | Broadcast New_round ->
         schedule (Add_message New_round);
         don't_wait_for begin
@@ -418,13 +454,16 @@ module App = struct
             let end_time = Time_ns.add current_time remaining in
             schedule (Action.playing (Set_clock end_time))
         end;
-        { me = { login.me with hand = Partial_hand.empty }
-        ; others =
-            Map.map login.others ~f:(fun player ->
-                let hand =
-                  Partial_hand.create_unknown Params.num_cards_per_hand
-                in
-                { player with hand }
+        { my_name = login.my_name
+        ; users =
+            Map.map login.users ~f:(fun user ->
+                match user.role with
+                | Observer _ -> user
+                | Player { score; hand = _ } ->
+                  let hand =
+                    Partial_hand.create_unknown Params.num_cards_per_hand
+                  in
+                  { user with role = Player { score; hand } }
               )
         ; game =
             Playing
@@ -438,13 +477,8 @@ module App = struct
       | Broadcast (Round_over results) ->
         schedule (Add_message (Round_over results));
         { login with game = Waiting { ready = Username.Set.empty } }
-      | Broadcast (Scores scores) ->
-        Map.fold scores ~init:login
-          ~f:(fun ~key:username ~data:score login ->
-            Logged_in.update_player login ~username
-              ~f:(fun player -> { player with score }))
       | Broadcast (Chat (username, msg)) ->
-        let is_me = Username.equal username login.me.username in
+        let is_me = Username.equal username login.my_name in
         just_schedule (Add_message (Chat { username; is_me; msg }))
       | Broadcast (Out _) ->
         don't_wait_for begin
@@ -477,15 +511,9 @@ module App = struct
       end;
       conn
     | Finish_login { username; lobby_pipe } ->
-      let me : Player.t =
-        { username
-        ; is_connected = true
-        ; score = Price.zero
-        ; hand = Partial_hand.empty
-        }
-      in
       let logged_in =
-        { Logged_in.Model.me; others = Username.Map.empty
+        { Logged_in.Model.my_name = username
+        ; users = Username.Map.empty
         ; game = Lobby { lobby = Lobby.empty; updates = lobby_pipe }
         }
       in
@@ -600,7 +628,7 @@ module App = struct
       | Some login ->
           Logged_in
             { connected_to = host_and_port
-            ; username = login.me.username
+            ; username = login.my_name
             ; room_name = None
             ; clock =
                 match login.game with
@@ -629,15 +657,14 @@ module App = struct
     match get_conn model with
     | None | Some { login = None; _ } -> view []
     | Some { login = Some login; conn; host_and_port = _ } ->
-      let my_name = login.me.username in
+      let my_name = login.my_name in
       let exchange_inject act = inject (Action.playing (Exchange act)) in
       begin match login.game with
       | Playing { market; trades; _ } ->
-        let players = Map.add login.others ~key:my_name ~data:login.me in
         [ Exchange.view ~my_name ~market ~trades
-            ~players:(Set.of_map_keys players)
+            ~players:(Set.of_map_keys login.users)
             ~inject:exchange_inject
-        ; Infobox.playing ~others:login.others ~me:login.me
+        ; User_info.playing ~users:login.users ~my_name
         ] |> view
       | Waiting { ready } ->
         [ Exchange.view
@@ -646,11 +673,11 @@ module App = struct
             ~trades:Fqueue.empty
             ~players:Username.Set.empty
             ~inject:exchange_inject
-        ; Infobox.waiting
+        ; User_info.waiting
             ~inject_I'm_ready:(fun readiness ->
               inject (Action.logged_in (I'm_ready readiness)))
-            ~others:login.others
-            ~me:login.me
+            ~users:login.users
+            ~my_name
             ~who_is_ready:ready
         ] |> view
       | Lobby { lobby; updates = _ } ->

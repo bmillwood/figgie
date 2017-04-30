@@ -42,7 +42,7 @@ let run ~server ~config ~username ~(room_choice : Room_choice.t) ~f =
           | Error `Not_logged_in -> assert false
           | Ok (lobby_updates, _metadata) ->
             let can_join room =
-              Lobby.Room.has_player room ~username
+              Lobby.Room.has_user room ~username
               || not (Lobby.Room.is_full room)
             in
             let try_to_join id =

@@ -8,12 +8,12 @@ val empty : Node.t
 
 val waiting
   :  inject_I'm_ready:(bool -> Event.t)
-  -> me:Player.t
-  -> others:Player.t Username.Map.t
+  -> users:Lobby.User.t Username.Map.t
+  -> my_name:Username.t
   -> who_is_ready:Username.Set.t
   -> Node.t
 
 val playing
-  :  others:Player.t Username.Map.t
-  -> me:Player.t
+  :  users:Lobby.User.t Username.Map.t
+  -> my_name:Username.t
   -> Node.t

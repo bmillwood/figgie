@@ -3,12 +3,18 @@ open Core_kernel.Std
 val room_size : int
 
 module User : sig
+  module Role : sig
+    type t =
+      | Player   of { score : Market.Price.t; hand : Partial_hand.t }
+      | Observer of { is_omniscient : bool }
+      [@@deriving bin_io, sexp]
+  end
+
   type t =
     { username : Username.t
+    ; role : Role.t
     ; is_connected : bool
     } [@@deriving bin_io, sexp]
-
-  include Comparable.S_binable with type t := t
 end
 
 module Room : sig
@@ -18,7 +24,7 @@ module Room : sig
   val empty : t
 
   val users      : t -> User.t Username.Map.t
-  val has_player : t -> username:Username.t -> bool
+  val has_user   : t -> username:Username.t -> bool
   val is_full    : t -> bool
   val can_delete : t -> bool
 
@@ -28,6 +34,10 @@ module Room : sig
     module User_event : sig
       type t =
         | Joined
+        | Observer_became_omniscient
+        | Observer_started_playing
+        | Player_score of Market.Price.t
+        | Player_hand  of Partial_hand.t
         | Disconnected
       [@@deriving bin_io, sexp]
     end
@@ -49,16 +59,18 @@ val empty : t
 module Update : sig
   type lobby
 
-  module Where : sig
+  module User_event : sig
     type t =
-      | Lobby
-      | In_room of Room.Id.t
+      | Connected
+      | Disconnected
+    [@@deriving bin_io, sexp]
   end
 
   type t =
+    | Lobby_update   of { username : Username.t; event : User_event.t }
     | New_empty_room of { room_id : Room.Id.t }
     | Room_closed    of { room_id : Room.Id.t }
-    | User_update    of { where : Where.t; update : Room.Update.t }
+    | Room_update    of { room_id : Room.Id.t; update : Room.Update.t }
     [@@deriving bin_io, sexp]
 
   val apply : t -> lobby -> lobby

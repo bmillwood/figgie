@@ -16,6 +16,10 @@ module Message : sig
         ; room_id : Lobby.Room.Id.t option
         ; event : Lobby.Room.Update.User_event.t
         }
+    | Player_lobby_event of
+        { username : Username.t
+        ; event : Lobby.Update.User_event.t
+        }
     | Joined_room of Lobby.Room.Id.t
     | New_round
     | Round_over of Protocol.Round_results.t

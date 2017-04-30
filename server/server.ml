@@ -48,8 +48,6 @@ module Updates_manager = struct
     Hashtbl.iteri t.clients ~f:(fun ~key:_ ~data:client ->
       Client.update client broadcast
     )
-
-  let broadcasts t = List.iter ~f:(broadcast t)
 end
 
 module Room_manager = struct
@@ -73,13 +71,16 @@ module Room_manager = struct
     t.room <- Lobby.Room.Update.apply update t.room;
     Updates_manager.broadcast t.room_updates (Broadcast (Room_update update));
     Updates_manager.broadcast t.lobby_updates
-      (Lobby_update (User_update
-        { where = In_room t.id; update }
-      ))
+      (Lobby_update (Room_update { room_id = t.id; update }))
+
+  let broadcast_scores t =
+    Map.iteri (Game.scores t.game) ~f:(fun ~key:username ~data:score ->
+        apply_room_update t { username; event = Player_score score }
+      )
 
   let player_join t ~username =
     let open Result.Monad_infix in
-    begin if Lobby.Room.has_player t.room ~username then (
+    begin if Lobby.Room.has_user t.room ~username then (
         Ok ()
       ) else (
         Game.player_join t.game ~username
@@ -89,10 +90,10 @@ module Room_manager = struct
     let updates_r, updates_w = Pipe.create () in
     Updates_manager.subscribe t.room_updates ~username ~updates:updates_w;
     apply_room_update t { username; event = Joined };
+    apply_room_update t { username; event = Observer_started_playing };
     let catch_up =
       let open Protocol.Game_update in
       [ [ Room_snapshot t.room ]
-      ; [ Broadcast (Scores (Game.scores t.game)) ]
       ; match t.game.phase with
         | Waiting_for_players waiting ->
           List.map (Hashtbl.data waiting.players) ~f:(fun wp ->
@@ -116,18 +117,16 @@ module Room_manager = struct
       Clock_ns.at round.end_time
       >>| fun () ->
       let results = Game.end_round t.game round in
-      Updates_manager.broadcasts t.room_updates
-        [ Broadcast (Round_over results)
-        ; Broadcast (Scores (Game.scores t.game))
-        ]
+      Updates_manager.broadcast t.room_updates
+        (Broadcast (Round_over results));
+      broadcast_scores t
     end;
     Map.iteri round.players ~f:(fun ~key:username ~data:p ->
       Updates_manager.update t.room_updates ~username (Hand p.hand)
     );
-    Updates_manager.broadcasts t.room_updates
-      [ Broadcast New_round
-      ; Broadcast (Scores (Game.scores t.game))
-      ]
+    Updates_manager.broadcast t.room_updates
+      (Broadcast New_round);
+    broadcast_scores t
 
   let player_ready t ~username ~is_ready =
     let open Result.Monad_infix in
@@ -224,9 +223,7 @@ let player_disconnected t ~(connection_state : Connection_state.t) =
     match room with
     | None ->
       Updates_manager.broadcast t.lobby_updates
-        (Lobby_update (User_update
-          { where = Lobby; update = { username; event = Disconnected } }
-        ))
+        (Lobby_update (Lobby_update { username; event = Disconnected }))
     | Some room ->
       Room_manager.player_disconnected room ~username
 
@@ -257,9 +254,7 @@ let implementations t =
             if Username.is_valid username then (
               state := Logged_in { conn; username; room = None };
               Updates_manager.broadcast t.lobby_updates
-                (Lobby_update (User_update
-                  { where = Lobby; update = { username; event = Joined } }
-                ));
+                (Lobby_update (Lobby_update { username; event = Connected }));
               return (Ok ())
             ) else (
               return (Error `Invalid_username)
@@ -358,10 +353,9 @@ let implementations t =
           match Game.Round.add_order round ~order ~sender:username with
           | (Error _) as e -> return e
           | Ok exec ->
-            Updates_manager.broadcasts room.room_updates
-              [ Broadcast (Exec (order, exec))
-              ; Broadcast (Scores (Game.scores room.game))
-              ];
+            Updates_manager.broadcast room.room_updates
+              (Broadcast (Exec (order, exec)));
+            Room_manager.broadcast_scores room;
             return (Ok `Ack)
       )
     ; during_game Protocol.Cancel.rpc

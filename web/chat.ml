@@ -16,6 +16,10 @@ module Message = struct
         ; room_id : Lobby.Room.Id.t option
         ; event : Lobby.Room.Update.User_event.t
         }
+    | Player_lobby_event of
+        { username : Username.t
+        ; event : Lobby.Update.User_event.t
+        }
     | Joined_room of Lobby.Room.Id.t
     | New_round
     | Round_over of Protocol.Round_results.t
@@ -52,10 +56,10 @@ let apply_scrolling_action (t : Model.t) (act : Scrolling.Action.t) =
   { t with scrolling = Scrolling.apply_action t.scrolling act }
 
 let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
-  let node_of_message : Message.t -> _ =
+  let nodes_of_message : Message.t -> _ =
     let horizontal_rule = Node.create "hr" [] [] in
-    let status nodes = Node.li [Attr.class_ "status"] nodes in
-    let error  nodes = Node.li [Attr.classes ["status"; "error"]] nodes in
+    let status nodes = [Node.li [Attr.class_ "status"] nodes] in
+    let error  nodes = [Node.li [Attr.classes ["status"; "error"]] nodes] in
     let simple mk fmt = ksprintf (fun s -> mk [Node.text s]) fmt in
     function
     | Connected_to_server where ->
@@ -66,24 +70,42 @@ let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
         ; horizontal_rule
         ]
     | Chat { username; is_me; msg } ->
-      Node.li []
-        [ Hash_colour.username_span ~is_me username
-        ; Node.text ": "
-        ; Node.text msg
-        ]
+      [ Node.li []
+          [ Hash_colour.username_span ~is_me username
+          ; Node.text ": "
+          ; Node.text msg
+          ]
+      ]
     | Chat_failed `Chat_disabled ->
       error [ Node.text "Chat system administratively disabled" ]
     | Chat_failed `Not_logged_in ->
       error [ Node.text "Must log in to chat" ]
     | Player_room_event { username; room_id; event } ->
-      let message =
-        match event, Option.map room_id ~f:Lobby.Room.Id.to_string with
-        | Joined,       None    ->         "joined"
-        | Joined,       Some id -> sprintf "joined %s" id
-        | Disconnected, None    ->         "disconnected"
-        | Disconnected, Some id -> sprintf "disconnected from %s" id
+      let message_parts =
+        match event with
+        | Joined -> Some ("joined", " ")
+        | Observer_became_omniscient -> Some ("sees all things", " in ")
+        | Observer_started_playing -> Some ("is playing", " in ")
+        | Player_score _ | Player_hand _ -> None
+        | Disconnected -> Some ("disconnected", " from ")
       in
-      simple status !"%{Username} %s" username message
+      begin match message_parts with
+      | None -> []
+      | Some (without_room, with_room) ->
+        let msg =
+          match room_id with
+          | None -> without_room
+          | Some id -> without_room ^ with_room ^ Lobby.Room.Id.to_string id
+        in
+        simple status !"%{Username} %s" username msg
+      end
+    | Player_lobby_event { username; event } ->
+      let verb =
+        match event with
+        | Connected    -> "connected"
+        | Disconnected -> "disconnected"
+      in
+      simple status !"%{Username} %s" username verb
     | Joined_room room_id ->
       status
         [ horizontal_rule
@@ -112,7 +134,7 @@ let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
         ; Scrolling.on_scroll t.scrolling
             ~inject:(fun scroll -> inject (Scroll_chat scroll))
         ]
-        (List.map (Fqueue.to_list t.messages) ~f:node_of_message)
+        (List.concat_map (Fqueue.to_list t.messages) ~f:nodes_of_message)
     ; Widget.textbox ~id:Ids.cmdline
         ~disabled:(not is_connected)
         ~on_submit:(fun msg -> inject (Send_chat msg))
