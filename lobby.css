@@ -33,7 +33,7 @@ div.room td.name {
 	margin: 0.2em;
 	min-width: 5em;
 }
-div.room td.name.disconnected {
+div.room .name.disconnected {
 	text-decoration: line-through;
 }
 div.room td.score {
@@ -51,4 +51,12 @@ div.room input.roomName {
   width: 7em;
   padding: 0 0.2em;
 	background-color: #448;
+}
+div.room div.observers {
+  width: 7em;
+  font-size: small;
+  color: grey;
+}
+div.room .omniscient {
+  font-weight: bold;
 }

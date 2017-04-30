@@ -1,4 +1,6 @@
 #!/bin/bash
+set -eux
+
 SERVER=./server.exe
 BOT=./bot.exe
 
