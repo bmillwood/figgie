@@ -1,7 +1,6 @@
 open Core
 open Async
-module Rpc_kernel = Async_rpc_kernel.Std
-module Rpc_transport = Rpc_kernel.Rpc.Transport
+module Rpc_kernel = Async_rpc_kernel
 
 module WS = Websocket_async
 
@@ -42,11 +41,12 @@ let serve ~port ~f =
               ~ws_to_app
               ~reader
               ~writer
-              (addr :> Socket.Address.t)
+              ()
           )
           >>| function
-          | Error exn -> on_exn ~where:"WS.server" exn
-          | Ok () -> ()
+          | Error exn -> on_exn ~where:"WS.server raised" exn
+          | Ok (Error error) -> on_exn ~where:"WS.server error" (Error.to_exn error)
+          | Ok (Ok ()) -> ()
         in
         let strings_from_client =
           Pipe.filter_map from_client ~f:(fun frame ->

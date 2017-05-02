@@ -40,8 +40,8 @@ module Action = struct
       let event = Clock_ns.Event.at next_tick_time in
       upon (Clock_ns.Event.fired event)
         (function
-        | `Aborted  () -> ()
-        | `Happened () -> schedule Tick);
+        | Aborted  () -> ()
+        | Happened () -> schedule Tick);
       event
     in
     { Model.end_time; hr; min; sec; tick_event }

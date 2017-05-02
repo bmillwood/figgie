@@ -26,7 +26,6 @@
   ))
   (preprocess (pps (
     ppx_jane
-    js_of_ocaml.ppx.driver
-    ppx_driver.runner
+    js_of_ocaml-ppx
   )))
 ))

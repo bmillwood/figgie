@@ -1,5 +1,5 @@
 open Core_kernel
-open Async_rpc_kernel.Std
+open Async_rpc_kernel
 open Incr_dom
 open Figgie
 open Market

@@ -1,6 +1,6 @@
 open Core_kernel.Std
 open Async_kernel
-open Async_rpc_kernel.Std
+open Async_rpc_kernel
 open Incr_dom
 open Vdom
 

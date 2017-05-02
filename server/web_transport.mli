@@ -1,9 +1,8 @@
 open Core
 open Async
-module Rpc_kernel = Async_rpc_kernel.Std
-module Rpc_transport = Rpc_kernel.Rpc.Transport
+open Async_rpc_kernel
 
 val serve
   :  port:int
-  -> f:(Socket.Address.Inet.t -> Rpc_transport.t -> unit Deferred.t)
+  -> f:(Socket.Address.Inet.t -> Rpc.Transport.t -> unit Deferred.t)
   -> (unit, unit) Result.t Deferred.t

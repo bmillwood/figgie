@@ -5,5 +5,5 @@
     async_rpc_kernel
     core_kernel
   ))
-  (preprocess (pps (ppx_jane ppx_driver.runner)))
+  (preprocess (pps (ppx_jane)))
 ))

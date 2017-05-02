@@ -1,6 +1,6 @@
 open Core
 open Async
-module Rpc_kernel = Async_rpc_kernel.Std
+module Rpc_kernel = Async_rpc_kernel
 
 open Figgie
 
