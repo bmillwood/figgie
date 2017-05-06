@@ -136,18 +136,34 @@ module Room_manager = struct
     broadcast_scores t
 
   let player_ready t ~username ~is_ready =
-    let open Result.Monad_infix in
     Updates_manager.broadcast t.room_updates
       (Broadcast (Player_ready { who = username; is_ready }));
-    Game.set_ready t.game ~username ~is_ready
-    >>| function
-    | `Started round -> setup_round t round
-    | `Still_waiting _wait -> ()
+    Result.map (Game.set_ready t.game ~username ~is_ready)
+      ~f:(function
+          | `Started round -> setup_round t round
+          | `Still_waiting _wait -> ()
+        )
+
+  let cancel_all_for_player t ~username ~round =
+    Result.map (Game.Round.cancel_orders round ~sender:username)
+      ~f:(fun orders ->
+          List.iter orders ~f:(fun order ->
+              Updates_manager.broadcast t.room_updates
+                (Broadcast (Out order)));
+          `Ack
+        )
 
   let player_disconnected t ~username =
-    begin match player_ready t ~username ~is_ready:false with
-    | Error `Already_playing -> ()
-    | Ok () -> ()
+    begin match t.game.phase with
+    | Playing round ->
+      begin match cancel_all_for_player t ~username ~round with
+      | Error `You're_not_playing | Ok `Ack -> ()
+      end
+    | Waiting_for_players _ ->
+      begin match player_ready t ~username ~is_ready:false with
+      | Error (`Game_already_in_progress | `You're_not_playing)
+      | Ok () -> ()
+      end
     end;
     apply_room_update t { username; event = Disconnected }
 end
@@ -386,13 +402,7 @@ let implementations t =
       )
     ; during_game Protocol.Cancel_all.rpc
         (fun ~username ~room ~round () ->
-          match Game.Round.cancel_orders round ~sender:username with
-          | (Error _) as e -> return e
-          | Ok orders ->
-            List.iter orders ~f:(fun order ->
-              Updates_manager.broadcast room.room_updates
-                (Broadcast (Out order)));
-            return (Ok `Ack)
+          return (Room_manager.cancel_all_for_player room ~username ~round)
       )
     ]
 

@@ -227,7 +227,8 @@ module App = struct
           Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn readiness
           >>| function
           | Ok ()
-          | Error `Already_playing
+          | Error `Game_already_in_progress
+          | Error `You're_not_playing
           | Error `Not_logged_in
           | Error `Not_in_a_room -> ()
         end;

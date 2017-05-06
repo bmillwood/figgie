@@ -1,4 +1,5 @@
 open Core
+open Result.Monad_infix
 
 open Figgie
 
@@ -46,6 +47,13 @@ module Waiting = struct
     in
     let waiting_for_readies = Hashtbl.count t.players ~f:(fun p -> not p.is_ready) in
     waiting_for_connects + waiting_for_readies
+
+  let set_ready t ~username ~is_ready =
+    match Hashtbl.find t.players username with
+    | None -> Error `You're_not_playing
+    | Some p ->
+      p.is_ready <- is_ready;
+      Ok ()
 end
 
 module Round = struct
@@ -167,7 +175,6 @@ module Round = struct
   let add_player_order t
     ~order:(sent_order : Market.Order.t)
     ~(sender : Player.t) =
-    let open Result.Monad_infix in
     Result.ok_if_true (Username.equal sent_order.owner sender.p.username)
       ~error:`Owner_is_not_sender
     >>= fun () ->
@@ -327,21 +334,21 @@ let end_round t (round : Round.t) =
 
 let set_ready t ~username ~is_ready =
   match t.phase with
-  | Playing _ -> Error `Already_playing
+  | Playing _ -> Error `Game_already_in_progress
   | Waiting_for_players waiting ->
-      let player = Hashtbl.find_exn waiting.players username in
-      player.is_ready <- is_ready;
-      if is_ready && Waiting.waiting_for waiting = 0
-      then begin
-        let round_players =
-          Hashtbl.to_alist waiting.players
-          |> Username.Map.of_alist_exn
-          |> Map.map ~f:(fun player -> player.p)
-        in
-        let round = Round.start ~config:t.config ~players:round_players in
-        t.phase <- Playing round;
-        Ok (`Started round)
-      end else Ok (`Still_waiting waiting)
+    Waiting.set_ready waiting ~username ~is_ready
+    >>= fun () ->
+    if is_ready && Waiting.waiting_for waiting = 0
+    then begin
+      let round_players =
+        Hashtbl.to_alist waiting.players
+        |> Username.Map.of_alist_exn
+        |> Map.map ~f:(fun player -> player.p)
+      in
+      let round = Round.start ~config:t.config ~players:round_players in
+      t.phase <- Playing round;
+      Ok (`Started round)
+    end else Ok (`Still_waiting waiting)
 
 let players t =
   match t.phase with

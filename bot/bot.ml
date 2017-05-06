@@ -104,9 +104,9 @@ let run ~server ~config ~username ~(room_choice : Room_choice.t) ~f =
         >>= fun () ->
         Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn true
         >>= function
-        | Error (`Not_logged_in | `Not_in_a_room) ->
+        | Error (`Not_logged_in | `Not_in_a_room | `You're_not_playing) ->
           assert false
-        | Error `Already_playing | Ok () ->
+        | Error `Game_already_in_progress | Ok () ->
           let new_order_id =
             let r = ref Market.Order.Id.zero in
             fun () ->
