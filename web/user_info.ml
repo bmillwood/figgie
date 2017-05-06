@@ -6,24 +6,17 @@ open Figgie
 open Market
 
 module Player = struct
-  type t =
-    { username : Username.t
-    ; is_connected : bool
-    ; score : Price.t
-    ; hand : Partial_hand.t
-    }
+  type t = Lobby.User.Player.t
 
-  let nobody =
+  let nobody : t =
     { username = Username.of_string "[nobody]"
     ; is_connected = true
-    ; score = Price.zero
-    ; hand = Partial_hand.empty
+    ; role = { score = Price.zero; hand = Partial_hand.empty }
     }
 
-  let of_user { Lobby.User.username; is_connected; role } =
-    match role with
-    | Player { score; hand } ->
-      Some { username; is_connected; score; hand }
+  let of_user user =
+    match Lobby.User.role user with
+    | Player p -> Some { user with role = p }
     | _ -> None
 end
 
@@ -70,7 +63,7 @@ let player ~pos ~(pers : Player.t) ~scores ~info =
   in
   Node.div [Attr.classes ["userinfo"; Position.class_ pos]] (
     [ [ name
-      ; score_display scores pers.score
+      ; score_display scores pers.role.score
       ; Node.create "br" [] []
       ]
     ; info
@@ -80,7 +73,7 @@ let player ~pos ~(pers : Player.t) ~scores ~info =
 let players ~others ~me =
   let (my_pers : Player.t), _ = me in
   let players = Map.add others ~key:my_pers.username ~data:me in
-  let scores = Map.map players ~f:(fun (p, _) -> p.score) in
+  let scores = Map.map players ~f:(fun (p, _) -> p.role.score) in
   let nobody = Player.nobody, [] in
   match Map.data others @ List.init 3 ~f:(fun _ -> nobody) with
   | left :: middle :: right :: _ ->
@@ -149,7 +142,7 @@ let playing ~(users : Lobby.User.t Username.Map.t) ~my_name =
   in
   let pers_with_hand (player : Player.t) =
     let known =
-      Card.Hand.foldi player.hand.known
+      Card.Hand.foldi player.role.hand.known
         ~init:[]
         ~f:(fun suit acc count ->
           span_of_copies
@@ -160,7 +153,9 @@ let playing ~(users : Lobby.User.t Username.Map.t) ~my_name =
         |> List.rev
     in
     let unknown_utf8 = "\xe2\x96\x88" in
-    let unknown = span_of_copies "Unknown" player.hand.unknown unknown_utf8 in
+    let unknown =
+      span_of_copies "Unknown" player.role.hand.unknown unknown_utf8
+    in
     (player, known @ [unknown])
   in
   players

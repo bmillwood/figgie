@@ -75,13 +75,6 @@ module Logged_in = struct
     in
     { t with users }
 
-  let modify_player (t : Model.t) ~username ~f =
-    modify_user t ~username ~f:(fun user ->
-        match user.role with
-        | Observer _ -> user
-        | Player { score; hand } -> { user with role = f ~score ~hand }
-      )
-
   module Action = struct
     type t =
       | I'm_ready of bool
@@ -302,12 +295,9 @@ module App = struct
       | Hand hand ->
         let users =
           Map.change login.users login.my_name
-            ~f:(Option.map ~f:(fun (user : Lobby.User.t) ->
-              match user.role with
-              | Observer _ -> user
-              | Player { score; hand = _ } ->
-                let hand = Partial_hand.create_known hand in
-                { user with role = Player { score; hand } }
+            ~f:(Option.map ~f:(fun user ->
+              Lobby.User.set_hand_if_player user
+                ~hand:(Partial_hand.create_known hand)
           ))
         in
         { login with users }
@@ -315,15 +305,17 @@ module App = struct
         schedule (Action.playing (Market market));
         let users =
           Map.map login.users ~f:(fun user ->
-            match user.role with
+            match Lobby.User.role user with
             | Observer _ -> user
-            | Player { score; hand } ->
+            | Player { score = _; hand } ->
               let hand =
                 Card.Hand.foldi market ~init:hand
                   ~f:(fun suit hand book ->
                     let size =
                       List.sum (module Size) book.sell ~f:(fun order ->
-                          if Username.equal order.owner user.username
+                          if Username.equal
+                              order.owner
+                              (Lobby.User.username user)
                           then order.size
                           else Size.zero
                         )
@@ -331,7 +323,7 @@ module App = struct
                     Partial_hand.selling hand ~suit ~size
                   )
               in
-              { user with role = Player { score; hand } }
+              Lobby.User.set_hand_if_player user ~hand
           )
         in
         { login with users }
@@ -371,9 +363,9 @@ module App = struct
         end;
         let users =
           Map.map login.users ~f:(fun user ->
-            match user.role with
+            match Lobby.User.role user with
             | Observer _ -> user
-            | Player { score; hand } ->
+            | Player { score = _; hand } ->
               let new_hand =
                 List.fold trades
                   ~init:hand
@@ -382,13 +374,14 @@ module App = struct
                       Partial_hand.traded
                         hand ~suit:trade.symbol ~size:trade.size ~dir
                     in
-                    if Username.equal user.username trade.owner
+                    let username = Lobby.User.username user in
+                    if Username.equal username trade.owner
                     then traded trade.dir
-                    else if Username.equal user.username with_
+                    else if Username.equal username with_
                     then traded (Dir.other order.dir)
                     else hand)
               in
-              { user with role = Player { score; hand = new_hand } }
+              Lobby.User.set_hand_if_player user ~hand:new_hand
           )
         in
         { login with users }

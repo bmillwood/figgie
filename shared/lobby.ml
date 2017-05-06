@@ -3,18 +3,53 @@ open Core_kernel.Std
 let room_size = 4
 
 module User = struct
-  module Role = struct
-    type t =
-      | Player   of { score : Market.Price.t; hand : Partial_hand.t }
-      | Observer of { is_omniscient : bool }
+  module Gen = struct
+    type 'role t =
+      { username     : Username.t
+      ; role         : 'role
+      ; is_connected : bool
+      } [@@deriving bin_io, sexp]
+  end
+
+  module Player = struct
+    module Data = struct
+      type t = { score : Market.Price.t; hand : Partial_hand.t }
+        [@@deriving bin_io, sexp]
+    end
+
+    type t = Data.t Gen.t
       [@@deriving bin_io, sexp]
   end
 
-  type t =
-    { username : Username.t
-    ; role : Role.t
-    ; is_connected : bool
-    } [@@deriving bin_io, sexp]
+  module Observer = struct
+    module Data = struct
+      type t = { is_omniscient : bool }
+        [@@deriving bin_io, sexp]
+    end
+
+    type t = Data.t Gen.t
+      [@@deriving bin_io, sexp]
+  end
+
+  module Role = struct
+    type t =
+      | Player   of Player.Data.t
+      | Observer of Observer.Data.t
+      [@@deriving bin_io, sexp]
+  end
+
+  type t = Role.t Gen.t
+    [@@deriving bin_io, sexp]
+
+  let username     (t : t) = t.username
+  let role         (t : t) = t.role
+  let is_connected (t : t) = t.is_connected
+
+  let set_hand_if_player (t : t) ~hand : t =
+    match t.role with
+    | Player { score; hand = _ } ->
+      { t with role = Player { score; hand } }
+    | Observer _ -> t
 end
 
 module Room = struct
@@ -64,8 +99,8 @@ module Room = struct
             | _ -> None
             end
           | Some { username = _; role; is_connected } as unchanged ->
-            let set role is_connected =
-              Some { User.username; role; is_connected }
+            let set (role : User.Role.t) is_connected =
+              Some { User.Gen.username; role; is_connected }
             in
             let set_role role = set role is_connected in
             begin match event with

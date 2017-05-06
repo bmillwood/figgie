@@ -3,18 +3,43 @@ open Core_kernel.Std
 val room_size : int
 
 module User : sig
-  module Role : sig
-    type t =
-      | Player   of { score : Market.Price.t; hand : Partial_hand.t }
-      | Observer of { is_omniscient : bool }
-      [@@deriving bin_io, sexp]
+  module Gen : sig
+    type 'role t =
+      { username     : Username.t
+      ; role         : 'role
+      ; is_connected : bool
+      }
   end
 
-  type t =
-    { username : Username.t
-    ; role : Role.t
-    ; is_connected : bool
-    } [@@deriving bin_io, sexp]
+  module Player : sig
+    module Data : sig
+      type t = { score : Market.Price.t; hand : Partial_hand.t }
+    end
+
+    type t = Data.t Gen.t
+  end
+
+  module Observer : sig
+    module Data : sig
+      type t = { is_omniscient : bool }
+    end
+
+    type t = Data.t Gen.t
+  end
+
+  module Role : sig
+    type t =
+      | Player   of Player.Data.t
+      | Observer of Observer.Data.t
+  end
+
+  type t = Role.t Gen.t
+
+  val username     : t -> Username.t
+  val role         : t -> Role.t
+  val is_connected : t -> bool
+
+  val set_hand_if_player : t -> hand:Partial_hand.t -> t
 end
 
 module Room : sig

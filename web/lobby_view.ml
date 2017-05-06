@@ -15,8 +15,10 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
     let users = Lobby.Room.users room in
     let players, observers =
       Map.partition_map (Lobby.Room.users room)
-        ~f:(fun { username; is_connected; role } ->
-            match role with
+        ~f:(fun user ->
+            let username     = Lobby.User.username     user in
+            let is_connected = Lobby.User.is_connected user in
+            match Lobby.User.role user with
             | Observer { is_omniscient } ->
               `Snd (username, is_connected, is_omniscient)
             | Player { hand = _; score } ->
