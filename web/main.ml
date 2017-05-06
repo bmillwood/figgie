@@ -282,6 +282,13 @@ module App = struct
         | Lobby { lobby = _; updates } -> Pipe.close_read updates
         | _ -> ()
         end;
+        Rpc.Rpc.dispatch_exn Protocol.Start_playing.rpc conn ()
+        >>| begin function
+        | Error (`Not_logged_in | `Not_in_a_room) -> assert false
+        | Error (`Game_already_started | `Game_is_full) -> assert false
+        | Error `You're_already_playing | Ok () -> ()
+        end
+        >>= fun () ->
         schedule (Add_message (Joined_room id));
         Pipe.iter_without_pushback pipe
           ~f:(fun update -> schedule (Action.logged_in (Game_update update)))

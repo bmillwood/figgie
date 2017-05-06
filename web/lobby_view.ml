@@ -69,14 +69,15 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
                     [User_info.score_display scores score]
                 ]
             )
-      ; List.init (Int.max 0 (Lobby.room_size - num_players)) ~f:(fun i ->
-          if i = 0 && not (Map.mem users my_name) then (
-            Node.tr [] [Node.td [] [join_button ~rejoin:false]]
-          ) else (
-            let nbsp = "\xc2\xa0" in
-            Node.tr [] [Node.td [Attr.class_ "name"] [Node.text nbsp]]
+      ; List.init (Int.max 0 (Lobby.max_players_per_room - num_players))
+          ~f:(fun i ->
+            if i = 0 && not (Map.mem users my_name) then (
+              Node.tr [] [Node.td [] [join_button ~rejoin:false]]
+            ) else (
+              let nbsp = "\xc2\xa0" in
+              Node.tr [] [Node.td [Attr.class_ "name"] [Node.text nbsp]]
+            )
           )
-        )
       ] |> List.concat
     in
     let observers =

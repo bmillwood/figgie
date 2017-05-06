@@ -78,23 +78,25 @@ module Room_manager = struct
         apply_room_update t { username; event = Player_score score }
       )
 
-  let player_join t ~username =
+  let start_playing t ~username =
     let open Result.Monad_infix in
-    begin if Lobby.Room.has_user t.room ~username then (
-        Ok true
-      ) else (
-        Game.player_join t.game ~username
-        >>| fun () ->
-        false
-      )
+    begin match Map.find (Lobby.Room.users t.room) username with
+    | Some user ->
+      begin match Lobby.User.role user with
+      | Player _ -> Error `You're_already_playing
+      | Observer _ -> Ok ()
+      end
+    | None -> Error `Not_in_a_room
     end
-    >>| fun rejoining ->
+    >>= fun () ->
+    Game.player_join t.game ~username
+    >>| fun () ->
+    apply_room_update t { username; event = Observer_started_playing }
+
+  let player_join t ~username =
     let updates_r, updates_w = Pipe.create () in
     Updates_manager.subscribe t.room_updates ~username ~updates:updates_w;
     apply_room_update t { username; event = Joined };
-    if not rejoining then (
-      apply_room_update t { username; event = Observer_started_playing };
-    );
     let catch_up =
       let open Protocol.Game_update in
       [ [ Room_snapshot t.room ]
@@ -106,10 +108,11 @@ module Room_manager = struct
               ; is_ready = wp.is_ready
               }))
         | Playing round ->
-            [ Broadcast New_round
-            ; Hand (Map.find_exn round.players username).hand
-            ; Market round.market
-            ]
+            [ Some (Broadcast New_round)
+            ; Option.map (Map.find round.players username)
+                ~f:(fun p -> Hand p.hand)
+            ; Some (Market round.market)
+            ] |> List.filter_opt
       ] |> List.concat
     in
     List.iter catch_up ~f:(fun update ->
@@ -293,12 +296,22 @@ let implementations t =
           | Some room -> return (Ok room)
           end
           >>=? fun room ->
-          return (Room_manager.player_join room ~username)
-          >>=? fun updates_r ->
+          let updates_r = Room_manager.player_join room ~username in
           ensure_empty_room_exists t;
           state := Logged_in { username; conn; room = Some room };
           return (Ok updates_r)
       )
+    ; Rpc.Rpc.implement Protocol.Start_playing.rpc
+        (fun (state : Connection_state.t) () ->
+          return begin match !state with
+          | Not_logged_in _ -> Error `Not_logged_in
+          | Logged_in { room = None; _ } -> Error `Not_in_a_room
+          | Logged_in { room = Some room; username; conn = _ } ->
+            Ok (room, username)
+          end
+          >>=? fun (room, username) ->
+          return (Room_manager.start_playing room ~username)
+        )
     ; Rpc.Rpc.implement Protocol.Delete_room.rpc
         (fun (_state : Connection_state.t) room_id ->
           match Hashtbl.find t.rooms room_id with

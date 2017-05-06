@@ -1,6 +1,6 @@
 open Core_kernel.Std
 
-let room_size = 4
+let max_players_per_room = 4
 
 module User = struct
   module Gen = struct
@@ -45,8 +45,8 @@ module User = struct
   let role         (t : t) = t.role
   let is_connected (t : t) = t.is_connected
 
-  let set_hand_if_player (t : t) ~hand : t =
-    match t.role with
+  let set_hand_if_player t ~hand : t =
+    match role t with
     | Player { score; hand = _ } ->
       { t with role = Player { score; hand } }
     | Observer _ -> t
@@ -64,7 +64,13 @@ module Room = struct
 
   let has_user t ~username = Map.mem t.users username
 
-  let is_full t = Map.length t.users >= room_size
+  let is_full t =
+    let is_player t =
+      match User.role t with
+      | Player _   -> true
+      | Observer _ -> false
+    in
+    Map.count t.users ~f:is_player >= max_players_per_room
 
   let can_delete t =
     Map.for_all t.users ~f:(fun user -> not user.is_connected)

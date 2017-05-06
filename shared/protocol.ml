@@ -72,15 +72,32 @@ module Join_room = struct
     [ not_logged_in
     | `Already_in_a_room
     | `No_such_room
-    | `Game_already_started
-    | `Game_is_full
     ] [@@deriving bin_io, sexp]
 
   let rpc =
     Rpc.Pipe_rpc.create
       ~name:"join-room" ~version:1
-      ~bin_query ~bin_response ~bin_error
+      ~bin_query
+      ~bin_response
+      ~bin_error
       ()
+end
+
+module Start_playing = struct
+  type query = unit [@@deriving bin_io, sexp]
+  type error =
+    [ not_logged_in
+    | `Not_in_a_room
+    | `You're_already_playing
+    | `Game_already_started
+    | `Game_is_full
+    ] [@@deriving bin_io, sexp]
+  type response = (unit, error) Result.t [@@deriving bin_io, sexp]
+
+  let rpc =
+    Rpc.Rpc.create
+      ~name:"start-playing" ~version:1
+      ~bin_query ~bin_response
 end
 
 module Delete_room = struct

@@ -1,6 +1,6 @@
 open Core_kernel.Std
 
-val room_size : int
+val max_players_per_room : int
 
 module User : sig
   module Gen : sig

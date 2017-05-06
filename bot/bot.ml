@@ -57,11 +57,7 @@ let run ~server ~config ~username ~(room_choice : Room_choice.t) ~f =
                 Pipe.close_read lobby_updates;
                 `Finished updates
               | Error (`Already_in_a_room | `Not_logged_in) -> assert false
-              | Error
-                ( `No_such_room
-                | `Game_already_started
-                | `Game_is_full
-                ) -> `Repeat ()
+              | Error `No_such_room -> `Repeat ()
             in
             Deferred.repeat_until_finished () (fun () ->
               Pipe.read lobby_updates
@@ -95,11 +91,22 @@ let run ~server ~config ~username ~(room_choice : Room_choice.t) ~f =
           updates
         end
         >>= fun updates ->
+        Rpc.Rpc.dispatch_exn Protocol.Start_playing.rpc conn ()
+        >>= begin function
+        | Error (`Not_logged_in | `Not_in_a_room) -> assert false
+        | Error (`Game_already_started | `Game_is_full) ->
+          raise_s [%message
+            "Joined a room that didn't want new players"
+          ]
+        | Error `You're_already_playing -> return ()
+        | Ok () -> return ()
+        end
+        >>= fun () ->
         Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn true
         >>= function
-        | Error (`Not_logged_in | `Not_in_a_room | `Already_playing) ->
+        | Error (`Not_logged_in | `Not_in_a_room) ->
           assert false
-        | Ok () ->
+        | Error `Already_playing | Ok () ->
           let new_order_id =
             let r = ref Market.Order.Id.zero in
             fun () ->

@@ -42,7 +42,7 @@ module Waiting = struct
 
   let waiting_for t =
     let waiting_for_connects =
-      Int.max 0 (Lobby.room_size - Hashtbl.length t.players)
+      Int.max 0 (Lobby.max_players_per_room - Hashtbl.length t.players)
     in
     let waiting_for_readies = Hashtbl.count t.players ~f:(fun p -> not p.is_ready) in
     waiting_for_connects + waiting_for_readies
@@ -302,7 +302,7 @@ let player_join t ~username =
   match t.phase with
   | Playing _ -> Error `Game_already_started
   | Waiting_for_players waiting ->
-    if Hashtbl.length waiting.players >= Lobby.room_size
+    if Hashtbl.length waiting.players >= Lobby.max_players_per_room
     then Error `Game_is_full
     else begin
       let player =
