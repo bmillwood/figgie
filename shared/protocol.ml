@@ -115,7 +115,11 @@ module Is_ready = struct
   type query = bool [@@deriving bin_io, sexp]
   type response =
     ( unit
-    , [ not_logged_in | `Not_in_a_room | `Already_playing ]
+    , [ not_logged_in
+      | `Not_in_a_room
+      | `You're_not_playing
+      | `Game_already_in_progress
+      ]
     ) Result.t
     [@@deriving bin_io, sexp]
   let rpc = Rpc.Rpc.create ~name:"ready" ~version:1 ~bin_query ~bin_response
