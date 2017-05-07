@@ -84,15 +84,21 @@ module Join_room = struct
 end
 
 module Start_playing = struct
-  type query = unit [@@deriving bin_io, sexp]
+  type query =
+    | Sit_in of Lobby.Room.Seat.t
+    | Sit_anywhere
+    [@@deriving bin_io, sexp]
   type error =
     [ not_logged_in
     | `Not_in_a_room
     | `You're_already_playing
+    | `Seat_occupied
     | `Game_already_started
-    | `Game_is_full
     ] [@@deriving bin_io, sexp]
-  type response = (unit, error) Result.t [@@deriving bin_io, sexp]
+  type response =
+    ( Lobby.Room.Seat.t
+    , error
+    ) Result.t [@@deriving bin_io, sexp]
 
   let rpc =
     Rpc.Rpc.create

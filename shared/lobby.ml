@@ -54,23 +54,42 @@ end
 
 module Room = struct
   module Id : Identifiable.S = String
-  type t = {
-    users : User.t Username.Map.t;
-  } [@@deriving bin_io, sexp]
 
-  let empty = { users = Username.Map.empty }
+  module Seat = struct
+    module T = struct
+      type t = | North | East | South | West
+        [@@deriving bin_io, compare, enumerate, sexp]
+    end
+    include T
+    include Comparable.Make_binable(T)
+  end
+
+
+  type t =
+    { seating : Username.t Seat.Map.t
+    ; users   : User.t Username.Map.t
+    } [@@deriving bin_io, sexp]
+
+  let empty =
+    { seating = Seat.Map.empty
+    ; users = Username.Map.empty
+    }
 
   let users t = t.users
 
+  let seating t = t.seating
+
+  let in_seat t ~seat =
+    let open Option.Let_syntax in
+    let%bind username = Map.find t.seating seat in
+    let%bind user = Map.find t.users username in
+    match user.role with
+    | Player role -> Some { user with role }
+    | Observer _ -> None
+
   let has_user t ~username = Map.mem t.users username
 
-  let is_full t =
-    let is_player t =
-      match User.role t with
-      | Player _   -> true
-      | Observer _ -> false
-    in
-    Map.count t.users ~f:is_player >= max_players_per_room
+  let is_full t = Map.length t.seating >= max_players_per_room
 
   let can_delete t =
     Map.for_all t.users ~f:(fun user -> not user.is_connected)
@@ -80,7 +99,7 @@ module Room = struct
       type t =
         | Joined
         | Observer_became_omniscient
-        | Observer_started_playing
+        | Observer_started_playing of { in_seat : Seat.t }
         | Player_score of Market.Price.t
         | Player_hand  of Partial_hand.t
         | Disconnected
@@ -114,7 +133,7 @@ module Room = struct
               set role true
             | Observer_became_omniscient ->
               set_role (Observer { is_omniscient = true })
-            | Observer_started_playing ->
+            | Observer_started_playing { in_seat = _ } ->
               let score = Market.Price.zero in
               let hand = Partial_hand.empty in
               set_role (Player { score; hand })
@@ -135,7 +154,13 @@ module Room = struct
             end
         )
       in
-      { users }
+      { users
+      ; seating =
+          match event with
+          | Observer_started_playing { in_seat } ->
+            Map.add room.seating ~key:in_seat ~data:username
+          | _ -> room.seating
+      }
   end
 end
 

@@ -310,7 +310,7 @@ let player_join t ~username =
   | Playing _ -> Error `Game_already_started
   | Waiting_for_players waiting ->
     if Hashtbl.length waiting.players >= Lobby.max_players_per_room
-    then Error `Game_is_full
+    then Error `Seat_occupied
     else begin
       let player =
         Hashtbl.find_or_add waiting.players username

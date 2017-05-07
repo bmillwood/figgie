@@ -283,11 +283,11 @@ module App = struct
         | Lobby { lobby = _; updates } -> Pipe.close_read updates
         | _ -> ()
         end;
-        Rpc.Rpc.dispatch_exn Protocol.Start_playing.rpc conn ()
+        Rpc.Rpc.dispatch_exn Protocol.Start_playing.rpc conn Sit_anywhere
         >>| begin function
         | Error (`Not_logged_in | `Not_in_a_room) -> assert false
-        | Error (`Game_already_started | `Game_is_full) -> assert false
-        | Error `You're_already_playing | Ok () -> ()
+        | Error (`Game_already_started | `Seat_occupied) -> assert false
+        | Error `You're_already_playing | Ok (_ : Lobby.Room.Seat.t) -> ()
         end
         >>= fun () ->
         schedule (Add_message (Joined_room id));
@@ -412,7 +412,7 @@ module App = struct
                 )
           in
           { login with users }
-        | Observer_started_playing ->
+        | Observer_started_playing { in_seat = _ } ->
           Logged_in.modify_user login ~username ~f:(fun user ->
               let score = Price.zero in
               let hand = Partial_hand.empty in

@@ -44,11 +44,19 @@ end
 
 module Room : sig
   module Id : Identifiable.S
+
+  module Seat : sig
+    type t [@@deriving bin_io, compare, enumerate, sexp]
+    include Comparable.S_binable with type t := t
+  end
+
   type t [@@deriving bin_io, sexp]
 
   val empty : t
 
   val users      : t -> User.t Username.Map.t
+  val seating    : t -> Username.t Seat.Map.t
+  val in_seat    : t -> seat:Seat.t -> User.Player.t option
   val has_user   : t -> username:Username.t -> bool
   val is_full    : t -> bool
   val can_delete : t -> bool
@@ -60,7 +68,7 @@ module Room : sig
       type t =
         | Joined
         | Observer_became_omniscient
-        | Observer_started_playing
+        | Observer_started_playing of { in_seat : Seat.t }
         | Player_score of Market.Price.t
         | Player_hand  of Partial_hand.t
         | Disconnected

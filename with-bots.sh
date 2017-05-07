@@ -4,7 +4,7 @@ set -eux
 SERVER=./server.exe
 BOT=./bot.exe
 
-"$SERVER" -length-of-round 1m -enable-chat true &
+"$SERVER" -length-of-round 1m -enable-chat true -log-level Debug &
 victims=$!
 sleep 1
 for which in 1 2

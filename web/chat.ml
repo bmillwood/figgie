@@ -83,11 +83,16 @@ let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
     | Player_room_event { username; room_id; event } ->
       let message_parts =
         match event with
-        | Joined -> Some ("joined", " ")
-        | Observer_became_omniscient -> Some ("sees all things", " in ")
-        | Observer_started_playing -> Some ("is playing", " in ")
-        | Player_score _ | Player_hand _ -> None
-        | Disconnected -> Some ("disconnected", " from ")
+        | Joined ->
+          Some ("joined", " ")
+        | Observer_became_omniscient ->
+          Some ("sees all things", " in ")
+        | Observer_started_playing { in_seat = _ } ->
+          Some ("is playing", " in ")
+        | Player_score _ | Player_hand _ ->
+          None
+        | Disconnected ->
+          Some ("disconnected", " from ")
       in
       begin match message_parts with
       | None -> []

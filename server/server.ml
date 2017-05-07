@@ -78,7 +78,7 @@ module Room_manager = struct
         apply_room_update t { username; event = Player_score score }
       )
 
-  let start_playing t ~username =
+  let start_playing t ~username ~(in_seat : Protocol.Start_playing.query) =
     let open Result.Monad_infix in
     begin match Map.find (Lobby.Room.users t.room) username with
     | Some user ->
@@ -89,9 +89,24 @@ module Room_manager = struct
     | None -> Error `Not_in_a_room
     end
     >>= fun () ->
+    let seats_to_try =
+      match in_seat with
+      | Sit_in seat -> [seat]
+      | Sit_anywhere -> Lobby.Room.Seat.all
+    in
+    Result.of_option ~error:`Seat_occupied (
+      List.find seats_to_try ~f:(fun seat ->
+        Map.mem (Lobby.Room.seating t.room) seat
+      )
+    )
+    >>= fun in_seat ->
     Game.player_join t.game ~username
     >>| fun () ->
-    apply_room_update t { username; event = Observer_started_playing }
+    apply_room_update t
+      { username
+      ; event = Observer_started_playing { in_seat }
+      };
+    in_seat
 
   let player_join t ~username =
     let updates_r, updates_w = Pipe.create () in
@@ -318,7 +333,7 @@ let implementations t =
           return (Ok updates_r)
       )
     ; Rpc.Rpc.implement Protocol.Start_playing.rpc
-        (fun (state : Connection_state.t) () ->
+        (fun (state : Connection_state.t) in_seat ->
           return begin match !state with
           | Not_logged_in _ -> Error `Not_logged_in
           | Logged_in { room = None; _ } -> Error `Not_in_a_room
@@ -326,7 +341,7 @@ let implementations t =
             Ok (room, username)
           end
           >>=? fun (room, username) ->
-          return (Room_manager.start_playing room ~username)
+          return (Room_manager.start_playing room ~username ~in_seat)
         )
     ; Rpc.Rpc.implement Protocol.Delete_room.rpc
         (fun (_state : Connection_state.t) room_id ->

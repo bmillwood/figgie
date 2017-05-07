@@ -91,15 +91,18 @@ let run ~server ~config ~username ~(room_choice : Room_choice.t) ~f =
           updates
         end
         >>= fun updates ->
-        Rpc.Rpc.dispatch_exn Protocol.Start_playing.rpc conn ()
+        Rpc.Rpc.dispatch_exn
+          Protocol.Start_playing.rpc conn
+          Sit_anywhere
         >>= begin function
         | Error (`Not_logged_in | `Not_in_a_room) -> assert false
-        | Error (`Game_already_started | `Game_is_full) ->
+        | Error ((`Game_already_started | `Seat_occupied) as error) ->
           raise_s [%message
             "Joined a room that didn't want new players"
+              (error : Protocol.Start_playing.error)
           ]
         | Error `You're_already_playing -> return ()
-        | Ok () -> return ()
+        | Ok (_seat : Lobby.Room.Seat.t) -> return ()
         end
         >>= fun () ->
         Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn true
