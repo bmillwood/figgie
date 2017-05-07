@@ -96,7 +96,7 @@ module Room_manager = struct
     in
     Result.of_option ~error:`Seat_occupied (
       List.find seats_to_try ~f:(fun seat ->
-        Map.mem (Lobby.Room.seating t.room) seat
+        not (Map.mem (Lobby.Room.seating t.room) seat)
       )
     )
     >>= fun in_seat ->
