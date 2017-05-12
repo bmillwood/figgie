@@ -83,14 +83,29 @@ module Join_room = struct
       ()
 end
 
+module Delete_room = struct
+  type query = Lobby.Room.Id.t [@@deriving bin_io, sexp]
+  type response =
+    ( unit
+    , [ `No_such_room | `Room_in_use ]
+    ) Result.t [@@deriving bin_io, sexp]
+
+  let rpc =
+    Rpc.Rpc.create ~name:"delete-room" ~version:1 ~bin_query ~bin_response
+end
+
+type not_in_a_room =
+  [ not_logged_in
+  | `Not_in_a_room
+  ] [@@deriving bin_io, sexp]
+
 module Start_playing = struct
   type query =
     | Sit_in of Lobby.Room.Seat.t
     | Sit_anywhere
     [@@deriving bin_io, sexp]
   type error =
-    [ not_logged_in
-    | `Not_in_a_room
+    [ not_in_a_room
     | `You're_already_playing
     | `Seat_occupied
     | `Game_already_started
@@ -106,23 +121,11 @@ module Start_playing = struct
       ~bin_query ~bin_response
 end
 
-module Delete_room = struct
-  type query = Lobby.Room.Id.t [@@deriving bin_io, sexp]
-  type response =
-    ( unit
-    , [ `No_such_room | `Room_in_use ]
-    ) Result.t [@@deriving bin_io, sexp]
-
-  let rpc =
-    Rpc.Rpc.create ~name:"delete-room" ~version:1 ~bin_query ~bin_response
-end
-
 module Is_ready = struct
   type query = bool [@@deriving bin_io, sexp]
   type response =
     ( unit
-    , [ not_logged_in
-      | `Not_in_a_room
+    , [ not_in_a_room
       | `You're_not_playing
       | `Game_already_in_progress
       ]
@@ -139,8 +142,7 @@ module Chat = struct
 end
 
 type not_playing =
-  [ not_logged_in
-  | `Not_in_a_room
+  [ not_in_a_room
   | `Game_not_in_progress
   | `You're_not_playing
   ] [@@deriving bin_io, sexp]

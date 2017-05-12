@@ -59,6 +59,7 @@ module Room : sig
   val in_seat    : t -> seat:Seat.t -> User.Player.t option
   val has_user   : t -> username:Username.t -> bool
   val is_full    : t -> bool
+  val is_empty   : t -> bool
   val can_delete : t -> bool
 
   module Update : sig

@@ -1,0 +1,16 @@
+open Async
+
+open Figgie
+
+type 'update t
+
+val create : unit -> 'update t
+
+val subscribe
+  :  'update t
+  -> username:Username.t
+  -> updates:'update Pipe.Writer.t
+  -> unit
+
+val update    : 'update t -> username:Username.t -> 'update -> unit
+val broadcast : 'update t ->                        'update -> unit

@@ -91,6 +91,8 @@ module Room = struct
 
   let is_full t = Map.length t.seating >= max_players_per_room
 
+  let is_empty t = Map.is_empty t.users
+
   let can_delete t =
     Map.for_all t.users ~f:(fun user -> not user.is_connected)
 

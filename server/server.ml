@@ -4,185 +4,6 @@ module Rpc_kernel = Async_rpc_kernel
 
 open Figgie
 
-module Updates_manager = struct
-  module Client = struct
-    type 'update t = { updates : 'update Pipe.Writer.t }
-
-    let create ~updates = { updates }
-
-    let closed t = Pipe.closed t.updates
-
-    let is_closed t = Pipe.is_closed t.updates
-
-    let ghost t = Pipe.close t.updates
-
-    let update t update =
-      Pipe.write_without_pushback_if_open t.updates update
-  end
-
-  type 'update t =
-    { clients : 'update Client.t Username.Table.t }
-
-  let create () = { clients = Username.Table.create () }
-
-  let subscribe t ~username ~updates =
-    Hashtbl.update t.clients username
-      ~f:(fun old_client ->
-        Option.iter old_client ~f:Client.ghost;
-        let new_client = Client.create ~updates in
-        don't_wait_for begin
-          Client.closed new_client
-          >>| fun () ->
-          Hashtbl.change t.clients username ~f:(Option.filter ~f:(fun c ->
-            not (Client.is_closed c)))
-        end;
-        new_client
-    )
-
-  let update t ~username update =
-    Option.iter (Hashtbl.find t.clients username) ~f:(fun client ->
-      Client.update client update
-    )
-
-  let broadcast t broadcast =
-    Hashtbl.iteri t.clients ~f:(fun ~key:_ ~data:client ->
-      Client.update client broadcast
-    )
-end
-
-module Room_manager = struct
-  type t =
-    { id : Lobby.Room.Id.t
-    ; mutable room : Lobby.Room.t
-    ; game : Game.t
-    ; lobby_updates : Protocol.Lobby_update.t Updates_manager.t
-    ; room_updates  : Protocol.Game_update.t  Updates_manager.t
-    }
-
-  let create ~game_config ~id ~lobby_updates =
-    { id
-    ; room = Lobby.Room.empty
-    ; game = Game.create ~config:game_config
-    ; lobby_updates
-    ; room_updates = Updates_manager.create ()
-    }
-
-  let apply_room_update t update =
-    t.room <- Lobby.Room.Update.apply update t.room;
-    Updates_manager.broadcast t.room_updates (Broadcast (Room_update update));
-    Updates_manager.broadcast t.lobby_updates
-      (Lobby_update (Room_update { room_id = t.id; update }))
-
-  let broadcast_scores t =
-    Map.iteri (Game.scores t.game) ~f:(fun ~key:username ~data:score ->
-        apply_room_update t { username; event = Player_score score }
-      )
-
-  let start_playing t ~username ~(in_seat : Protocol.Start_playing.query) =
-    let open Result.Monad_infix in
-    begin match Map.find (Lobby.Room.users t.room) username with
-    | Some user ->
-      begin match Lobby.User.role user with
-      | Player _ -> Error `You're_already_playing
-      | Observer _ -> Ok ()
-      end
-    | None -> Error `Not_in_a_room
-    end
-    >>= fun () ->
-    let seats_to_try =
-      match in_seat with
-      | Sit_in seat -> [seat]
-      | Sit_anywhere -> Lobby.Room.Seat.all
-    in
-    Result.of_option ~error:`Seat_occupied (
-      List.find seats_to_try ~f:(fun seat ->
-        not (Map.mem (Lobby.Room.seating t.room) seat)
-      )
-    )
-    >>= fun in_seat ->
-    Game.player_join t.game ~username
-    >>| fun () ->
-    apply_room_update t
-      { username
-      ; event = Observer_started_playing { in_seat }
-      };
-    in_seat
-
-  let player_join t ~username =
-    let updates_r, updates_w = Pipe.create () in
-    Updates_manager.subscribe t.room_updates ~username ~updates:updates_w;
-    apply_room_update t { username; event = Joined };
-    let catch_up =
-      let open Protocol.Game_update in
-      [ [ Room_snapshot t.room ]
-      ; match t.game.phase with
-        | Waiting_for_players waiting ->
-          List.map (Hashtbl.data waiting.players) ~f:(fun wp ->
-            Broadcast (Player_ready
-              { who = wp.p.username
-              ; is_ready = wp.is_ready
-              }))
-        | Playing round ->
-            [ Some (Broadcast New_round)
-            ; Option.map (Map.find round.players username)
-                ~f:(fun p -> Hand p.hand)
-            ; Some (Market round.market)
-            ] |> List.filter_opt
-      ] |> List.concat
-    in
-    List.iter catch_up ~f:(fun update ->
-      Pipe.write_without_pushback updates_w update);
-    updates_r
-
-  let setup_round t (round : Game.Round.t) =
-    don't_wait_for begin
-      Clock_ns.at round.end_time
-      >>| fun () ->
-      let results = Game.end_round t.game round in
-      Updates_manager.broadcast t.room_updates
-        (Broadcast (Round_over results));
-      broadcast_scores t
-    end;
-    Map.iteri round.players ~f:(fun ~key:username ~data:p ->
-      Updates_manager.update t.room_updates ~username (Hand p.hand)
-    );
-    Updates_manager.broadcast t.room_updates
-      (Broadcast New_round);
-    broadcast_scores t
-
-  let player_ready t ~username ~is_ready =
-    Updates_manager.broadcast t.room_updates
-      (Broadcast (Player_ready { who = username; is_ready }));
-    Result.map (Game.set_ready t.game ~username ~is_ready)
-      ~f:(function
-          | `Started round -> setup_round t round
-          | `Still_waiting _wait -> ()
-        )
-
-  let cancel_all_for_player t ~username ~round =
-    Result.map (Game.Round.cancel_orders round ~sender:username)
-      ~f:(fun orders ->
-          List.iter orders ~f:(fun order ->
-              Updates_manager.broadcast t.room_updates
-                (Broadcast (Out order)));
-          `Ack
-        )
-
-  let player_disconnected t ~username =
-    begin match t.game.phase with
-    | Playing round ->
-      begin match cancel_all_for_player t ~username ~round with
-      | Error `You're_not_playing | Ok `Ack -> ()
-      end
-    | Waiting_for_players _ ->
-      begin match player_ready t ~username ~is_ready:false with
-      | Error (`Game_already_in_progress | `You're_not_playing)
-      | Ok () -> ()
-      end
-    end;
-    apply_room_update t { username; event = Disconnected }
-end
-
 module Connection_state = struct
   module Status = struct
     type t =
@@ -212,7 +33,9 @@ type t =
 let lobby_snapshot t : Lobby.t =
   { rooms =
       Hashtbl.fold t.rooms ~init:Lobby.Room.Id.Map.empty
-        ~f:(fun ~key ~data acc -> Map.add acc ~key ~data:data.room)
+        ~f:(fun ~key ~data acc ->
+            Map.add acc ~key ~data:(Room_manager.room_snapshot data)
+          )
   ; others = t.others
   }
 
@@ -237,7 +60,7 @@ let unused_room_id t =
   try_ 0
 
 let ensure_empty_room_exists t =
-  if Hashtbl.for_all t.rooms ~f:(fun room -> Game.num_players room.game > 0)
+  if Hashtbl.for_all t.rooms ~f:(Fn.non Room_manager.is_empty)
   then (
     new_room_exn t ~id:(unused_room_id t)
   )
@@ -266,25 +89,7 @@ let player_disconnected t ~(connection_state : Connection_state.t) =
       Room_manager.player_disconnected room ~username
 
 let implementations t =
-  let in_room rpc f =
-    Rpc.Rpc.implement rpc
-      (fun (state : Connection_state.t) query ->
-        match !state with
-        | Not_logged_in _ -> return (Error `Not_logged_in)
-        | Logged_in { room = None; _ } -> return (Error `Not_in_a_room)
-        | Logged_in { room = Some room; username; conn = _ } ->
-          f ~username ~room query
-    )
-  in
-  let during_game rpc f =
-    in_room rpc (fun ~username ~room query ->
-      match room.game.phase with
-      | Waiting_for_players _ -> return (Error `Game_not_in_progress)
-      | Playing round -> f ~username ~room ~round query)
-  in
-  Rpc.Implementations.create_exn
-    ~on_unknown_rpc:`Close_connection
-    ~implementations:
+  let from_lobby =
     [ Rpc.Rpc.implement Protocol.Login.rpc
         (fun (state : Connection_state.t) username ->
           match !state with
@@ -332,23 +137,13 @@ let implementations t =
           state := Logged_in { username; conn; room = Some room };
           return (Ok updates_r)
       )
-    ; Rpc.Rpc.implement Protocol.Start_playing.rpc
-        (fun (state : Connection_state.t) in_seat ->
-          return begin match !state with
-          | Not_logged_in _ -> Error `Not_logged_in
-          | Logged_in { room = None; _ } -> Error `Not_in_a_room
-          | Logged_in { room = Some room; username; conn = _ } ->
-            Ok (room, username)
-          end
-          >>=? fun (room, username) ->
-          return (Room_manager.start_playing room ~username ~in_seat)
-        )
     ; Rpc.Rpc.implement Protocol.Delete_room.rpc
         (fun (_state : Connection_state.t) room_id ->
           match Hashtbl.find t.rooms room_id with
           | None -> return (Error `No_such_room)
           | Some rm ->
-            if not (Lobby.Room.can_delete rm.room) then (
+            let room = Room_manager.room_snapshot rm in
+            if not (Lobby.Room.can_delete room) then (
               return (Error `Room_in_use)
             ) else (
               Hashtbl.remove t.rooms room_id;
@@ -370,56 +165,26 @@ let implementations t =
                 (Chat (username, msg));
               return (Ok ())
             | Logged_in { room = Some room; username; conn = _ } ->
-              Updates_manager.broadcast room.room_updates
-                (Broadcast (Chat (username, msg)));
+              Room_manager.chat room ~username msg;
               return (Ok ())
           )
       )
-    ; in_room Protocol.Is_ready.rpc
-        (fun ~username ~room is_ready ->
-          return (Room_manager.player_ready room ~username ~is_ready)
-      )
-    ; during_game Protocol.Time_remaining.rpc
-        (fun ~username:_ ~room:_ ~round () ->
-          let span = Time_ns.diff round.end_time (Time_ns.now ()) in
-          return (Ok span)
-      )
-    ; during_game Protocol.Get_update.rpc
-        (fun ~username ~room ~round which ->
-          begin match which with
-          | Hand ->
-            Result.iter (Game.Round.get_hand round ~username) ~f:(fun hand ->
-              Updates_manager.update room.room_updates ~username (Hand hand))
-          | Market ->
-              Updates_manager.update room.room_updates ~username
-                (Market round.market)
-          end;
-          return (Ok ())
-      )
-    ; during_game Protocol.Order.rpc
-        (fun ~username ~room ~round order ->
-          match Game.Round.add_order round ~order ~sender:username with
-          | (Error _) as e -> return e
-          | Ok exec ->
-            Updates_manager.broadcast room.room_updates
-              (Broadcast (Exec (order, exec)));
-            Room_manager.broadcast_scores room;
-            return (Ok `Ack)
-      )
-    ; during_game Protocol.Cancel.rpc
-        (fun ~username ~room ~round id ->
-          match Game.Round.cancel_order round ~id ~sender:username with
-          | (Error _) as e -> return e
-          | Ok order ->
-            Updates_manager.broadcast room.room_updates
-              (Broadcast (Out order));
-            return (Ok `Ack)
-      )
-    ; during_game Protocol.Cancel_all.rpc
-        (fun ~username ~room ~round () ->
-          return (Room_manager.cancel_all_for_player room ~username ~round)
-      )
     ]
+  in
+  let from_room =
+    List.map Room_manager.rpc_implementations ~f:(fun impl ->
+        Rpc.Implementation.lift impl ~f:(fun (state : Connection_state.t) ->
+            match !state with
+            | Not_logged_in _ -> Error `Not_logged_in
+            | Logged_in { room = None; _ } -> Error `Not_in_a_room
+            | Logged_in { room = Some room; username; conn = _ } ->
+              Ok (room, username)
+          )
+      )
+  in
+  Rpc.Implementations.create_exn
+    ~on_unknown_rpc:`Close_connection
+    ~implementations:(from_lobby @ from_room)
 
 let main ~tcp_port ~web_port ~game_config ~chat_enabled =
   let t = create ~game_config ~chat_enabled in
