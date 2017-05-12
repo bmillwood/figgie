@@ -115,6 +115,8 @@ module Exec : sig
     partially_filled : Partial_fill.t option;
     posted           : Order.t option;
   } [@@deriving bin_io, sexp]
+
+  val fills : t -> Order.t list
 end
 
 module Match_result : sig

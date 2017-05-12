@@ -31,16 +31,13 @@ module Counts = struct
 
   let see_exec t ~(order : Order.t) (exec : Exec.t) =
     let suit = order.symbol in
-    let apply_fill ~(filled : Order.t) ~size =
-      update t filled.owner
-        ~f:(Partial_hand.traded ~suit ~size ~dir:filled.dir);
-      update t order.owner
-        ~f:(Partial_hand.traded ~suit ~size ~dir:order.dir)
-    in
-    List.iter exec.fully_filled ~f:(fun filled ->
-      apply_fill ~filled ~size:filled.size);
-    Option.iter exec.partially_filled ~f:(fun pf ->
-      apply_fill ~filled:pf.original_order ~size:pf.filled_by)
+    List.iter (Exec.fills exec) ~f:(fun filled ->
+        let size = filled.size in
+        update t filled.owner
+          ~f:(Partial_hand.traded ~suit ~size ~dir:filled.dir);
+        update t order.owner
+          ~f:(Partial_hand.traded ~suit ~size ~dir:order.dir)
+      )
 
   let per_suit t ~suit =
     Hashtbl.fold t.per_player ~init:Size.zero

@@ -295,25 +295,11 @@ module App = struct
         let exchange = Exchange.set_market in_room.exchange ~market in
         { in_room with users; exchange }
       | Broadcast (Exec (order, exec)) ->
+        let { Order.owner; id; dir; _ } = order in
         let trades =
-          List.concat
-            [ List.map exec.fully_filled ~f:(fun filled_order ->
-                let size = filled_order.size in
-                let price = filled_order.price in
-                ( { order with size; price }
-                , filled_order.owner
-                )
-              )
-            ; exec.partially_filled
-              |> Option.map ~f:(fun partial_fill ->
-                  let size = partial_fill.filled_by in
-                  let price = partial_fill.original_order.price in
-                  ( { order with size; price }
-                  , partial_fill.original_order.owner
-                  )
-                )
-              |> Option.to_list
-            ]
+          List.map (Exec.fills exec) ~f:(fun filled_order ->
+              ({ filled_order with owner; id; dir }, filled_order.owner)
+            )
         in
         let users =
           Map.map in_room.users ~f:(fun user ->

@@ -63,38 +63,29 @@ let command =
       in
       let handle_my_filled_order ~suit (exec : Market.Exec.t) =
         let size =
-          Market.Size.(+)
-            (List.sum (module Market.Size) exec.fully_filled
-              ~f:(fun order -> order.size))
-            (Option.value_map exec.partially_filled
-              ~default:Market.Size.zero
-              ~f:(fun partial -> partial.filled_by))
+          List.sum (module Market.Size)
+            (Market.Exec.fills exec)
+            ~f:(fun order -> order.size)
         in
         sell ~suit ~size
       in
       let handle_exec (exec : Market.Exec.t) =
         let amount_to_sell = ref Market.Size.zero in
         let suit_to_sell = ref None in
-        let handle_filled_order (order : Market.Order.t) filled_amount =
-          suit_to_sell := Some order.symbol;
-          if Username.equal order.owner t.username
-          then begin
-            amount_to_sell :=
-              Market.Size.O.(!amount_to_sell
-                + filled_amount);
-            let price_to_sell_at =
-              Card.Hand.get sell_prices ~suit:order.symbol
-            in
-            price_to_sell_at :=
-              Market.O.(Price.(!price_to_sell_at
-                + (filled_amount *$ t.config.fade)))
-          end
-        in
-        List.iter exec.fully_filled ~f:(fun order ->
-          handle_filled_order order order.size);
-        Option.iter exec.partially_filled ~f:(fun partial_fill ->
-          handle_filled_order partial_fill.original_order
-            partial_fill.filled_by);
+        List.iter (Market.Exec.fills exec) ~f:(fun order ->
+            suit_to_sell := Some order.symbol;
+            if Username.equal order.owner t.username
+            then begin
+              amount_to_sell :=
+                Market.Size.O.(!amount_to_sell + order.size);
+              let price_to_sell_at =
+                Card.Hand.get sell_prices ~suit:order.symbol
+              in
+              price_to_sell_at :=
+                Market.O.(Price.(!price_to_sell_at
+                                 + (order.size *$ t.config.fade)))
+            end
+          );
         begin match !suit_to_sell with
         | None -> Deferred.unit
         | Some suit -> sell ~suit ~size:!amount_to_sell

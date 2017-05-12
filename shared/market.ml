@@ -156,6 +156,12 @@ module Exec = struct
     partially_filled : Partial_fill.t option;
     posted           : Order.t option;
   } [@@deriving bin_io, sexp]
+
+  let fills t =
+    match t.partially_filled with
+    | None -> t.fully_filled
+    | Some { original_order; filled_by } ->
+      { original_order with size = filled_by } :: t.fully_filled
 end
 
 module Match_result = struct
