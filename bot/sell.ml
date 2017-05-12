@@ -61,34 +61,35 @@ let command =
           | Error _ | Ok `Ack -> Deferred.unit
         end
       in
+      let handle_filled ~suit ~size =
+        let price_to_sell_at = Card.Hand.get sell_prices ~suit in
+        price_to_sell_at :=
+          Market.O.(Price.(!price_to_sell_at + (size *$ t.config.fade)));
+        sell ~suit ~size
+      in
       let handle_my_filled_order ~suit (exec : Market.Exec.t) =
         let size =
           List.sum (module Market.Size)
             (Market.Exec.fills exec)
             ~f:(fun order -> order.size)
         in
-        sell ~suit ~size
+        handle_filled ~suit ~size
       in
       let handle_exec (exec : Market.Exec.t) =
-        let amount_to_sell = ref Market.Size.zero in
-        let suit_to_sell = ref None in
-        List.iter (Market.Exec.fills exec) ~f:(fun order ->
-            suit_to_sell := Some order.symbol;
-            if Username.equal order.owner t.username
-            then begin
-              amount_to_sell :=
-                Market.Size.O.(!amount_to_sell + order.size);
-              let price_to_sell_at =
-                Card.Hand.get sell_prices ~suit:order.symbol
-              in
-              price_to_sell_at :=
-                Market.O.(Price.(!price_to_sell_at
-                                 + (order.size *$ t.config.fade)))
-            end
-          );
-        begin match !suit_to_sell with
+        let suit = ref None in
+        let size =
+          List.sum (module Market.Size)
+            (Market.Exec.fills exec)
+            ~f:(fun order ->
+                suit := Some order.symbol;
+                if Username.equal order.owner t.username
+                then order.size
+                else Market.Size.zero
+              )
+        in
+        begin match !suit with
         | None -> Deferred.unit
-        | Some suit -> sell ~suit ~size:!amount_to_sell
+        | Some suit -> handle_filled ~suit ~size
         end
       in
       Pipe.iter t.updates ~f:(function
