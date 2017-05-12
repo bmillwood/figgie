@@ -141,12 +141,9 @@ let player_disconnected t ~username =
   end;
   apply_room_update t { username; event = Disconnected }
 
-type rpc_state =
-  (t * Username.t, [ `Not_logged_in | `Not_in_a_room ]) Result.t
-
-let rpc_implementations : rpc_state Rpc.Implementation.t list =
+let rpc_implementations =
   let implement rpc f =
-    Rpc.Rpc.implement rpc (fun (r : rpc_state) q ->
+    Rpc.Rpc.implement rpc (fun r q ->
         match r with
         | Error (`Not_logged_in | `Not_in_a_room as e) ->
           return (Error e)
