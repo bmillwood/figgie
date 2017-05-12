@@ -8,12 +8,30 @@ open Figgie
 open Market
 
 module Model = struct
-  type t = { next_order : Order.Id.t }
+  type t =
+    { market        : Book.t
+    ; trades        : (Order.t * Cpty.t) Fqueue.t
+    ; trades_scroll : Scrolling.Model.t
+    ; next_order    : Order.Id.t
+    }
 
-  let initial = { next_order = Order.Id.zero }
+  let empty =
+    { market        = Book.empty
+    ; trades        = Fqueue.empty
+    ; trades_scroll = Scrolling.Model.create ~id:Ids.tape
+    ; next_order    = Order.Id.zero
+    }
 end
+open Model
+
+let set_market t ~market = { t with market }
+let add_trade t ~traded ~with_ =
+  { t with trades = Fqueue.enqueue t.trades (traded, with_) }
 
 module Cancel_scope = struct
+  (* constructor {All,By_id} is never used to build values. *)
+  [@@@ocaml.warning "-37"]
+
   type t =
     | All
     | By_id of Order.Id.t
@@ -29,13 +47,13 @@ module Action = struct
         ; price  : Price.t
         }
     | Send_cancel of Cancel_scope.t
+    | Scroll_trades of Scrolling.Action.t
     [@@deriving sexp_of]
 end
+open Action
 
-let apply_action (action : Action.t) (model : Model.t)
-  ~my_name ~conn ~(market : Book.t)
+let apply_action action model ~my_name ~conn
   ~(add_message : Chat.Message.t -> unit)
-  : Model.t
   =
   match action with
   | Send_order { symbol; dir; price } ->
@@ -53,7 +71,7 @@ let apply_action (action : Action.t) (model : Model.t)
       | Error reject ->
         add_message (Order_reject (order, reject))
     end;
-    { next_order = Order.Id.next model.next_order }
+    { model with next_order = Order.Id.next model.next_order }
   | Send_cancel (By_id oid) ->
     don't_wait_for begin
       Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn oid
@@ -65,7 +83,7 @@ let apply_action (action : Action.t) (model : Model.t)
     model
   | Send_cancel (By_symbol_side { symbol; dir }) ->
     don't_wait_for begin
-      Card.Hand.get market ~suit:symbol
+      Card.Hand.get model.market ~suit:symbol
       |> Dirpair.get ~dir
       |> Deferred.List.iter ~how:`Parallel ~f:(fun order ->
           if Cpty.equal order.owner my_name
@@ -89,6 +107,9 @@ let apply_action (action : Action.t) (model : Model.t)
         add_message (Cancel_reject (`All, reject))
     end;
     model
+  | Scroll_trades scract ->
+    let trades_scroll = Scrolling.apply_action model.trades_scroll scract in
+    { model with trades_scroll }
 
 let order_entry ~(market : Book.t) ~(inject : Action.t -> _) ~symbol ~dir =
   let id = Ids.order ~dir ~suit:symbol in
@@ -222,12 +243,16 @@ let tape_table ~my_name trades =
   in
   Node.table [Attr.id Ids.tape] trades
 
-let view ~my_name ~market ~trades ~players ~inject =
+let view model ~my_name ~players ~inject =
   Node.table [Attr.id "exchange"]
     [ Node.tr []
       [ Node.td []
-          [market_table ~my_name ~players ~inject market]
+          [market_table ~my_name ~players ~inject model.market]
       ; Node.td []
-          [tape_table ~my_name trades]
+          [tape_table ~my_name model.trades]
       ]
     ]
+
+let on_display model ~schedule =
+  Scrolling.on_display model.trades_scroll
+    ~schedule:(fun act -> schedule (Scroll_trades act))

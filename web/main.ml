@@ -20,9 +20,6 @@ end
 module Playing = struct
   module Model = struct
     type t = {
-      market        : Book.t;
-      trades        : (Order.t * Cpty.t) Fqueue.t;
-      trades_scroll : Scrolling.Model.t;
       exchange      : Exchange.Model.t;
       clock         : Countdown.Model.t option;
     }
@@ -33,7 +30,6 @@ module Playing = struct
       | Market of Book.t
       | Trade of Order.t * Cpty.t
       | Exchange of Exchange.Action.t
-      | Scroll_trades of Scrolling.Action.t
       | Set_clock of Time_ns.t sexp_opaque
       | Clock of Countdown.Action.t
       [@@deriving sexp_of]
@@ -182,7 +178,8 @@ module App = struct
     =
     match t with
     | Market market ->
-      { round with market }
+      let exchange = Exchange.set_market round.exchange ~market in
+      { round with exchange }
     | Set_clock end_time ->
       let clock =
         Countdown.of_end_time
@@ -198,19 +195,15 @@ module App = struct
             c)
       in
       { round with clock }
-    | Trade (order, with_) ->
-      { round with trades = Fqueue.enqueue round.trades (order, with_) }
-    | Scroll_trades act ->
-      { round with
-        trades_scroll = Scrolling.apply_action round.trades_scroll act
-      }
+    | Trade (traded, with_) ->
+      let exchange = Exchange.add_trade round.exchange ~traded ~with_ in
+      { round with exchange }
     | Exchange exact ->
       { round with
         exchange =
           Exchange.apply_action exact round.exchange
             ~my_name:login.my_name
             ~conn
-            ~market:round.market
             ~add_message:(fun msg -> schedule (Add_message msg))
       }
 
@@ -468,10 +461,7 @@ module App = struct
               )
         ; game =
             Playing
-              { market = Book.empty
-              ; trades = Fqueue.empty
-              ; trades_scroll = Scrolling.Model.create ~id:Ids.tape
-              ; exchange = Exchange.Model.initial
+              { exchange = Exchange.Model.empty
               ; clock = None
               }
         }
@@ -661,17 +651,16 @@ module App = struct
       let my_name = login.my_name in
       let exchange_inject act = inject (Action.playing (Exchange act)) in
       begin match login.game with
-      | Playing { market; trades; _ } ->
-        [ Exchange.view ~my_name ~market ~trades
+      | Playing { exchange; _ } ->
+        [ Exchange.view exchange ~my_name
             ~players:(Set.of_map_keys login.users)
             ~inject:exchange_inject
         ; User_info.playing ~users:login.users ~my_name
         ] |> view
       | Waiting { ready } ->
         [ Exchange.view
+            Exchange.Model.empty
             ~my_name
-            ~market:Book.empty
-            ~trades:Fqueue.empty
             ~players:Username.Set.empty
             ~inject:exchange_inject
         ; User_info.waiting
@@ -708,9 +697,10 @@ module App = struct
   let on_display ~(old : Model.t) (new_ : Model.t) (state : State.t) =
     begin match get_conn new_ with
     | Some { login = Some { game = Playing p; _ }; _ } ->
-      Scrolling.on_display p.trades_scroll
-        ~schedule:(fun act ->
-          state.schedule (Action.playing (Scroll_trades act)))
+      Exchange.on_display p.exchange
+        ~schedule:(fun exact ->
+            state.schedule (Action.playing (Exchange exact))
+          )
     | _ -> ()
     end;
     Status_line.on_display ~old:(status_line old) (status_line new_);
