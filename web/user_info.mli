@@ -15,6 +15,7 @@ val waiting
   :  inject_I'm_ready:(bool -> Event.t)
   -> users:Lobby.User.t Username.Map.t
   -> my_name:Username.t
+  -> last_gold:Card.Suit.t option
   -> who_is_ready:Username.Set.t
   -> Node.t
 

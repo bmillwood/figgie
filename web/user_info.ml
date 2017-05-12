@@ -100,7 +100,7 @@ let others_and_me ~users ~my_name =
   Map.remove players my_name, me
 
 let waiting
-    ~inject_I'm_ready ~users ~my_name
+    ~inject_I'm_ready ~users ~my_name ~last_gold:_
     ~(who_is_ready : Username.Set.t)
   =
   let others, me = others_and_me ~users ~my_name in

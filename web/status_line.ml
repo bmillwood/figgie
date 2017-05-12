@@ -16,7 +16,7 @@ module Model = struct
     | Logged_in of
         { connected_to : Host_and_port.t
         ; username : Username.t
-        ; room_name : Lobby.Room.Id.t option
+        ; room_id : Lobby.Room.Id.t option
         ; clock : Countdown.Model.t option
         }
 end
@@ -99,14 +99,14 @@ let view (model : Model.t) ~(inject : Action.t -> _) =
             ()
         ; Node.text (" connected to " ^ Host_and_port.to_string hp)
         ]
-  | Logged_in { connected_to; username; room_name; clock } ->
+  | Logged_in { connected_to; username; room_id; clock } ->
     line ~class_:"Connected"
       ~status:(
           [ Some (Hash_colour.username_span ~is_me:true username)
           ; Some (Node.text (
               " connected to " ^ Host_and_port.to_string connected_to
             ))
-          ; Option.map room_name ~f:(fun room_name -> Node.text (
+          ; Option.map room_id ~f:(fun room_name -> Node.text (
               sprintf " in room %S" (Lobby.Room.Id.to_string room_name)
             ))
           ; Option.map clock ~f:(fun clock ->
