@@ -27,8 +27,6 @@ module Playing = struct
 
   module Action = struct
     type t =
-      | Market of Book.t
-      | Trade of Order.t * Cpty.t
       | Exchange of Exchange.Action.t
       | Set_clock of Time_ns.t sexp_opaque
       | Clock of Countdown.Action.t
@@ -177,9 +175,6 @@ module App = struct
       (round : Playing.Model.t)
     =
     match t with
-    | Market market ->
-      let exchange = Exchange.set_market round.exchange ~market in
-      { round with exchange }
     | Set_clock end_time ->
       let clock =
         Countdown.of_end_time
@@ -195,9 +190,6 @@ module App = struct
             c)
       in
       { round with clock }
-    | Trade (traded, with_) ->
-      let exchange = Exchange.add_trade round.exchange ~traded ~with_ in
-      { round with exchange }
     | Exchange exact ->
       { round with
         exchange =
@@ -303,7 +295,6 @@ module App = struct
         in
         { login with users }
       | Market market ->
-        schedule (Action.playing (Market market));
         let users =
           Map.map login.users ~f:(fun user ->
             match Lobby.User.role user with
@@ -327,7 +318,12 @@ module App = struct
               Lobby.User.set_hand_if_player user ~hand
           )
         in
-        { login with users }
+        Logged_in.update_round_if_playing
+          { login with users }
+          ~f:(fun p ->
+              let exchange = Exchange.set_market p.exchange ~market in
+              { p with exchange }
+            )
       | Broadcast (Exec (order, exec)) ->
         let trades =
           List.concat
@@ -349,9 +345,6 @@ module App = struct
               |> Option.to_list
             ]
         in
-        List.iter trades ~f:(fun (traded, with_) ->
-          schedule (Action.playing (Trade (traded, with_)))
-        );
         don't_wait_for begin
           let%map () =
             Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
@@ -385,7 +378,17 @@ module App = struct
               Lobby.User.set_hand_if_player user ~hand:new_hand
           )
         in
-        { login with users }
+        Logged_in.update_round_if_playing
+          { login with users }
+          ~f:(fun round ->
+              let exchange =
+                List.fold trades ~init:round.exchange
+                  ~f:(fun exch (traded, with_) ->
+                      Exchange.add_trade exch ~traded ~with_
+                    )
+              in
+              { round with exchange }
+            )
       | Broadcast (Room_update { username; event }) ->
         schedule (Add_message (Player_room_event
           { username; room_id = None; event }
