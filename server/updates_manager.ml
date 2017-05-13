@@ -42,6 +42,8 @@ let update t ~username update =
     Client.update client update
   )
 
+let updates t ~username updates = List.iter updates ~f:(update t ~username)
+
 let broadcast t broadcast =
   Hashtbl.iteri t.clients ~f:(fun ~key:_ ~data:client ->
     Client.update client broadcast

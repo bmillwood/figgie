@@ -63,25 +63,24 @@ let start_playing t ~username ~(in_seat : Protocol.Start_playing.query) =
     };
   in_seat
 
+let tell_player_their_hand t round ~username =
+  Result.iter (Game.Round.get_hand round ~username) ~f:(fun hand ->
+      Updates_manager.update t.room_updates ~username (Hand hand)
+    )
+
 let player_join t ~username =
   let updates_r, updates_w = Pipe.create () in
   Updates_manager.subscribe t.room_updates ~username ~updates:updates_w;
   apply_room_update t { username; event = Joined };
-  let catch_up =
-    let open Protocol.Game_update in
-    [ [ Room_snapshot t.room ]
-    ; match t.game.phase with
-      | Waiting_for_players _ -> []
-      | Playing round ->
-          [ Some (Broadcast New_round)
-          ; Option.map (Map.find round.players username)
-              ~f:(fun p -> Hand p.hand)
-          ; Some (Market round.market)
-          ] |> List.filter_opt
-    ] |> List.concat
-  in
-  List.iter catch_up ~f:(fun update ->
-    Pipe.write_without_pushback updates_w update);
+  begin match Game.phase t.game with
+  | Waiting_for_players _ -> ()
+  | Playing round ->
+    Updates_manager.updates t.room_updates ~username
+      [ Protocol.Game_update.Broadcast New_round
+      ; Market (Game.Round.market round)
+      ];
+    tell_player_their_hand t round ~username
+  end;
   updates_r
 
 let chat t ~username msg =
@@ -90,7 +89,7 @@ let chat t ~username msg =
 
 let setup_round t (round : Game.Round.t) =
   don't_wait_for begin
-    Clock_ns.at round.end_time
+    Clock_ns.at (Game.Round.end_time round)
     >>| fun () ->
     let results = Game.end_round t.game round in
     Updates_manager.broadcast t.room_updates
@@ -100,9 +99,9 @@ let setup_round t (round : Game.Round.t) =
       );
     broadcast_scores t
   end;
-  Map.iteri round.players ~f:(fun ~key:username ~data:p ->
-    Updates_manager.update t.room_updates ~username (Hand p.hand)
-  );
+  Map.iter (Lobby.Room.seating t.room) ~f:(fun username ->
+      tell_player_their_hand t round ~username
+    );
   Updates_manager.broadcast t.room_updates
     (Broadcast New_round);
   broadcast_scores t
@@ -113,20 +112,20 @@ let player_ready t ~username ~is_ready =
         apply_room_update t { username; event = Player_ready is_ready };
         match started_or_not with
         | `Started round -> setup_round t round
-        | `Still_waiting _wait -> ()
+        | `Still_waiting -> ()
       )
 
 let cancel_all_for_player t ~username ~round =
-  Result.map (Game.Round.cancel_orders round ~sender:username)
-    ~f:(fun orders ->
-        List.iter orders ~f:(fun order ->
-            Updates_manager.broadcast t.room_updates
-              (Broadcast (Out order)));
-        `Ack
-      )
+  match Game.Round.cancel_orders round ~sender:username with
+  | Error `You're_not_playing as e -> e
+  | Ok orders ->
+    List.iter orders ~f:(fun order ->
+        Updates_manager.broadcast t.room_updates
+          (Broadcast (Out order)));
+    Ok `Ack
 
 let player_disconnected t ~username =
-  begin match t.game.phase with
+  begin match Game.phase t.game with
   | Playing round ->
     begin match cancel_all_for_player t ~username ~round with
     | Error `You're_not_playing | Ok `Ack -> ()
@@ -150,7 +149,7 @@ let rpc_implementations =
   in
   let during_game rpc f =
     implement rpc (fun ~room ~username query ->
-        match room.game.phase with
+        match Game.phase room.game with
         | Waiting_for_players _ -> return (Error `Game_not_in_progress)
         | Playing round -> f ~username ~room ~round query
       )
@@ -159,24 +158,33 @@ let rpc_implementations =
         return (start_playing room ~username ~in_seat)
       )
   ; implement Protocol.Is_ready.rpc (fun ~room ~username is_ready ->
-        return (player_ready room ~username ~is_ready)
+        match player_ready room ~username ~is_ready with
+        | Error (`Game_already_in_progress | `You're_not_playing as e) ->
+          return (Error e)
+        | Ok r -> return (Ok r)
       )
   ; during_game Protocol.Time_remaining.rpc
       (fun ~username:_ ~room:_ ~round () ->
-        let span = Time_ns.diff round.end_time (Time_ns.now ()) in
+        let span =
+          Time_ns.diff (Game.Round.end_time round) (Time_ns.now ())
+        in
         return (Ok span)
       )
   ; during_game Protocol.Get_update.rpc
       (fun ~username ~room ~round which ->
-        begin match which with
+        match which with
         | Hand ->
-          Result.iter (Game.Round.get_hand round ~username) ~f:(fun hand ->
-              Updates_manager.update room.room_updates ~username (Hand hand))
+          begin match Game.Round.get_hand round ~username with
+          | Error `You're_not_playing as e -> return e
+          | Ok hand ->
+              Updates_manager.update room.room_updates ~username
+                (Hand hand);
+              return (Ok ())
+          end
         | Market ->
           Updates_manager.update room.room_updates ~username
-            (Market round.market)
-        end;
-        return (Ok ())
+            (Market (Game.Round.market round));
+          return (Ok ())
       )
   ; during_game Protocol.Order.rpc
       (fun ~username ~room ~round order ->
@@ -191,7 +199,7 @@ let rpc_implementations =
   ; during_game Protocol.Cancel.rpc
       (fun ~username ~room ~round id ->
         match Game.Round.cancel_order round ~id ~sender:username with
-        | (Error _) as e -> return e
+        | (Error (`No_such_order | `You're_not_playing)) as e -> return e
         | Ok order ->
           Updates_manager.broadcast room.room_updates
             (Broadcast (Out order));

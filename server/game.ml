@@ -88,6 +88,10 @@ module Round = struct
     end_time : Time_ns.t;
   }
 
+  let end_time t = t.end_time
+
+  let market t = t.market
+
   let results t =
     let winners, _, losers =
       Map.fold t.players
@@ -269,8 +273,6 @@ module Round = struct
   let get_hand t ~username =
     with_player t ~username ~f:(fun ~player -> Ok player.hand)
 
-  let hands t = Map.map t.players ~f:(fun player -> player.hand)
-
   let add_order t ~order ~sender:username =
     with_player t ~username ~f:(fun ~player ->
       add_player_order t ~order ~sender:player)
@@ -295,15 +297,12 @@ type t =
   ; mutable phase : Phase.t
   }
 
+let phase t = t.phase
+
 let create ~config =
   { config
   ; phase = Waiting_for_players { players = Username.Table.create () }
   }
-
-let num_players t =
-  match t.phase with
-  | Waiting_for_players waiting -> Hashtbl.length waiting.players
-  | Playing round -> Map.length round.players
 
 let player_join t ~username =
   match t.phase with
@@ -348,7 +347,7 @@ let set_ready t ~username ~is_ready =
       let round = Round.start ~config:t.config ~players:round_players in
       t.phase <- Playing round;
       Ok (`Started round)
-    end else Ok (`Still_waiting waiting)
+    end else Ok `Still_waiting
 
 let players t =
   match t.phase with

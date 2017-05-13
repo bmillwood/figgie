@@ -12,5 +12,6 @@ val subscribe
   -> updates:'update Pipe.Writer.t
   -> unit
 
-val update    : 'update t -> username:Username.t -> 'update -> unit
-val broadcast : 'update t ->                        'update -> unit
+val update    : 'update t -> username:Username.t -> 'update      -> unit
+val updates   : 'update t -> username:Username.t -> 'update list -> unit
+val broadcast : 'update t ->                        'update      -> unit
