@@ -20,7 +20,7 @@ end
 
 module Player = struct
   type t = {
-    mutable username : Username.t;
+    username : Username.t;
     mutable chips : Market.Price.t;
   } [@@deriving sexp]
 
