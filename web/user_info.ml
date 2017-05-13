@@ -11,7 +11,11 @@ module Player = struct
   let nobody : t =
     { username = Username.of_string "[nobody]"
     ; is_connected = true
-    ; role = { score = Price.zero; hand = Partial_hand.empty }
+    ; role =
+      { score = Price.zero
+      ; hand = Partial_hand.empty
+      ; is_ready = false
+      }
     }
 
   let of_user user =
@@ -99,24 +103,20 @@ let others_and_me ~users ~my_name =
   in
   Map.remove players my_name, me
 
-let waiting
-    ~inject_I'm_ready ~users ~my_name ~last_gold:_
-    ~(who_is_ready : Username.Set.t)
-  =
+let waiting ~inject_I'm_ready ~users ~my_name ~last_gold:_ =
   let others, me = others_and_me ~users ~my_name in
   let others =
     Map.map others ~f:(fun o ->
       let ready_text =
-        if Set.mem who_is_ready o.username
+        if o.role.is_ready
         then "[ready]"
         else "[not ready]"
       in
       (o, [Node.text ready_text]))
   in
   let ready_button =
-    let is_ready = Set.mem who_is_ready me.username in
     let text, set_it_to =
-      if is_ready
+      if me.role.is_ready
       then "I'm not ready!", false
       else "I'm ready!", true
     in

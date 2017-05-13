@@ -21,7 +21,7 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
             match Lobby.User.role user with
             | Observer { is_omniscient } ->
               `Snd (username, is_connected, is_omniscient)
-            | Player { hand = _; score } ->
+            | Player { hand = _; score; is_ready = _ } ->
               `Fst (username, is_connected, score)
           )
     in

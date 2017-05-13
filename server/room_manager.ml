@@ -71,12 +71,7 @@ let player_join t ~username =
     let open Protocol.Game_update in
     [ [ Room_snapshot t.room ]
     ; match t.game.phase with
-      | Waiting_for_players waiting ->
-        List.map (Hashtbl.data waiting.players) ~f:(fun wp ->
-          Broadcast (Player_ready
-            { who = wp.p.username
-            ; is_ready = wp.is_ready
-            }))
+      | Waiting_for_players _ -> []
       | Playing round ->
           [ Some (Broadcast New_round)
           ; Option.map (Map.find round.players username)
@@ -100,6 +95,9 @@ let setup_round t (round : Game.Round.t) =
     let results = Game.end_round t.game round in
     Updates_manager.broadcast t.room_updates
       (Broadcast (Round_over results));
+    Map.iter (Lobby.Room.seating t.room) ~f:(fun username ->
+        apply_room_update t { username; event = Player_ready false }
+      );
     broadcast_scores t
   end;
   Map.iteri round.players ~f:(fun ~key:username ~data:p ->
@@ -110,10 +108,10 @@ let setup_round t (round : Game.Round.t) =
   broadcast_scores t
 
 let player_ready t ~username ~is_ready =
-  Updates_manager.broadcast t.room_updates
-    (Broadcast (Player_ready { who = username; is_ready }));
   Result.map (Game.set_ready t.game ~username ~is_ready)
-    ~f:(function
+    ~f:(fun started_or_not ->
+        apply_room_update t { username; event = Player_ready is_ready };
+        match started_or_not with
         | `Started round -> setup_round t round
         | `Still_waiting _wait -> ()
       )

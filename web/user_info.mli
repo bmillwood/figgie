@@ -16,7 +16,6 @@ val waiting
   -> users:Lobby.User.t Username.Map.t
   -> my_name:Username.t
   -> last_gold:Card.Suit.t option
-  -> who_is_ready:Username.Set.t
   -> Node.t
 
 val playing

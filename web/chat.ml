@@ -89,7 +89,7 @@ let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
           Some ("sees all things", " in ")
         | Observer_started_playing { in_seat = _ } ->
           Some ("is playing", " in ")
-        | Player_score _ | Player_hand _ ->
+        | Player_score _ | Player_hand _ | Player_ready _ ->
           None
         | Disconnected ->
           Some ("disconnected", " from ")

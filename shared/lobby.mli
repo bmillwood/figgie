@@ -13,7 +13,11 @@ module User : sig
 
   module Player : sig
     module Data : sig
-      type t = { score : Market.Price.t; hand : Partial_hand.t }
+      type t =
+        { score : Market.Price.t
+        ; hand : Partial_hand.t
+        ; is_ready : bool
+        }
     end
 
     type t = Data.t Gen.t
@@ -38,8 +42,6 @@ module User : sig
   val username     : t -> Username.t
   val role         : t -> Role.t
   val is_connected : t -> bool
-
-  val set_hand_if_player : t -> hand:Partial_hand.t -> t
 end
 
 module Room : sig
@@ -72,6 +74,7 @@ module Room : sig
         | Observer_started_playing of { in_seat : Seat.t }
         | Player_score of Market.Price.t
         | Player_hand  of Partial_hand.t
+        | Player_ready of bool
         | Disconnected
       [@@deriving bin_io, sexp]
     end

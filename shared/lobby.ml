@@ -13,7 +13,11 @@ module User = struct
 
   module Player = struct
     module Data = struct
-      type t = { score : Market.Price.t; hand : Partial_hand.t }
+      type t =
+        { score : Market.Price.t
+        ; hand : Partial_hand.t
+        ; is_ready : bool
+        }
         [@@deriving bin_io, sexp]
     end
 
@@ -44,12 +48,6 @@ module User = struct
   let username     (t : t) = t.username
   let role         (t : t) = t.role
   let is_connected (t : t) = t.is_connected
-
-  let set_hand_if_player t ~hand : t =
-    match role t with
-    | Player { score; hand = _ } ->
-      { t with role = Player { score; hand } }
-    | Observer _ -> t
 end
 
 module Room = struct
@@ -104,6 +102,7 @@ module Room = struct
         | Observer_started_playing of { in_seat : Seat.t }
         | Player_score of Market.Price.t
         | Player_hand  of Partial_hand.t
+        | Player_ready of bool
         | Disconnected
         [@@deriving bin_io, sexp]
     end
@@ -136,19 +135,25 @@ module Room = struct
             | Observer_became_omniscient ->
               set_role (Observer { is_omniscient = true })
             | Observer_started_playing { in_seat = _ } ->
-              let score = Market.Price.zero in
-              let hand = Partial_hand.empty in
-              set_role (Player { score; hand })
+              set_role (Player
+                  { score = Market.Price.zero
+                  ; hand = Partial_hand.empty
+                  ; is_ready = false
+                  }
+                )
             | Player_score score ->
               begin match role with
-              | Player { score = _; hand } ->
-                set_role (Player { score; hand })
+              | Player p -> set_role (Player { p with score })
               | Observer _ -> unchanged
               end
             | Player_hand hand ->
               begin match role with
-              | Player { score; hand = _ } ->
-                set_role (Player { score; hand })
+              | Player p -> set_role (Player { p with hand })
+              | Observer _ -> unchanged
+              end
+            | Player_ready is_ready ->
+              begin match role with
+              | Player p -> set_role (Player { p with is_ready })
               | Observer _ -> unchanged
               end
             | Disconnected ->

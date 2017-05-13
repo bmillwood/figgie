@@ -7,22 +7,6 @@ open Vdom
 open Figgie
 open Market
 
-module Waiting = struct
-  module Model = struct
-    type t =
-      { last_gold : Card.Suit.t option
-      ; ready : Username.Set.t
-      }
-
-    let initial = { last_gold = None; ready = Username.Set.empty }
-  end
-  open Model
-
-  let set_player_readiness t ~username ~is_ready =
-    let apply = if is_ready then Set.add else Set.remove in
-    { t with ready = apply t.ready username }
-end
-
 module Playing = struct
   module Model = struct
     type t = { clock : Countdown.Model.t option }
@@ -42,7 +26,7 @@ module In_room = struct
   module Model = struct
     module Game = struct
       type t =
-        | Waiting of Waiting.Model.t
+        | Waiting of { last_gold : Card.Suit.t option }
         | Playing of Playing.Model.t
     end
 
@@ -60,11 +44,6 @@ module In_room = struct
     match t.game with
     | Playing round -> { t with game = Playing (f round) }
     | Waiting _ -> t
-
-  let update_ready_if_waiting t ~f =
-    match t.game with
-    | Playing _ -> t
-    | Waiting wait -> { t with game = Waiting (f wait) }
 
   let modify_user (t : Model.t) ~username ~f =
     let users = Map.change t.users username ~f:(Option.map ~f) in
@@ -230,20 +209,16 @@ module App = struct
     =
     match t with
     | I'm_ready readiness ->
-      In_room.update_ready_if_waiting in_room ~f:(fun wait ->
-          don't_wait_for begin
-            Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn readiness
-            >>| function
-            | Ok ()
-            | Error `Game_already_in_progress
-            | Error `You're_not_playing
-            | Error `Not_logged_in
-            | Error `Not_in_a_room -> ()
-          end;
-          Waiting.set_player_readiness wait
-            ~username:my_name
-            ~is_ready:readiness
-        )
+      don't_wait_for begin
+        Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn readiness
+        >>| function
+        | Ok ()
+        | Error `Game_already_in_progress
+        | Error `You're_not_playing
+        | Error `Not_logged_in
+        | Error `Not_in_a_room -> ()
+      end;
+      in_room
     | Playing pact ->
       In_room.update_round_if_playing in_room
         ~f:(apply_playing_action pact ~schedule)
@@ -262,9 +237,12 @@ module App = struct
       | Hand hand ->
         let users =
           Map.change in_room.users my_name
-            ~f:(Option.map ~f:(fun user ->
-              Lobby.User.set_hand_if_player user
-                ~hand:(Partial_hand.create_known hand)
+            ~f:(Option.map ~f:(fun (user : Lobby.User.t) ->
+              match user.role with
+              | Observer _ -> user
+              | Player p ->
+                let hand = Partial_hand.create_known hand in
+                { user with role = Player { p with hand } }
           ))
         in
         { in_room with users }
@@ -273,9 +251,9 @@ module App = struct
           Map.map in_room.users ~f:(fun user ->
             match Lobby.User.role user with
             | Observer _ -> user
-            | Player { score = _; hand } ->
+            | Player p ->
               let hand =
-                Card.Hand.foldi market ~init:hand
+                Card.Hand.foldi market ~init:p.hand
                   ~f:(fun suit hand book ->
                     let size =
                       List.sum (module Size) book.sell ~f:(fun order ->
@@ -289,7 +267,7 @@ module App = struct
                     Partial_hand.selling hand ~suit ~size
                   )
               in
-              Lobby.User.set_hand_if_player user ~hand
+              { user with role = Player { p with hand } }
           )
         in
         let exchange = Exchange.set_market in_room.exchange ~market in
@@ -305,10 +283,10 @@ module App = struct
           Map.map in_room.users ~f:(fun user ->
             match Lobby.User.role user with
             | Observer _ -> user
-            | Player { score = _; hand } ->
-              let new_hand =
+            | Player p ->
+              let hand =
                 List.fold trades
-                  ~init:hand
+                  ~init:p.hand
                   ~f:(fun hand (trade, with_) ->
                     let traded dir =
                       Partial_hand.traded
@@ -321,7 +299,7 @@ module App = struct
                     then traded (Dir.other order.dir)
                     else hand)
               in
-              Lobby.User.set_hand_if_player user ~hand:new_hand
+              { user with role = Player { p with hand } }
           )
         in
         let exchange =
@@ -364,7 +342,8 @@ module App = struct
           In_room.modify_user in_room ~username ~f:(fun user ->
               let score = Price.zero in
               let hand = Partial_hand.empty in
-              { user with role = Player { score; hand } }
+              let is_ready = false in
+              { user with role = Player { score; hand; is_ready } }
             )
         | Disconnected ->
           In_room.modify_user in_room ~username ~f:(fun user ->
@@ -378,15 +357,22 @@ module App = struct
           In_room.modify_user in_room ~username ~f:(fun user ->
               match user.role with
               | Observer _ -> user
-              | Player { score = _; hand } ->
-                { user with role = Player { score; hand } }
+              | Player p ->
+                { user with role = Player { p with score } }
             )
         | Player_hand hand ->
           In_room.modify_user in_room ~username ~f:(fun user ->
               match user.role with
               | Observer _ -> user
-              | Player { score; hand = _ } ->
-                { user with role = Player { score; hand } }
+              | Player p ->
+                { user with role = Player { p with hand } }
+            )
+        | Player_ready is_ready ->
+          In_room.modify_user in_room ~username ~f:(fun user ->
+              match user.role with
+              | Observer _ -> user
+              | Player p ->
+                { user with role = Player { p with is_ready } }
             )
         end
       | Broadcast New_round ->
@@ -407,11 +393,11 @@ module App = struct
           Map.map in_room.users ~f:(fun user ->
               match user.role with
               | Observer _ -> user
-              | Player { score; hand = _ } ->
+              | Player p ->
                 let hand =
                   Partial_hand.create_unknown Params.num_cards_per_hand
                 in
-                { user with role = Player { score; hand } }
+                { user with role = Player { p with hand } }
             )
         in
         let exchange = Exchange.Model.empty in
@@ -419,12 +405,7 @@ module App = struct
         { in_room with users; exchange; game = Playing playing }
       | Broadcast (Round_over results) ->
         schedule (Add_message (Round_over results));
-        let waiting : Waiting.Model.t =
-          { last_gold = Some results.gold
-          ; ready = Username.Set.empty
-          }
-        in
-        { in_room with game = Waiting waiting }
+        { in_room with game = Waiting { last_gold = Some results.gold } }
       | Broadcast (Chat (username, msg)) ->
         let is_me = Username.equal username my_name in
         just_schedule (Add_message (Chat { username; is_me; msg }))
@@ -434,9 +415,6 @@ module App = struct
           >>| Protocol.playing_exn
         end;
         in_room
-      | Broadcast (Player_ready { who; is_ready }) ->
-        In_room.update_ready_if_waiting in_room ~f:(fun wait ->
-          Waiting.set_player_readiness wait ~username:who ~is_ready)
 
   let apply_logged_in_action
       (t : Logged_in.Action.t)
@@ -500,7 +478,7 @@ module App = struct
           ; room
           ; users = Lobby.Room.users room
           ; exchange = Exchange.Model.empty
-          ; game = Waiting Waiting.Model.initial
+          ; game = Waiting { last_gold = None }
           }
         in
         { login with where = In_room in_room }
@@ -716,12 +694,11 @@ module App = struct
         ; match game with
           | Playing _ ->
             User_info.playing ~users ~my_name
-          | Waiting { last_gold; ready } ->
+          | Waiting { last_gold } ->
             User_info.waiting
               ~inject_I'm_ready:(fun readiness ->
                 inject (Action.in_room (I'm_ready readiness)))
               ~users ~my_name ~last_gold
-              ~who_is_ready:ready
         ] |> view
       end
 
