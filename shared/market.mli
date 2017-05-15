@@ -82,6 +82,26 @@ module O : sig
 end
 val ( *$ ) : Size.t -> Price.t -> Price.t
 
+module Positions : sig
+  type t =
+    { cash  : Price.t
+    ; stuff : Size.t Per_symbol.t
+    }
+
+  val zero : t
+
+  val (+) : t -> t -> t
+  val (-) : t -> t -> t
+  val neg : t -> t
+
+  val trade
+    :  dir:Dir.t
+    -> symbol:Symbol.t
+    -> size:Size.t
+    -> price:Price.t
+    -> t
+end
+
 module Order : sig
   module Id : sig
     include Identifiable.S
@@ -110,17 +130,20 @@ module Exec : sig
     } [@@deriving bin_io, sexp]
   end
 
-  type t = {
-    fully_filled     : Order.t list;
-    partially_filled : Partial_fill.t option;
-    posted           : Order.t option;
-  } [@@deriving bin_io, sexp]
+  type t =
+    { order            : Order.t
+    ; fully_filled     : Order.t list
+    ; partially_filled : Partial_fill.t option
+    ; posted           : Order.t option
+    } [@@deriving bin_io, sexp]
 
   val fills : t -> Order.t list
+
+  val position_effect : t -> Positions.t Cpty.Map.t
 end
 
 module Match_result : sig
-  type 'a t = { exec : Exec.t; remaining : 'a }
+  type 'a t = { exec : Exec.t; new_market : 'a }
 end
 
 module Halfbook : sig

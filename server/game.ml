@@ -198,10 +198,10 @@ module Round = struct
         Market.Size.O.(sent_order.size <= max_sell))
       ~error:`Not_enough_to_sell
     >>| fun () ->
-    let { Market.Match_result.exec; remaining } =
+    let { Market.Match_result.exec; new_market } =
       Market.Book.match_ t.market sent_order
     in
-    t.market <- remaining;
+    t.market <- new_market;
     let settle_order ~owner (executed_order : Market.Order.t) =
       let add_cards ~(player : Player.t) delta =
         player.hand <-

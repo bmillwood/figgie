@@ -7,6 +7,9 @@ module Per_symbol = struct
   let get t ~symbol = get t ~suit:symbol
   let set t ~symbol = set t ~suit:symbol
   let modify t ~symbol = modify t ~suit:symbol
+
+  let zero ~zero = create_all zero
+  let union_with = map2
 end
 
 module Dir = struct
@@ -122,8 +125,46 @@ module O = struct
 end
 let ( *$ ) = O.( *$ )
 
+module Positions = struct
+  type t =
+    { cash  : Price.t
+    ; stuff : Size.t Per_symbol.t
+    }
+
+  let zero =
+    { cash  = Price.zero
+    ; stuff = Per_symbol.zero ~zero:Size.zero
+    }
+
+  let (+) t1 t2 =
+    { cash = Price.(+) t1.cash t2.cash
+    ; stuff = Per_symbol.union_with t1.stuff t2.stuff ~f:Size.(+)
+    }
+
+  let neg t =
+    { cash = Price.neg t.cash
+    ; stuff = Per_symbol.map t.stuff ~f:Size.neg
+    }
+
+  let (-) t1 t2 = t1 + neg t2
+
+  let buy ~symbol ~size ~price =
+    { cash  = size *$ Price.neg price
+    ; stuff = Per_symbol.set zero.stuff ~symbol ~to_:size
+    }
+
+  let sell ~symbol ~size ~price = neg (buy ~symbol ~size ~price)
+
+  let trade ~dir ~symbol ~size ~price =
+    Dir.fold dir ~buy ~sell ~symbol ~size ~price
+end
+
 module Order = struct
-  module Id : sig include Identifiable.S val zero : t val next : t -> t end = struct
+  module Id : sig
+    include Identifiable.S
+    val zero : t
+    val next : t -> t
+  end = struct
     include Int
     let next t = t + 1
   end
@@ -152,6 +193,7 @@ module Exec = struct
   end
 
   type t = {
+    order            : Order.t;
     fully_filled     : Order.t list;
     partially_filled : Partial_fill.t option;
     posted           : Order.t option;
@@ -162,10 +204,34 @@ module Exec = struct
     | None -> t.fully_filled
     | Some { original_order; filled_by } ->
       { original_order with size = filled_by } :: t.fully_filled
+
+  let position_effect t =
+    List.fold (fills t)
+      ~init:Cpty.Map.empty
+      ~f:(fun acc fill ->
+          let crossing_price = fill.price in
+          let symbol = fill.symbol in
+          let size = fill.size in
+          let update acc ~cpty ~f =
+            Map.update acc cpty
+              ~f:(fun p -> f (Option.value p ~default:Positions.zero))
+          in
+          let delta_for_filler =
+            Positions.trade ~dir:t.order.dir
+              ~symbol ~size ~price:crossing_price
+          in
+          let delta_for_fillee = Positions.neg delta_for_filler in
+          acc
+          |> update ~cpty:t.order.owner ~f:(Positions.(+) delta_for_filler)
+          |> update ~cpty:fill.owner    ~f:(Positions.(+) delta_for_fillee)
+        )
 end
 
 module Match_result = struct
-  type 'a t = { exec : Exec.t; remaining : 'a }
+  type 'a t =
+    { exec : Exec.t
+    ; new_market : 'a
+    }
 end
 
 module Halfbook = struct
@@ -199,27 +265,35 @@ module Halfbook = struct
             { original_order = o; filled_by = order.size }
           in
           { exec =
-            { fully_filled = []
+            { order
+            ; fully_filled = []
             ; partially_filled = Some pf
             ; posted = None
             }
-          ; remaining = { o with size = o.size - order.size } :: os
+          ; new_market = { o with size = o.size - order.size } :: os
           }
       | Equal ->
           { exec =
-            { fully_filled = [o]
+            { order
+            ; fully_filled = [o]
             ; partially_filled = None
             ; posted = None
             }
-          ; remaining = os
+          ; new_market = os
           }
       | Greater ->
           let r = match_ os { order with size = order.size - o.size } in
-          { r with exec = { r.exec with fully_filled = o :: r.exec.fully_filled } }
+          let fully_filled = o :: r.exec.fully_filled in
+          { r with exec = { r.exec with order; fully_filled } }
       end
     | _ ->
-      { exec = { fully_filled = []; partially_filled = None; posted = Some order }
-      ; remaining = t
+      { exec =
+          { order
+          ; fully_filled = []
+          ; partially_filled = None
+          ; posted = Some order
+          }
+      ; new_market = t
       }
 end
 
@@ -239,10 +313,10 @@ module Book = struct
         Dirpair.mapi book ~f:(fun side hbook ->
           if Dir.equal side order.dir
           then Halfbook.add_order hbook posted
-          else r.remaining)
-      | None -> Dirpair.set book ~dir:opp_dir ~to_:r.remaining
+          else r.new_market)
+      | None -> Dirpair.set book ~dir:opp_dir ~to_:r.new_market
     in
-    { r with remaining = Per_symbol.set t ~symbol:order.symbol ~to_:new_book }
+    { r with new_market = Per_symbol.set t ~symbol:order.symbol ~to_:new_book }
 
   let cancel t (order : Order.t) =
     let book = Per_symbol.get t ~symbol:order.symbol in
