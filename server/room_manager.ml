@@ -197,26 +197,45 @@ let rpc_implementations =
         | Ok exec ->
           Updates_manager.broadcast room.room_updates
             (Broadcast (Exec (order, exec)));
-          let users = Lobby.Room.users room.room in
-          let pos_diff = Market.Exec.position_effect exec in
+          let adjust_for_posted_sell =
+            match exec.posted with
+            | None -> (fun _username _hand -> None)
+            | Some posted ->
+              (fun username hand ->
+                if Username.equal posted.owner username then (
+                  Some (
+                    Partial_hand.selling hand
+                      ~suit:posted.symbol ~size:posted.size
+                  )
+                ) else (
+                  None
+                )
+              )
+          in
           let updates =
-            Map.merge users pos_diff
+            Map.merge
+              (Lobby.Room.players room.room)
+              (Market.Exec.position_effect exec)
               ~f:(fun ~key:_ ->
+                  let open Lobby.Room.Update.User_event in
                   function
-                  | `Left _ -> None
+                  | `Left user ->
+                    Option.map
+                      (adjust_for_posted_sell user.username user.role.hand)
+                      ~f:(fun new_hand -> [Player_hand new_hand])
                   | `Right _ -> assert false
                   | `Both (user, pos_diff) ->
-                    match user.role with
-                    | Observer _ -> None
-                    | Player p ->
                       let score =
-                        Market.Price.O.(p.score + pos_diff.cash)
+                        Market.Price.O.(user.role.score + pos_diff.cash)
                       in
                       let hand =
-                        Partial_hand.apply_positions_diff p.hand
+                        Partial_hand.apply_positions_diff user.role.hand
                           ~diff:pos_diff.stuff
                       in
-                      let open Lobby.Room.Update.User_event in
+                      let hand =
+                        Option.value ~default:hand
+                          (adjust_for_posted_sell user.username hand)
+                      in
                       Some
                         [ Player_score score
                         ; Player_hand hand

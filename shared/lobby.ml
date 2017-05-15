@@ -75,6 +75,13 @@ module Room = struct
 
   let users t = t.users
 
+  let players t =
+    Map.filter_map t.users ~f:(fun user ->
+        match user.role with
+        | Observer _ -> None
+        | Player p -> Some { user with role = p }
+      )
+
   let seating t = t.seating
 
   let in_seat t ~seat =

@@ -353,14 +353,9 @@ module App = struct
               (Map.find lobby.rooms id)
           in
           let my_hand =
-            Option.bind
-              (Map.find (Lobby.Room.users room) login.my_name)
-              ~f:(fun user ->
-                  match user.role with
-                  | Player p -> Some p.hand
-                  | Observer _ -> None
-                )
-            |> Option.value ~default:Partial_hand.empty
+            match Map.find (Lobby.Room.players room) login.my_name with
+            | Some p -> p.role.hand
+            | None -> Partial_hand.empty
           in
           { room_id = id
           ; room
