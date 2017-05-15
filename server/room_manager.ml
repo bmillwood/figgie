@@ -193,7 +193,39 @@ let rpc_implementations =
         | Ok exec ->
           Updates_manager.broadcast room.room_updates
             (Broadcast (Exec (order, exec)));
-          broadcast_scores room;
+          let users = Lobby.Room.users room.room in
+          let pos_diff = Market.Exec.position_effect exec in
+          let updates =
+            Map.merge users pos_diff
+              ~f:(fun ~key:_ ->
+                  function
+                  | `Left _ -> None
+                  | `Right _ -> assert false
+                  | `Both (user, pos_diff) ->
+                    match user.role with
+                    | Observer _ -> None
+                    | Player p ->
+                      let score =
+                        Market.Price.O.(p.score + pos_diff.cash)
+                      in
+                      let hand =
+                        Partial_hand.apply_positions_diff p.hand
+                          ~diff:pos_diff.stuff
+                      in
+                      let open Lobby.Room.Update.User_event in
+                      Some
+                        [ Player_score score
+                        ; Player_hand hand
+                        ]
+                )
+            |> Map.to_alist
+            |> List.concat_map ~f:(fun (username, events) ->
+                List.map events ~f:(fun event ->
+                    Lobby.Room.Update.{ username; event }
+                  )
+              )
+          in
+          List.iter updates ~f:(apply_room_update room);
           return (Ok `Ack)
       )
   ; during_game Protocol.Cancel.rpc

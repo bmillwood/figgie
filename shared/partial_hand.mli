@@ -12,3 +12,6 @@ val create_known   : Size.t Card.Hand.t -> t
 
 val selling : t -> suit:Card.Suit.t -> size:Size.t -> t
 val traded  : t -> suit:Card.Suit.t -> size:Size.t -> dir:Dir.t -> t
+
+val apply_position_diff  : t -> suit:Card.Suit.t -> diff:Size.t -> t
+val apply_positions_diff : t -> diff:Size.t Card.Hand.t -> t

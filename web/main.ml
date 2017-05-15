@@ -33,7 +33,7 @@ module In_room = struct
     type t =
       { room_id  : Lobby.Room.Id.t
       ; room     : Lobby.Room.t
-      ; users    : Lobby.User.t Username.Map.t
+      ; my_hand  : Partial_hand.t
       ; exchange : Exchange.Model.t
       ; game     : Game.t
       }
@@ -44,10 +44,6 @@ module In_room = struct
     match t.game with
     | Playing round -> { t with game = Playing (f round) }
     | Waiting _ -> t
-
-  let modify_user (t : Model.t) ~username ~f =
-    let users = Map.change t.users username ~f:(Option.map ~f) in
-    { t with users }
 
   module Action = struct
     type t =
@@ -233,74 +229,18 @@ module App = struct
       let just_schedule act = schedule act; in_room in
       match up with
       | Room_snapshot room ->
-        { in_room with users = Lobby.Room.users room }
+        { in_room with room }
       | Hand hand ->
-        let users =
-          Map.change in_room.users my_name
-            ~f:(Option.map ~f:(fun (user : Lobby.User.t) ->
-              match user.role with
-              | Observer _ -> user
-              | Player p ->
-                let hand = Partial_hand.create_known hand in
-                { user with role = Player { p with hand } }
-          ))
-        in
-        { in_room with users }
+        { in_room with my_hand = Partial_hand.create_known hand }
       | Market market ->
-        let users =
-          Map.map in_room.users ~f:(fun user ->
-            match Lobby.User.role user with
-            | Observer _ -> user
-            | Player p ->
-              let hand =
-                Card.Hand.foldi market ~init:p.hand
-                  ~f:(fun suit hand book ->
-                    let size =
-                      List.sum (module Size) book.sell ~f:(fun order ->
-                          if Username.equal
-                              order.owner
-                              (Lobby.User.username user)
-                          then order.size
-                          else Size.zero
-                        )
-                    in
-                    Partial_hand.selling hand ~suit ~size
-                  )
-              in
-              { user with role = Player { p with hand } }
-          )
-        in
         let exchange = Exchange.set_market in_room.exchange ~market in
-        { in_room with users; exchange }
+        { in_room with exchange }
       | Broadcast (Exec (order, exec)) ->
         let { Order.owner; id; dir; _ } = order in
         let trades =
           List.map (Exec.fills exec) ~f:(fun filled_order ->
               ({ filled_order with owner; id; dir }, filled_order.owner)
             )
-        in
-        let users =
-          Map.map in_room.users ~f:(fun user ->
-            match Lobby.User.role user with
-            | Observer _ -> user
-            | Player p ->
-              let hand =
-                List.fold trades
-                  ~init:p.hand
-                  ~f:(fun hand (trade, with_) ->
-                    let traded dir =
-                      Partial_hand.traded
-                        hand ~suit:trade.symbol ~size:trade.size ~dir
-                    in
-                    let username = Lobby.User.username user in
-                    if Username.equal username trade.owner
-                    then traded trade.dir
-                    else if Username.equal username with_
-                    then traded (Dir.other order.dir)
-                    else hand)
-              in
-              { user with role = Player { p with hand } }
-          )
         in
         let exchange =
           List.fold trades ~init:in_room.exchange
@@ -318,63 +258,12 @@ module App = struct
           in
           ()
         end;
-        { in_room with users; exchange }
-      | Broadcast (Room_update { username; event }) ->
+        { in_room with exchange }
+      | Broadcast (Room_update ({ username; event } as update)) ->
         schedule (Add_message (Player_room_event
           { username; room_id = None; event }
         ));
-        begin match event with
-        | Joined ->
-          let users =
-            Map.update in_room.users username
-              ~f:(function
-                | None ->
-                  { username
-                  ; role = Observer { is_omniscient = false }
-                  ; is_connected = true
-                  }
-                | Some user ->
-                  { user with is_connected = true }
-                )
-          in
-          { in_room with users }
-        | Observer_started_playing { in_seat = _ } ->
-          In_room.modify_user in_room ~username ~f:(fun user ->
-              let score = Price.zero in
-              let hand = Partial_hand.empty in
-              let is_ready = false in
-              { user with role = Player { score; hand; is_ready } }
-            )
-        | Disconnected ->
-          In_room.modify_user in_room ~username ~f:(fun user ->
-              { user with is_connected = false }
-            )
-        | Observer_became_omniscient ->
-          In_room.modify_user in_room ~username ~f:(fun user ->
-              { user with role = Observer { is_omniscient = true } }
-            )
-        | Player_score score ->
-          In_room.modify_user in_room ~username ~f:(fun user ->
-              match user.role with
-              | Observer _ -> user
-              | Player p ->
-                { user with role = Player { p with score } }
-            )
-        | Player_hand hand ->
-          In_room.modify_user in_room ~username ~f:(fun user ->
-              match user.role with
-              | Observer _ -> user
-              | Player p ->
-                { user with role = Player { p with hand } }
-            )
-        | Player_ready is_ready ->
-          In_room.modify_user in_room ~username ~f:(fun user ->
-              match user.role with
-              | Observer _ -> user
-              | Player p ->
-                { user with role = Player { p with is_ready } }
-            )
-        end
+        { in_room with room = Lobby.Room.Update.apply update in_room.room }
       | Broadcast New_round ->
         schedule (Add_message New_round);
         don't_wait_for begin
@@ -389,20 +278,9 @@ module App = struct
             let end_time = Time_ns.add current_time remaining in
             schedule (Action.playing (Set_clock end_time))
         end;
-        let users =
-          Map.map in_room.users ~f:(fun user ->
-              match user.role with
-              | Observer _ -> user
-              | Player p ->
-                let hand =
-                  Partial_hand.create_unknown Params.num_cards_per_hand
-                in
-                { user with role = Player { p with hand } }
-            )
-        in
         let exchange = Exchange.Model.empty in
         let playing = Playing.Model.initial in
-        { in_room with users; exchange; game = Playing playing }
+        { in_room with exchange; game = Playing playing }
       | Broadcast (Round_over results) ->
         schedule (Add_message (Round_over results));
         { in_room with game = Waiting { last_gold = Some results.gold } }
@@ -474,9 +352,19 @@ module App = struct
             Option.value ~default:Lobby.Room.empty
               (Map.find lobby.rooms id)
           in
+          let my_hand =
+            Option.bind
+              (Map.find (Lobby.Room.users room) login.my_name)
+              ~f:(fun user ->
+                  match user.role with
+                  | Player p -> Some p.hand
+                  | Observer _ -> None
+                )
+            |> Option.value ~default:Partial_hand.empty
+          in
           { room_id = id
           ; room
-          ; users = Lobby.Room.users room
+          ; my_hand
           ; exchange = Exchange.Model.empty
           ; game = Waiting { last_gold = None }
           }
@@ -687,7 +575,13 @@ module App = struct
                 Event.Ignore
             )
         ] |> view
-      | In_room { exchange; game; users; _ } ->
+      | In_room { exchange; game; room; my_hand; _ } ->
+        let users =
+          room
+          |> Lobby.Room.Update.apply
+            { username = my_name; event = Player_hand my_hand }
+          |> Lobby.Room.users
+        in
         [ Exchange.view exchange ~my_name
             ~players:(Set.of_map_keys users)
             ~inject:exchange_inject

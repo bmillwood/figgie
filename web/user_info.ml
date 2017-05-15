@@ -6,7 +6,7 @@ open Figgie
 open Market
 
 module Player = struct
-  type t = Lobby.User.Player.t
+  type t = Lobby.User.Player.t [@@deriving sexp]
 
   let nobody : t =
     { username = Username.of_string "[nobody]"
@@ -132,15 +132,20 @@ let waiting ~inject_I'm_ready ~users ~my_name ~last_gold:_ =
 
 let playing ~(users : Lobby.User.t Username.Map.t) ~my_name =
   let others, me = others_and_me ~users ~my_name in
-  let span_of_copies class_ n s =
-    let content =
-      List.init (Size.to_int n) ~f:(fun _ -> s)
-      |> String.concat
-      |> Node.text
-    in
-    Node.span [Attr.class_ class_] [content]
-  in
   let pers_with_hand (player : Player.t) =
+    let span_of_copies class_ n s =
+      if Size.O.(n < zero) then (
+        raise_s [%message "user appears to have negative cards"
+            (player : Player.t)
+        ]
+      );
+      let content =
+        List.init (Size.to_int n) ~f:(fun _ -> s)
+        |> String.concat
+        |> Node.text
+      in
+      Node.span [Attr.class_ class_] [content]
+    in
     let known =
       Card.Hand.foldi player.role.hand.known
         ~init:[]

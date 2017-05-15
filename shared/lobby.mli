@@ -20,7 +20,7 @@ module User : sig
         }
     end
 
-    type t = Data.t Gen.t
+    type t = Data.t Gen.t [@@deriving sexp]
   end
 
   module Observer : sig
@@ -28,7 +28,7 @@ module User : sig
       type t = { is_omniscient : bool }
     end
 
-    type t = Data.t Gen.t
+    type t = Data.t Gen.t [@@deriving sexp]
   end
 
   module Role : sig
@@ -37,7 +37,7 @@ module User : sig
       | Observer of Observer.Data.t
   end
 
-  type t = Role.t Gen.t
+  type t = Role.t Gen.t [@@deriving sexp]
 
   val username     : t -> Username.t
   val role         : t -> Role.t

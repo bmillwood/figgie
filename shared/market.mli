@@ -86,7 +86,7 @@ module Positions : sig
   type t =
     { cash  : Price.t
     ; stuff : Size.t Per_symbol.t
-    }
+    } [@@deriving sexp]
 
   val zero : t
 

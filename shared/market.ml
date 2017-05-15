@@ -129,7 +129,7 @@ module Positions = struct
   type t =
     { cash  : Price.t
     ; stuff : Size.t Per_symbol.t
-    }
+    } [@@deriving sexp]
 
   let zero =
     { cash  = Price.zero

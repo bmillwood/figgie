@@ -39,3 +39,15 @@ let sold t ~suit ~size:size_sold =
 
 let traded t ~suit ~size ~dir =
   Dir.fold dir ~buy:bought ~sell:sold t ~suit ~size
+
+let apply_position_diff t ~suit ~diff =
+  if Size.O.(diff < zero) then (
+    sold t ~suit ~size:(Size.neg diff)
+  ) else (
+    bought t ~suit ~size:diff
+  )
+
+let apply_positions_diff t ~diff =
+  Card.Hand.foldi diff ~init:t ~f:(fun suit t diff ->
+      apply_position_diff t ~suit ~diff
+    )
