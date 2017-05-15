@@ -100,6 +100,10 @@ let setup_round t (round : Game.Round.t) =
     broadcast_scores t
   end;
   Map.iter (Lobby.Room.seating t.room) ~f:(fun username ->
+      let unknown_hand =
+        Partial_hand.create_unknown Params.num_cards_per_hand
+      in
+      apply_room_update t { username; event = Player_hand unknown_hand };
       tell_player_their_hand t round ~username
     );
   Updates_manager.broadcast t.room_updates
