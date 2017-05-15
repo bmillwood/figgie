@@ -27,7 +27,7 @@ val apply_action
 val view
   :  Model.t
   -> my_name:Username.t
-  -> players:Username.Set.t
+  -> shortener:Username.Shortener.t
   -> inject:(Action.t -> Vdom.Event.t)
   -> Vdom.Node.t
 

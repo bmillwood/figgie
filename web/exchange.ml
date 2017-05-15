@@ -151,7 +151,7 @@ let order_entry ~(market : Book.t) ~(inject : Action.t -> _) ~symbol ~dir =
     ()
 
 let market_table
-  ~players ~my_name ~(inject : Action.t -> _) (market : Book.t)
+  ~shortener ~my_name ~(inject : Action.t -> _) (market : Book.t)
   =
   let market_depth = 3 in
   let nbsp = "\xc2\xa0" in
@@ -167,8 +167,7 @@ let market_table
   in
   let cells ~dir =
     let shortname_s username =
-      let everyone = Set.to_list players in
-      Username.Shortener.(short (of_list everyone) username)
+      Username.Shortener.short shortener username
       |> Username.to_string
     in
     List.map Card.Suit.all ~f:(fun symbol ->
@@ -243,11 +242,11 @@ let tape_table ~my_name trades =
   in
   Node.table [Attr.id Ids.tape] trades
 
-let view model ~my_name ~players ~inject =
+let view model ~my_name ~shortener ~inject =
   Node.table [Attr.id "exchange"]
     [ Node.tr []
       [ Node.td []
-          [market_table ~my_name ~players ~inject model.market]
+          [market_table ~my_name ~shortener ~inject model.market]
       ; Node.td []
           [tape_table ~my_name model.trades]
       ]

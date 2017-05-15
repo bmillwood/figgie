@@ -578,7 +578,7 @@ module App = struct
           |> Lobby.Room.users
         in
         [ Exchange.view exchange ~my_name
-            ~players:(Set.of_map_keys users)
+            ~shortener:(Username.Shortener.of_list (Map.keys users))
             ~inject:exchange_inject
         ; match game with
           | Playing _ ->
