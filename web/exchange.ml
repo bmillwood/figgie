@@ -111,12 +111,16 @@ let apply_action action model ~my_name ~conn
     let trades_scroll = Scrolling.apply_action model.trades_scroll scract in
     { model with trades_scroll }
 
-let order_entry ~(market : Book.t) ~(inject : Action.t -> _) ~symbol ~dir =
+let order_entry
+    ~(market : Book.t) ~(inject : Action.t -> _)
+    ~can_send_orders ~symbol ~dir
+  =
   let id = Ids.order ~dir ~suit:symbol in
   let hotkey = Hotkeys.Global.lookup_id id in
   let placeholder = Hotkeys.Global.placeholder_of_id id in
   let book = Card.Hand.get market ~suit:symbol in
   Widget.textbox ~id ?placeholder
+    ~disabled:(not can_send_orders)
     ~on_keypress:(fun ~self ev ->
       match Hotkeys.char_code ev with
       | None -> Event.Ignore
@@ -151,7 +155,8 @@ let order_entry ~(market : Book.t) ~(inject : Action.t -> _) ~symbol ~dir =
     ()
 
 let market_table
-  ~shortener ~my_name ~(inject : Action.t -> _) (market : Book.t)
+  ~shortener ~can_send_orders ~my_name ~(inject : Action.t -> _)
+  (market : Book.t)
   =
   let market_depth = 3 in
   let nbsp = "\xc2\xa0" in
@@ -163,7 +168,10 @@ let market_table
     let dir_s = Dir.to_string dir in
     Node.tr [Attr.id ("order" ^ dir_s); Attr.class_ dir_s]
       (List.map Card.Suit.all ~f:(fun symbol ->
-        Node.td [] [order_entry ~market ~inject ~symbol ~dir]))
+          Node.td []
+            [order_entry ~market ~can_send_orders ~inject ~symbol ~dir]
+        )
+      )
   in
   let cells ~dir =
     let shortname_s username =
@@ -242,11 +250,13 @@ let tape_table ~my_name trades =
   in
   Node.table [Attr.id Ids.tape] trades
 
-let view model ~my_name ~shortener ~inject =
+let view model ~my_name ~shortener ~can_send_orders ~inject =
   Node.table [Attr.id "exchange"]
     [ Node.tr []
       [ Node.td []
-          [market_table ~my_name ~shortener ~inject model.market]
+          [ market_table
+              ~my_name ~shortener ~can_send_orders ~inject model.market
+          ]
       ; Node.td []
           [tape_table ~my_name model.trades]
       ]

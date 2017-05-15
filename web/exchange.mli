@@ -28,6 +28,7 @@ val view
   :  Model.t
   -> my_name:Username.t
   -> shortener:Username.Shortener.t
+  -> can_send_orders:bool
   -> inject:(Action.t -> Vdom.Event.t)
   -> Vdom.Node.t
 
