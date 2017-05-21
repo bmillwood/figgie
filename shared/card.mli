@@ -5,7 +5,6 @@ module Suit : sig
     [@@deriving bin_io, compare, enumerate, sexp]
 
   val name : t -> string
-  val to_utf8 : t -> string
   
   val equal : t -> t -> bool
 

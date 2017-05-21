@@ -155,7 +155,7 @@ let order_entry
     ()
 
 let market_table
-  ~shortener ~can_send_orders ~my_name ~(inject : Action.t -> _)
+  ~shortener ~gold ~can_send_orders ~my_name ~(inject : Action.t -> _)
   (market : Book.t)
   =
   let market_depth = 3 in
@@ -210,13 +210,13 @@ let market_table
       ; [input_row ~dir:Sell]
       ; [Node.tr [Attr.id "suits"]
           (List.map Card.Suit.all ~f:(fun suit ->
-            Node.td [Attr.class_ (Card.Suit.name suit)]
-              [Node.text (Card.Suit.to_utf8 suit)]))]
+            Node.td [] [Style.suit_span ~gold suit]
+          ))]
       ; [input_row ~dir:Buy]
       ; cells ~dir:Buy
       ])
 
-let tape_table ~my_name trades =
+let tape_table ~my_name ~gold trades =
   let row_of_order ~traded_with (trade : Order.t) =
     let person_td username =
       Hash_colour.username_span
@@ -233,9 +233,8 @@ let tape_table ~my_name trades =
       in
       Node.td []
         (size_n
-        @ [ Node.span [Attr.class_ (Card.Suit.name trade.symbol)]
-            [Node.text (Card.Suit.to_utf8 trade.symbol)]
-          ])
+         @ [Style.suit_span ~gold trade.symbol]
+        )
       end
     ; Node.td [Attr.class_ "price"]
         [Node.text (Price.to_string trade.price)]
@@ -250,15 +249,15 @@ let tape_table ~my_name trades =
   in
   Node.table [Attr.id Ids.tape] trades
 
-let view model ~my_name ~shortener ~can_send_orders ~inject =
+let view model ~my_name ~shortener ~gold ~can_send_orders ~inject =
   Node.table [Attr.id "exchange"]
     [ Node.tr []
       [ Node.td []
           [ market_table
-              ~my_name ~shortener ~can_send_orders ~inject model.market
+              ~my_name ~shortener ~gold ~can_send_orders ~inject model.market
           ]
       ; Node.td []
-          [tape_table ~my_name model.trades]
+          [tape_table ~my_name ~gold model.trades]
       ]
     ]
 

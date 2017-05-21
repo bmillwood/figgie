@@ -150,10 +150,7 @@ let playing ~(users : Lobby.User.t Username.Map.t) ~my_name =
       Card.Hand.foldi player.role.hand.known
         ~init:[]
         ~f:(fun suit acc count ->
-          span_of_copies
-            (Card.Suit.name suit)
-            count
-            (Card.Suit.to_utf8 suit)
+            Style.suit_span ~count:(Size.to_int count) ~gold:None suit
             :: acc)
         |> List.rev
     in

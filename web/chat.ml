@@ -122,7 +122,7 @@ let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
       status
         [ Node.text "Time's up! The gold suit was "
         ; Node.span [Attr.classes [Card.Suit.name results.gold; "gold"]]
-          [ Node.text (Card.Suit.to_utf8 results.gold)
+          [ Style.suit_span ~gold:None results.gold
           ; Node.text " "
           ; Node.text (Card.Suit.name results.gold)
           ]

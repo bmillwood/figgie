@@ -577,14 +577,16 @@ module App = struct
             { username = my_name; event = Player_hand my_hand }
           |> Lobby.Room.users
         in
-        let can_send_orders, user_info =
+        let can_send_orders, gold, user_info =
           match game with
           | Playing _ ->
             ( true
+            , None
             , User_info.playing ~users ~my_name
             )
           | Waiting { last_gold } ->
             ( false
+            , last_gold
             , User_info.waiting
                 ~inject_I'm_ready:(fun readiness ->
                     inject (Action.in_room (I'm_ready readiness)))
@@ -593,6 +595,7 @@ module App = struct
         in
         [ Exchange.view exchange ~my_name
             ~shortener:(Username.Shortener.of_list (Map.keys users))
+            ~gold
             ~can_send_orders
             ~inject:exchange_inject
         ; user_info

@@ -6,12 +6,6 @@ module Suit = struct
 
   let name t = Sexp.to_string [%sexp (t : t)]
 
-  let to_utf8 = function
-    | Spades -> "\xe2\x99\xa0"
-    | Hearts -> "\xe2\x99\xa5"
-    | Diamonds -> "\xe2\x99\xa6"
-    | Clubs -> "\xe2\x99\xa3"
-  
   let equal t1 t2 = compare t1 t2 = 0
 
   let opposite = function
