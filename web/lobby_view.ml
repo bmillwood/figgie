@@ -32,7 +32,7 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
         [ Attr.class_ "delete"
         ; Attr.on_click (fun _mouseEvent -> inject (Delete_room id))
         ]
-        [ Node.text "\xc3\x97" ]
+        [ Icon.delete ]
     in
     let id_item =
       Node.div
@@ -102,7 +102,7 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
             in
             let u = Username.Shortener.short shortener username in
             keep_trues
-              [ i = 0, Node.text "\xf0\x9f\x91\x81"
+              [ i = 0, Icon.observer
               ; true, Node.text " "
               ; true, Node.span attrs [Node.text (Username.to_string u)]
               ]

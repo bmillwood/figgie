@@ -53,17 +53,6 @@ let container = Node.div [Id.attr Id.user_info]
 let empty = container []
 
 let hand ~gold (hand : Partial_hand.t) =
-  let span_of_copies class_ n s =
-    if Size.O.(n < zero) then (
-      raise_s [%message "user appears to have negative cards"]
-    );
-    let content =
-      List.init (Size.to_int n) ~f:(fun _ -> s)
-      |> String.concat
-      |> Node.text
-    in
-    Node.span [Attr.class_ class_] [content]
-  in
   let known =
     Card.Hand.foldi hand.known
       ~init:[]
@@ -72,9 +61,9 @@ let hand ~gold (hand : Partial_hand.t) =
           :: acc)
     |> List.rev
   in
-  let unknown_utf8 = "\xe2\x96\x88" in
   let unknown =
-    span_of_copies "Unknown" hand.unknown unknown_utf8
+    Node.span [Attr.class_ "Unknown"]
+      (List.init (Size.to_int hand.unknown) ~f:(fun _ -> Icon.unknown_suit))
   in
   known @ [unknown]
 
@@ -132,28 +121,26 @@ let others_and_me ~users ~my_name =
 
 let waiting ~inject_I'm_ready ~users ~my_name ~last_gold =
   let others, me = others_and_me ~users ~my_name in
-  let ready = "\xe2\x9c\x93" in
-  let not_ready = "\xf0\x9f\x9a\xab" in
   let others =
     Map.map others ~f:(fun o ->
-      let ready_text =
+      let ready_icon =
         if o.role.is_ready
-        then ready
-        else not_ready
+        then Icon.ready
+        else Icon.not_ready
       in
-      (o, [Node.text ready_text]))
+      (o, [ready_icon]))
   in
   let ready_button =
-    let text, set_it_to =
+    let icon, set_it_to =
       if me.role.is_ready
-      then not_ready, false
-      else ready, true
+      then Icon.not_ready, false
+      else Icon.ready, true
     in
     Node.button
       [ Id.attr Id.ready_button
       ; Attr.on_click (fun _mouseEvent -> inject_I'm_ready set_it_to)
       ]
-      [ Node.text text ]
+      [ icon ]
   in
   players
     ~others
