@@ -201,19 +201,22 @@ let rpc_implementations =
         | Ok exec ->
           Updates_manager.broadcast room.room_updates (Broadcast (Exec exec));
           let adjust_for_posted_sell =
+            let do_nothing _username _hand = None in
             match exec.posted with
-            | None -> (fun _username _hand -> None)
+            | None -> do_nothing
             | Some posted ->
-              (fun username hand ->
-                if Username.equal posted.owner username then (
-                  Some (
-                    Partial_hand.selling hand
-                      ~suit:posted.symbol ~size:posted.size
+              Market.Dir.fold posted.dir
+                ~buy:do_nothing
+                ~sell:(fun username hand ->
+                    if Username.equal posted.owner username then (
+                      Some (
+                        Partial_hand.selling hand
+                          ~suit:posted.symbol ~size:posted.size
+                      )
+                    ) else (
+                      None
+                    )
                   )
-                ) else (
-                  None
-                )
-              )
           in
           let updates =
             Map.merge
