@@ -117,4 +117,4 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
   in
   Map.to_alist model.rooms
   |> List.map ~f:(fun (id, room) -> view_room ~id ~room)
-  |> Node.div [Attr.id "rooms"]
+  |> Node.div [Id.attr Id.rooms]

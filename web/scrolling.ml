@@ -4,7 +4,7 @@ open Vdom
 
 module Model = struct
   type t =
-    { id : string
+    { id : Id.t
     ; scroll_top : int
     ; scroll_height : int
     ; client_height : int
@@ -13,7 +13,7 @@ module Model = struct
   let equal t1 t2 = compare t1 t2 = 0
 
   let of_elt elt =
-    { id = Js.to_string elt##.id
+    { id = Id.of_elt elt
     ; scroll_top = elt##.scrollTop
     ; scroll_height = elt##.scrollHeight
     ; client_height = elt##.clientHeight
@@ -32,9 +32,9 @@ module Action = struct
 end
 
 let apply_action (t : Model.t) Action.Scrolled =
-  match Dom_html.getElementById t.id with
-  | exception _ -> t
-  | elt -> Model.of_elt elt
+  match Id.lookup_elt t.id with
+  | None -> t
+  | Some elt -> Model.of_elt elt
 
 let scroll_to_bottom elt =
   elt##.scrollTop := elt##.scrollHeight - elt##.clientHeight
@@ -44,12 +44,12 @@ let on_scroll (_ : Model.t) ~(inject : Action.t -> _) =
 
 let on_display (latest_snapshot : Model.t) ~schedule =
   let id = latest_snapshot.id in
-  let elt = Dom_html.getElementById id in
+  let elt = Option.value_exn (Id.lookup_elt id) in
   let current = Model.of_elt elt in
   if current.scroll_height > latest_snapshot.scroll_height
     && Model.scrolled_to_bottom latest_snapshot
   then (
-    scroll_to_bottom (Dom_html.getElementById id)
+    scroll_to_bottom elt
   );
   if not (Model.equal latest_snapshot current) then (
     schedule Action.Scrolled

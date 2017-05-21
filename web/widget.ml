@@ -59,7 +59,7 @@ let textbox
     |> add Attr.on_keypress (Some on_keypress)
     |> add Attr.on_input (Some wrapped_on_input)
     |> add (Attr.on "load") (Some on_load)
-    |> add Attr.id id
+    |> add Id.attr id
     |> add Attr.placeholder placeholder
     |> add Attr.value initial_value
     |> add (Attr.property "disabled") disabled

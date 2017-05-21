@@ -3,7 +3,7 @@ open Incr_dom
 open Vdom
 
 val textbox
-  :  ?id:string
+  :  ?id:Id.t
   -> ?classes:string list
   -> ?placeholder:string
   -> ?initial_value:string

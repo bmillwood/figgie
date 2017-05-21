@@ -18,7 +18,7 @@ module Model = struct
   let empty =
     { market        = Book.empty
     ; trades        = Fqueue.empty
-    ; trades_scroll = Scrolling.Model.create ~id:Ids.tape
+    ; trades_scroll = Scrolling.Model.create ~id:Id.tape
     ; next_order    = Order.Id.zero
     }
 end
@@ -115,7 +115,7 @@ let order_entry
     ~(market : Book.t) ~(inject : Action.t -> _)
     ~can_send_orders ~symbol ~dir
   =
-  let id = Ids.order ~dir ~suit:symbol in
+  let id = Id.order ~dir ~suit:symbol in
   let hotkey = Hotkeys.Global.lookup_id id in
   let placeholder = Hotkeys.Global.placeholder_of_id id in
   let book = Card.Hand.get market ~suit:symbol in
@@ -166,7 +166,7 @@ let market_table
   in
   let input_row ~dir =
     let dir_s = Dir.to_string dir in
-    Node.tr [Attr.id ("order" ^ dir_s); Attr.class_ dir_s]
+    Node.tr [Id.attr (Id.order_row ~dir); Attr.class_ dir_s]
       (List.map Card.Suit.all ~f:(fun symbol ->
           Node.td []
             [order_entry ~market ~can_send_orders ~inject ~symbol ~dir]
@@ -204,11 +204,11 @@ let market_table
     |> List.map ~f:(fun row ->
         Node.tr [Attr.class_ (Dir.to_string dir)] row)
   in
-  Node.table [Attr.id "market"]
+  Node.table [Id.attr Id.market]
     (List.concat
       [ cells ~dir:Sell
       ; [input_row ~dir:Sell]
-      ; [Node.tr [Attr.id "suits"]
+      ; [Node.tr [Id.attr Id.suits_row]
           (List.map Card.Suit.all ~f:(fun suit ->
             Node.td [] [Style.suit_span ~gold suit]
           ))]
@@ -247,10 +247,10 @@ let tape_table ~my_name ~gold trades =
     |> List.map ~f:(fun ((traded : Order.t), with_) ->
         row_of_order ~traded_with:with_ traded)
   in
-  Node.table [Attr.id Ids.tape] trades
+  Node.table [Id.attr Id.tape] trades
 
 let view model ~my_name ~shortener ~gold ~can_send_orders ~inject =
-  Node.table [Attr.id "exchange"]
+  Node.table [Id.attr Id.exchange]
     [ Node.tr []
       [ Node.td []
           [ market_table

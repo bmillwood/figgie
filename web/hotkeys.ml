@@ -1,7 +1,7 @@
 open Core_kernel.Std
 open Incr_dom
 
-type t = (char * string) array
+type t = (char * Id.t) array
 
 let lookup_char t key =
   Array.find_map t ~f:(fun (c, s) ->
@@ -9,13 +9,13 @@ let lookup_char t key =
 
 let lookup_id t key =
   Array.find_map t ~f:(fun (c, s) ->
-    Option.some_if (String.equal key s) c)
+    Option.some_if (Id.equal key s) c)
 
 let placeholder_of_id t id =
   Option.map (lookup_id t id) ~f:(fun c -> String.of_char (Char.uppercase c))
 
 let suppress_hotkeys_if_focused =
-  String.Set.of_list [Ids.login; Ids.cmdline; Ids.connectTo]
+  Id.Set.of_list [Id.login; Id.cmdline; Id.connect_to]
 
 let char_code ev =
   Option.bind (Js.Optdef.to_option ev##.charCode) ~f:Char.of_int
@@ -29,7 +29,7 @@ let on_keypress (t : t) (ev : Dom_html.keyboardEvent Js.t) =
       | None -> false
       | Some active_id ->
         Set.mem suppress_hotkeys_if_focused active_id
-          || String.equal id active_id
+          || Id.equal id active_id
     in
     let suppress_because_modifier =
       Js.to_bool ev##.altKey || Js.to_bool ev##.ctrlKey
@@ -43,14 +43,14 @@ let on_keypress (t : t) (ev : Dom_html.keyboardEvent Js.t) =
 
 module Global = struct
   let t : t =
-    [| 'q', Ids.order ~dir:Sell ~suit:Spades
-    ;  'w', Ids.order ~dir:Sell ~suit:Hearts
-    ;  'e', Ids.order ~dir:Sell ~suit:Diamonds
-    ;  'r', Ids.order ~dir:Sell ~suit:Clubs
-    ;  'a', Ids.order ~dir:Buy  ~suit:Spades
-    ;  's', Ids.order ~dir:Buy  ~suit:Hearts
-    ;  'd', Ids.order ~dir:Buy  ~suit:Diamonds
-    ;  'f', Ids.order ~dir:Buy  ~suit:Clubs
+    [| 'q', Id.order ~dir:Sell ~suit:Spades
+    ;  'w', Id.order ~dir:Sell ~suit:Hearts
+    ;  'e', Id.order ~dir:Sell ~suit:Diamonds
+    ;  'r', Id.order ~dir:Sell ~suit:Clubs
+    ;  'a', Id.order ~dir:Buy  ~suit:Spades
+    ;  's', Id.order ~dir:Buy  ~suit:Hearts
+    ;  'd', Id.order ~dir:Buy  ~suit:Diamonds
+    ;  'f', Id.order ~dir:Buy  ~suit:Clubs
     |]
 
   let placeholder_of_id s = placeholder_of_id t s

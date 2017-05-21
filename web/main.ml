@@ -536,7 +536,7 @@ module App = struct
     let view bits_in_between =
       Node.body
         [ Hotkeys.Global.handler ]
-        [ Node.div [Attr.id "container"] (
+        [ Node.div [Id.attr Id.container] (
             [ [ Status_line.view
                   (status_line model)
                   ~inject:(fun act -> inject (Status_line act))

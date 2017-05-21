@@ -48,7 +48,7 @@ let score_display scores_map score =
     [Attr.classes ["score"; ranking]]
     [Node.text (Price.to_string score)]
 
-let container = Node.div [Attr.id "userinfo"]
+let container = Node.div [Id.attr Id.user_info]
 
 let empty = container []
 
@@ -112,7 +112,7 @@ let players ~others ~gold ~me =
       player ~pos ~icons ~all_scores ~gold p
     in
     container
-      [ Node.div [Attr.id "others"]
+      [ Node.div [Id.attr Id.others]
         [ p ~pos:Left   left
         ; p ~pos:Middle middle
         ; p ~pos:Right  right
@@ -150,7 +150,7 @@ let waiting ~inject_I'm_ready ~users ~my_name ~last_gold =
       else ready, true
     in
     Node.button
-      [ Attr.id Ids.ready_button
+      [ Id.attr Id.ready_button
       ; Attr.on_click (fun _mouseEvent -> inject_I'm_ready set_it_to)
       ]
       [ Node.text text ]

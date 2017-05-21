@@ -28,8 +28,6 @@ module Message = struct
     [@@deriving sexp_of]
 end
 
-let history_id = "history"
-
 module Model = struct
   type t =
     { messages  : Message.t Fqueue.t
@@ -38,7 +36,7 @@ module Model = struct
 
   let initial =
     { messages = Fqueue.empty
-    ; scrolling = Scrolling.Model.create ~id:history_id
+    ; scrolling = Scrolling.Model.create ~id:Id.history
     }
 
   let add_message t message =
@@ -133,14 +131,14 @@ let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
     | Cancel_reject (_oid_or_all, reject) ->
       simple error !"%{sexp:Protocol.Cancel.error}" reject
   in
-  Node.div [Attr.id "historycmd"]
+  Node.div [Id.attr Id.chat]
     [ Node.ul
-        [ Attr.id history_id
+        [ Id.attr Id.history
         ; Scrolling.on_scroll t.scrolling
             ~inject:(fun scroll -> inject (Scroll_chat scroll))
         ]
         (List.concat_map (Fqueue.to_list t.messages) ~f:nodes_of_message)
-    ; Widget.textbox ~id:Ids.cmdline
+    ; Widget.textbox ~id:Id.cmdline
         ~disabled:(not is_connected)
         ~on_submit:(fun msg -> inject (Send_chat msg))
         ()

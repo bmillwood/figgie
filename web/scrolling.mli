@@ -5,7 +5,7 @@ open Vdom
 module Model : sig
   type t
 
-  val create : id:string -> t
+  val create : id:Id.t -> t
 end
 
 module Action : sig

@@ -38,13 +38,13 @@ end
 
 let view (model : Model.t) ~(inject : Action.t -> _) =
   let line ~class_ ~status =
-    Node.p [Attr.id "status"; Attr.class_ class_] status
+    Node.p [Id.attr Id.status; Attr.class_ class_] status
   in
   match model with
   | Not_connected noconn ->
     let connectbox =
       let classes = Option.some_if noconn.input_error ["error"] in
-      Widget.textbox ~id:Ids.connectTo ?classes
+      Widget.textbox ~id:Id.connect_to ?classes
         ?initial_value:noconn.connectbox_prefill
         ~placeholder:"host[:port]" ~clear_on_submit:false
         ~on_input:(fun ~self:_ hps ->
@@ -85,7 +85,7 @@ let view (model : Model.t) ~(inject : Action.t -> _) =
   | Connected hp ->
     line ~class_:"Connected"
       ~status:
-        [ Widget.textbox ~id:Ids.login
+        [ Widget.textbox ~id:Id.login
             ~placeholder:"username"
             ?initial_value:Url_vars.username
             ~on_submit:(fun user ->
@@ -121,7 +121,7 @@ let on_display ~(old : Model.t) (new_ : Model.t) =
   | Connected _ ->
     begin match old with
     | Not_connected _ | Connecting _ ->
-      Focus.with_input ~id:Ids.login ~f:(fun input ->
+      Focus.with_input ~id:Id.login ~f:(fun input ->
         let content = Js.to_string input##.value in
         set_username_field_colour ~self:input content;
         input##focus;
