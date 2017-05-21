@@ -68,6 +68,7 @@ module type With_units = sig
   include Identifiable.S with type t := t
 
   val of_int : int -> t
+  val to_rational : t -> Rational.t
   val to_float : t -> float
 
   module O : sig
@@ -89,12 +90,17 @@ end
 
 module Price : sig
   include With_units
+
+  val to_rational : t -> Rational.t
+
   val is_more_agg          : t -> than:t -> dir:Dir.t -> bool
   val is_more_agg_or_equal : t -> than:t -> dir:Dir.t -> bool
 
   val make_more_agg : t -> by:t -> dir:Dir.t -> t
 end = struct
   include Rational
+
+  let to_rational t = t
 
   let is_more_agg_or_equal t ~than ~dir =
     match (dir : Dir.t) with
@@ -118,6 +124,7 @@ module Size : sig
   val with_dir : t -> dir:Dir.t -> t
 end = struct
   include Int
+  let to_rational t = Rational.of_int (to_int t)
   let with_dir t ~dir = t * Dir.sign dir
 end
 

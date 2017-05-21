@@ -15,6 +15,8 @@ module O : sig
 
   val zero : t
   val neg : t -> t
+  val num : t -> int
+  val den : t -> int
   val (+) : t -> t -> t
   val (-) : t -> t -> t
   val ( * ) : int -> t -> t

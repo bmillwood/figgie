@@ -43,6 +43,7 @@ module type With_units = sig
   include Identifiable.S with type t := t
 
   val of_int : int -> t
+  val to_rational : t -> Rational.t
   val to_float : t -> float
 
   module O : sig
@@ -64,6 +65,7 @@ end
 
 module Price : sig
   include With_units
+
   val is_more_agg          : t -> than:t -> dir:Dir.t -> bool
   val is_more_agg_or_equal : t -> than:t -> dir:Dir.t -> bool
 

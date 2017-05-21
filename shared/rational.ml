@@ -72,7 +72,7 @@ module T = struct
                 (frac_part : string)
             ])
       in
-      of_int (Int.t_of_sexp int_part) + frac
+      create ~n:(frac.d * Int.t_of_sexp int_part + frac.n) ~d:frac.d
     | Sexp.List _ -> failwith "expected atom or pair"
 
   let to_string t = sexp_of_t t |> Sexp.to_string
@@ -87,6 +87,8 @@ module O = struct
 
   let zero = of_int 0
   let neg t = create ~n:(Int.neg t.n) ~d:t.d
+  let num t = t.n
+  let den t = t.d
   let (+) t1 t2 = create ~n:(t1.n * t2.d + t2.n * t1.d) ~d:(t1.d * t2.d)
   let (-) t1 t2 = t1 + neg t2
   let ( * ) i t = create ~n:(t.n * i) ~d:t.d
