@@ -48,19 +48,31 @@ module T = struct
         ]
     end
 
+  let of_n_slash_d str =
+    Option.map (String.lsplit2 str ~on:'/') ~f:(fun (before, after) ->
+        create
+          ~n:(Int.of_string before)
+          ~d:(Int.of_string after)
+      )
+
   let t_of_sexp sexp =
     match sexp with
-    | Sexp.Atom _ -> of_int (int_of_sexp sexp)
-    | Sexp.List [int_part; Sexp.Atom frac_part] ->
-      begin match String.index frac_part '/' with
-      | None -> failwith "no / in fractional part"
-      | Some i ->
-        let l = String.length frac_part in
-        let d = int_of_string (String.sub frac_part ~pos:(i + 1) ~len:(l - i - 1)) in
-        let n = int_of_string (String.sub frac_part ~pos:0 ~len:i) in
-        let n = int_of_sexp int_part * d + n in
-        create ~n ~d
+    | Sexp.Atom atom ->
+      begin match of_n_slash_d atom with
+      | Some r -> r
+      | None -> of_int (Int.t_of_sexp sexp)
       end
+    | Sexp.List [int_part; Sexp.Atom frac_part] ->
+      let frac =
+        Option.value_exn (of_n_slash_d frac_part)
+          ~error:(
+            Error.create_s [%message
+              "Rational.t_of_sexp: no / in fractional part"
+                (sexp : Sexp.t)
+                (frac_part : string)
+            ])
+      in
+      of_int (Int.t_of_sexp int_part) + frac
     | Sexp.List _ -> failwith "expected atom or pair"
 
   let to_string t = sexp_of_t t |> Sexp.to_string
