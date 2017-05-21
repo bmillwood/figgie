@@ -13,6 +13,7 @@ module Model = struct
     ; trades        : (Order.t * Cpty.t) Fqueue.t
     ; trades_scroll : Scrolling.Model.t
     ; next_order    : Order.Id.t
+    ; pending_ack   : Order.Id.Set.t Dirpair.t Card.Hand.t
     }
 
   let empty =
@@ -20,13 +21,35 @@ module Model = struct
     ; trades        = Fqueue.empty
     ; trades_scroll = Scrolling.Model.create ~id:Id.tape
     ; next_order    = Order.Id.zero
+    ; pending_ack   =
+        Card.Hand.create_all (Dirpair.create_both Order.Id.Set.empty)
     }
 end
 open Model
 
 let set_market t ~market = { t with market }
-let add_trade t ~traded ~with_ =
-  { t with trades = Fqueue.enqueue t.trades (traded, with_) }
+
+let exec t ~my_name ~(exec : Exec.t) =
+  let { Order.owner; id; dir; _ } = exec.order in
+  let trades =
+    List.map (Exec.fills exec) ~f:(fun filled_order ->
+        ({ filled_order with owner; id; dir }, filled_order.owner)
+      )
+    |> List.fold ~init:t.trades ~f:Fqueue.enqueue
+  in
+  let pending_ack =
+    if Username.equal exec.order.owner my_name then (
+      Card.Hand.modify
+        t.pending_ack
+        ~suit:exec.order.symbol
+        ~f:(Dirpair.modify ~dir:exec.order.dir ~f:(fun pending ->
+            Set.remove pending exec.order.id
+          ))
+    ) else (
+      t.pending_ack
+    )
+  in
+  { t with trades; pending_ack }
 
 module Cancel_scope = struct
   (* constructor {All,By_id} is never used to build values. *)
@@ -57,6 +80,8 @@ let apply_action action model ~my_name ~conn
   =
   match action with
   | Send_order { symbol; dir; price } ->
+    let id = model.next_order in
+    let next_order = Order.Id.next id in
     let order =
       { Order.owner = my_name
       ; id = model.next_order
@@ -71,7 +96,11 @@ let apply_action action model ~my_name ~conn
       | Error reject ->
         add_message (Order_reject (order, reject))
     end;
-    { model with next_order = Order.Id.next model.next_order }
+    let pending_ack =
+      Card.Hand.modify model.pending_ack ~suit:symbol
+        ~f:(Dirpair.modify ~dir ~f:(fun pending -> Set.add pending id))
+    in
+    { model with next_order; pending_ack }
   | Send_cancel (By_id oid) ->
     don't_wait_for begin
       Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn oid
@@ -83,20 +112,34 @@ let apply_action action model ~my_name ~conn
     model
   | Send_cancel (By_symbol_side { symbol; dir }) ->
     don't_wait_for begin
-      Card.Hand.get model.market ~suit:symbol
-      |> Dirpair.get ~dir
-      |> Deferred.List.iter ~how:`Parallel ~f:(fun order ->
-          if Cpty.equal order.owner my_name
-          then begin
-            Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn order.id
+      let pending_order_ids =
+        Card.Hand.get model.pending_ack ~suit:symbol
+        |> Dirpair.get ~dir
+        |> Set.to_list
+      in
+      let live_order_ids =
+        Card.Hand.get model.market ~suit:symbol
+        |> Dirpair.get ~dir
+        |> List.filter_map ~f:(fun order ->
+            Option.some_if (Cpty.equal order.owner my_name) order.id
+          )
+      in
+      Deferred.List.iter
+        (pending_order_ids @ live_order_ids)
+        ~how:`Parallel
+        ~f:(fun id ->
+            Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn id
             >>| function
             | Ok `Ack -> ()
             | Error reject ->
-              add_message (Cancel_reject (`Id order.id, reject))
-          end
-          else Deferred.unit)
+              add_message (Cancel_reject (`Id id, reject))
+          )
     end;
-    model
+    let pending_ack =
+      Card.Hand.modify model.pending_ack ~suit:symbol
+        ~f:(Dirpair.set ~dir ~to_:Order.Id.Set.empty)
+    in
+    { model with pending_ack }
   | Send_cancel All ->
     don't_wait_for begin
       Rpc.Rpc.dispatch_exn Protocol.Cancel_all.rpc conn ()
@@ -144,14 +187,23 @@ let order_entry
                 self##.value := Js.string (Price.to_string order.price));
             Event.Prevent_default
           end else Event.Ignore)
-    ~on_submit:(fun price_s ->
-      if String.Caseless.equal price_s "x"
-      then begin
-        inject (Send_cancel (By_symbol_side { symbol; dir }))
-      end else match Price.of_string price_s with
-      | exception _ -> Event.Ignore
-      | price ->
-        inject (Send_order { symbol; dir; price }))
+    ~on_submit:(fun order_spec ->
+      let actions =
+        String.to_list order_spec
+        |> List.group ~break:(fun c1 c2 ->
+            not (Bool.equal (Char.is_digit c1) (Char.is_digit c2))
+          )
+        |> List.map ~f:String.of_char_list
+      in
+      Event.Many (List.map actions ~f:(fun action ->
+        if String.Caseless.equal action "x"
+        then begin
+          inject (Send_cancel (By_symbol_side { symbol; dir }))
+        end else match Price.of_string action with
+        | exception _ -> Event.Ignore
+        | price ->
+          inject (Send_order { symbol; dir; price }))
+      ))
     ()
 
 let market_table

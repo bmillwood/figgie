@@ -10,7 +10,8 @@ module Model : sig
 end
 
 val set_market : Model.t -> market:Book.t -> Model.t
-val add_trade  : Model.t -> traded:Order.t -> with_:Cpty.t -> Model.t
+
+val exec : Model.t -> my_name:Username.t -> exec:Exec.t -> Model.t
 
 module Action : sig
   type t [@@deriving sexp_of]

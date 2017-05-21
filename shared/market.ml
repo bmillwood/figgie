@@ -31,6 +31,8 @@ end
 module Dirpair = struct
   type 'a t = { buy : 'a; sell : 'a } [@@deriving bin_io, sexp]
 
+  let init ~(f : Dir.t -> _) = { buy = f Buy; sell = f Sell }
+
   let create_both x = { buy = x; sell = x }
 
   let create_dir ~dir ~same ~opp =
@@ -54,7 +56,10 @@ module Dirpair = struct
     | Sell -> { t with sell = f t.sell }
 
   let mapi t ~f =
-    { buy = f Dir.Buy t.buy; sell = f Dir.Sell t.sell }
+    init ~f:(fun dir -> f dir (get t ~dir))
+
+  let map2 t1 t2 ~f =
+    init ~f:(fun dir -> f (get t1 ~dir) (get t2 ~dir))
 end
 
 module type With_units = sig

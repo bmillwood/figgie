@@ -128,8 +128,18 @@ let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
         ]
     | Order_reject (_order, reject) ->
       simple error !"%{sexp:Protocol.Order.error}" reject
-    | Cancel_reject (_oid_or_all, reject) ->
-      simple error !"%{sexp:Protocol.Cancel.error}" reject
+    | Cancel_reject (oid_or_all, reject) ->
+      let order_spec =
+        match oid_or_all with
+        | `All -> "all orders"
+        | `Id i -> sprintf !"order %{Order.Id}" i
+      in
+      let reject_reason =
+        match reject with
+        | #Protocol.not_playing -> "not playing a game"
+        | `No_such_order -> "order not found (already cancelled or filled?)"
+      in
+      simple error "Can't cancel %s: %s" order_spec reject_reason
   in
   Node.div [Id.attr Id.chat]
     [ Node.ul

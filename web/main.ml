@@ -5,7 +5,6 @@ open Incr_dom
 open Vdom
 
 open Figgie
-open Market
 
 module Playing = struct
   module Model = struct
@@ -236,18 +235,6 @@ module App = struct
         let exchange = Exchange.set_market in_room.exchange ~market in
         { in_room with exchange }
       | Broadcast (Exec exec) ->
-        let { Order.owner; id; dir; _ } = exec.order in
-        let trades =
-          List.map (Exec.fills exec) ~f:(fun filled_order ->
-              ({ filled_order with owner; id; dir }, filled_order.owner)
-            )
-        in
-        let exchange =
-          List.fold trades ~init:in_room.exchange
-            ~f:(fun exch (traded, with_) ->
-                Exchange.add_trade exch ~traded ~with_
-              )
-        in
         don't_wait_for begin
           let%map () =
             Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
@@ -258,6 +245,7 @@ module App = struct
           in
           ()
         end;
+        let exchange = Exchange.exec in_room.exchange ~my_name ~exec in
         { in_room with exchange }
       | Broadcast (Room_update ({ username; event } as update)) ->
         schedule (Add_message (Player_room_event
