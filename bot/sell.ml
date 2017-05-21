@@ -6,25 +6,25 @@ open Figgie
 type t = {
   initial_sell_price : Market.Price.t;
   fade : Market.Price.t;
-  size : Market.Size.t option;
+  size : Market.Size.t;
 }
 
 let config_param =
   let open Command.Let_syntax in
   [%map_open
     let initial_sell_price =
-      flag "-at" (required int)
+      flag "-at" (optional_with_default 6 int)
         ~doc:"P sell price"
     and fade =
-      flag "-fade" (required int)
+      flag "-fade" (optional_with_default 1 int)
         ~doc:"F increase price after a sale"
     and size =
-      flag "-size" (optional int)
+      flag "-size" (optional_with_default 1 int)
         ~doc:"S sell at most S at a time"
     in
     { initial_sell_price = Market.Price.of_int initial_sell_price
     ; fade = Market.Price.of_int fade
-    ; size = Option.map size ~f:Market.Size.of_int
+    ; size = Market.Size.of_int size
     }
   ]
 
@@ -111,9 +111,8 @@ let command =
           reset_sell_prices ();
           Deferred.List.iter ~how:`Parallel Card.Suit.all ~f:(fun suit ->
             let size =
-              Option.value_map t.config.size
-                ~default:Fn.id
-                ~f:Market.Size.min
+              Market.Size.min
+                t.config.size
                 (Card.Hand.get new_hand ~suit)
             in
             sell ~suit ~size)
