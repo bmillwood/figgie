@@ -235,8 +235,8 @@ module App = struct
       | Market market ->
         let exchange = Exchange.set_market in_room.exchange ~market in
         { in_room with exchange }
-      | Broadcast (Exec (order, exec)) ->
-        let { Order.owner; id; dir; _ } = order in
+      | Broadcast (Exec exec) ->
+        let { Order.owner; id; dir; _ } = exec.order in
         let trades =
           List.map (Exec.fills exec) ~f:(fun filled_order ->
               ({ filled_order with owner; id; dir }, filled_order.owner)

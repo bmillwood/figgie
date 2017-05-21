@@ -199,8 +199,7 @@ let rpc_implementations =
         match Game.Round.add_order round ~order ~sender:username with
         | (Error _) as e -> return e
         | Ok exec ->
-          Updates_manager.broadcast room.room_updates
-            (Broadcast (Exec (order, exec)));
+          Updates_manager.broadcast room.room_updates (Broadcast (Exec exec));
           let adjust_for_posted_sell =
             match exec.posted with
             | None -> (fun _username _hand -> None)

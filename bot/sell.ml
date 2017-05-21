@@ -96,7 +96,8 @@ let command =
         | Broadcast (Round_over _) ->
           Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc t.conn true
           |> Deferred.ignore
-        | Broadcast (Exec (order, exec)) ->
+        | Broadcast (Exec exec) ->
+          let order = exec.order in
           if Username.equal order.owner t.username
           then handle_my_filled_order ~suit:order.symbol exec
           else handle_exec exec

@@ -116,7 +116,8 @@ let command =
           ];
           Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc t.conn true
           |> Deferred.ignore
-        | Broadcast (Exec (order, exec)) ->
+        | Broadcast (Exec exec) ->
+          let order = exec.order in
           if Option.exists !pending_ack ~f:(Order.Id.equal order.id)
           then (
             pending_ack := None
