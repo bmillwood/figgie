@@ -52,7 +52,33 @@ let container = Node.div [Attr.id "userinfo"]
 
 let empty = container []
 
-let player ~pos ~(pers : Player.t) ~scores ~info =
+let hand ~gold (hand : Partial_hand.t) =
+  let span_of_copies class_ n s =
+    if Size.O.(n < zero) then (
+      raise_s [%message "user appears to have negative cards"]
+    );
+    let content =
+      List.init (Size.to_int n) ~f:(fun _ -> s)
+      |> String.concat
+      |> Node.text
+    in
+    Node.span [Attr.class_ class_] [content]
+  in
+  let known =
+    Card.Hand.foldi hand.known
+      ~init:[]
+      ~f:(fun suit acc count ->
+          Style.suit_span ~count:(Size.to_int count) ~gold suit
+          :: acc)
+    |> List.rev
+  in
+  let unknown_utf8 = "\xe2\x96\x88" in
+  let unknown =
+    span_of_copies "Unknown" hand.unknown unknown_utf8
+  in
+  known @ [unknown]
+
+let player ~pos ~icons ~all_scores ~gold (player : Player.t) =
   let is_me =
     match pos with
     | Position.Me -> true
@@ -60,29 +86,30 @@ let player ~pos ~(pers : Player.t) ~scores ~info =
   in
   let name =
     let classes =
-      "name" :: if pers.is_connected then [] else ["disconnected"]
+      "name" :: if player.is_connected then [] else ["disconnected"]
     in
     Hash_colour.username_span ~attrs:[Attr.classes classes] ~is_me
-      pers.username
+      player.username
   in
   Node.div [Attr.classes ["userinfo"; Position.class_ pos]] (
     [ [ name
-      ; score_display scores pers.role.score
-      ; Node.create "br" [] []
+      ; score_display all_scores player.role.score
       ]
-    ; info
+    ; icons
+    ; [ Node.create "br" [] [] ]
+    ; hand ~gold player.role.hand
     ] |> List.concat
   )
 
-let players ~others ~me =
+let players ~others ~gold ~me =
   let (my_pers : Player.t), _ = me in
   let players = Map.add others ~key:my_pers.username ~data:me in
-  let scores = Map.map players ~f:(fun (p, _) -> p.role.score) in
+  let all_scores = Map.map players ~f:(fun (p, _) -> p.role.score) in
   let nobody = Player.nobody, [] in
   match Map.data others @ List.init 3 ~f:(fun _ -> nobody) with
   | left :: middle :: right :: _ ->
-    let p ~pos ((pers : Player.t), info) =
-      player ~pos ~pers ~scores ~info
+    let p ~pos (p, icons) =
+      player ~pos ~icons ~all_scores ~gold p
     in
     container
       [ Node.div [Attr.id "others"]
@@ -103,22 +130,24 @@ let others_and_me ~users ~my_name =
   in
   Map.remove players my_name, me
 
-let waiting ~inject_I'm_ready ~users ~my_name ~last_gold:_ =
+let waiting ~inject_I'm_ready ~users ~my_name ~last_gold =
   let others, me = others_and_me ~users ~my_name in
+  let ready = "\xe2\x9c\x93" in
+  let not_ready = "\xf0\x9f\x9a\xab" in
   let others =
     Map.map others ~f:(fun o ->
       let ready_text =
         if o.role.is_ready
-        then "[ready]"
-        else "[not ready]"
+        then ready
+        else not_ready
       in
       (o, [Node.text ready_text]))
   in
   let ready_button =
     let text, set_it_to =
       if me.role.is_ready
-      then "I'm not ready!", false
-      else "I'm ready!", true
+      then not_ready, false
+      else ready, true
     in
     Node.button
       [ Attr.id Ids.ready_button
@@ -128,38 +157,12 @@ let waiting ~inject_I'm_ready ~users ~my_name ~last_gold:_ =
   in
   players
     ~others
+    ~gold:last_gold
     ~me:(me, [ready_button])
 
 let playing ~(users : Lobby.User.t Username.Map.t) ~my_name =
   let others, me = others_and_me ~users ~my_name in
-  let pers_with_hand (player : Player.t) =
-    let span_of_copies class_ n s =
-      if Size.O.(n < zero) then (
-        raise_s [%message "user appears to have negative cards"
-            (player : Player.t)
-        ]
-      );
-      let content =
-        List.init (Size.to_int n) ~f:(fun _ -> s)
-        |> String.concat
-        |> Node.text
-      in
-      Node.span [Attr.class_ class_] [content]
-    in
-    let known =
-      Card.Hand.foldi player.role.hand.known
-        ~init:[]
-        ~f:(fun suit acc count ->
-            Style.suit_span ~count:(Size.to_int count) ~gold:None suit
-            :: acc)
-        |> List.rev
-    in
-    let unknown_utf8 = "\xe2\x96\x88" in
-    let unknown =
-      span_of_copies "Unknown" player.role.hand.unknown unknown_utf8
-    in
-    (player, known @ [unknown])
-  in
   players
-    ~others:(Map.map others ~f:pers_with_hand)
-    ~me:(pers_with_hand me)
+    ~others:(Map.map others ~f:(fun p -> (p, [])))
+    ~gold:None
+    ~me:(me, [])

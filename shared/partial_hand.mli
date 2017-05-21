@@ -5,7 +5,8 @@ type t =
   ; unknown : Size.t
   } [@@deriving bin_io, sexp]
 
-val empty : t
+val empty    : t
+val starting : t
 
 val create_unknown : Size.t             -> t
 val create_known   : Size.t Card.Hand.t -> t

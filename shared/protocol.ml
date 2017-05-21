@@ -37,7 +37,6 @@ end
 module Round_results = struct
   type t = {
     gold : Card.Suit.t;
-    hands : Market.Size.t Card.Hand.t Username.Map.t;
     scores_this_round : Market.Price.t Username.Map.t;
   } [@@deriving bin_io, sexp]
 end

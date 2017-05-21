@@ -14,6 +14,8 @@ let create_unknown size = { empty with unknown = size }
 
 let create_known hand = { empty with known = hand }
 
+let starting = create_unknown Params.num_cards_per_hand
+
 let selling t ~suit ~size =
   let old_size = Card.Hand.get t.known ~suit in
   let open Size.O in

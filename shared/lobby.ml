@@ -144,7 +144,7 @@ module Room = struct
             | Observer_started_playing { in_seat = _ } ->
               set_role (Player
                   { score = Market.Price.zero
-                  ; hand = Partial_hand.empty
+                  ; hand = Partial_hand.starting
                   ; is_ready = false
                   }
                 )

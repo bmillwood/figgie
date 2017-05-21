@@ -95,7 +95,11 @@ let setup_round t (round : Game.Round.t) =
     Updates_manager.broadcast t.room_updates
       (Broadcast (Round_over results));
     Map.iter (Lobby.Room.seating t.room) ~f:(fun username ->
-        apply_room_update t { username; event = Player_ready false }
+        apply_room_update t { username; event = Player_ready false };
+        Result.iter (Game.Round.get_hand round ~username) ~f:(fun hand ->
+            let hand = Partial_hand.create_known hand in
+            apply_room_update t { username; event = Player_hand hand }
+          )
       );
     broadcast_scores t
   end;

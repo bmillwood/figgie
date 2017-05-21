@@ -127,8 +127,7 @@ module Round = struct
           | `Right x -> Some Market.O.(x *$ Params.gold_card_value)
           | `Both (_, _) -> assert false)
     in
-    let hands = Map.map t.players ~f:(fun player -> player.hand) in
-    { Protocol.Round_results.gold = t.gold; hands; scores_this_round }
+    { Protocol.Round_results.gold = t.gold; scores_this_round }
 
   let start ~(config : Config.t) ~players =
     let num_players = Map.length players in
