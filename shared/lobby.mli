@@ -13,10 +13,16 @@ module User : sig
 
   module Player : sig
     module Data : sig
+      module Phase : sig
+        type t =
+          | Waiting of { is_ready : bool }
+          | Playing
+      end
+
       type t =
         { score : Market.Price.t
-        ; hand : Partial_hand.t
-        ; is_ready : bool
+        ; hand  : Partial_hand.t
+        ; phase : Phase.t
         }
     end
 
@@ -80,7 +86,10 @@ module Room : sig
       [@@deriving bin_io, sexp]
     end
 
-    type t = { username : Username.t; event : User_event.t }
+    type t =
+      | Start_waiting
+      | Start_playing
+      | Player_event of { username : Username.t; event : User_event.t }
     [@@deriving bin_io, sexp]
 
     val apply : t -> room -> room

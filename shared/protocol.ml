@@ -45,7 +45,6 @@ module Broadcast = struct
   type t =
     | Room_update of Lobby.Room.Update.t
     | Chat of Username.t * string
-    | New_round
     | Exec of Market.Exec.t
     | Out of Market.Order.t
     | Round_over of Round_results.t

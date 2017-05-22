@@ -30,7 +30,8 @@ let apply_room_update t update =
 
 let broadcast_scores t =
   Map.iteri (Game.scores t.game) ~f:(fun ~key:username ~data:score ->
-      apply_room_update t { username; event = Player_score score }
+      apply_room_update t
+        (Player_event { username; event = Player_score score })
     )
 
 let start_playing t ~username ~(in_seat : Protocol.Start_playing.query) =
@@ -58,9 +59,10 @@ let start_playing t ~username ~(in_seat : Protocol.Start_playing.query) =
   Game.player_join t.game ~username
   >>| fun () ->
   apply_room_update t
-    { username
-    ; event = Observer_started_playing { in_seat }
-    };
+    (Player_event
+       { username
+       ; event = Observer_started_playing { in_seat }
+       });
   in_seat
 
 let tell_player_their_hand t round ~username =
@@ -71,12 +73,12 @@ let tell_player_their_hand t round ~username =
 let player_join t ~username =
   let updates_r, updates_w = Pipe.create () in
   Updates_manager.subscribe t.room_updates ~username ~updates:updates_w;
-  apply_room_update t { username; event = Joined };
+  apply_room_update t (Player_event { username; event = Joined });
   begin match Game.phase t.game with
   | Waiting_for_players _ -> ()
   | Playing round ->
     Updates_manager.updates t.room_updates ~username
-      [ Protocol.Game_update.Broadcast New_round
+      [ Broadcast (Room_update Start_playing)
       ; Market (Game.Round.market round)
       ];
     tell_player_their_hand t round ~username
@@ -94,30 +96,32 @@ let setup_round t (round : Game.Round.t) =
     let results = Game.end_round t.game round in
     Updates_manager.broadcast t.room_updates
       (Broadcast (Round_over results));
+    apply_room_update t Start_waiting;
     Map.iter (Lobby.Room.seating t.room) ~f:(fun username ->
-        apply_room_update t { username; event = Player_ready false };
         Result.iter (Game.Round.get_hand round ~username) ~f:(fun hand ->
             let hand = Partial_hand.create_known hand in
-            apply_room_update t { username; event = Player_hand hand }
+            apply_room_update t
+              (Player_event { username; event = Player_hand hand })
           )
       );
     broadcast_scores t
   end;
+  apply_room_update t Start_playing;
   Map.iter (Lobby.Room.seating t.room) ~f:(fun username ->
       let unknown_hand =
         Partial_hand.create_unknown Params.num_cards_per_hand
       in
-      apply_room_update t { username; event = Player_hand unknown_hand };
+      apply_room_update t
+        (Player_event { username; event = Player_hand unknown_hand });
       tell_player_their_hand t round ~username
     );
-  Updates_manager.broadcast t.room_updates
-    (Broadcast New_round);
   broadcast_scores t
 
 let player_ready t ~username ~is_ready =
   Result.map (Game.set_ready t.game ~username ~is_ready)
     ~f:(fun started_or_not ->
-        apply_room_update t { username; event = Player_ready is_ready };
+        apply_room_update t
+          (Player_event { username; event = Player_ready is_ready });
         match started_or_not with
         | `Started round -> setup_round t round
         | `Still_waiting -> ()
@@ -144,7 +148,7 @@ let player_disconnected t ~username =
     | Ok () -> ()
     end
   end;
-  apply_room_update t { username; event = Disconnected }
+  apply_room_update t (Player_event { username; event = Disconnected })
 
 let rpc_implementations =
   let implement rpc f =
@@ -250,7 +254,7 @@ let rpc_implementations =
             |> Map.to_alist
             |> List.concat_map ~f:(fun (username, events) ->
                 List.map events ~f:(fun event ->
-                    Lobby.Room.Update.{ username; event }
+                    Lobby.Room.Update.Player_event { username; event }
                   )
               )
           in

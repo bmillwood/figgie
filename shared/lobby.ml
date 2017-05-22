@@ -13,10 +13,17 @@ module User = struct
 
   module Player = struct
     module Data = struct
+      module Phase = struct
+        type t =
+          | Waiting of { is_ready : bool }
+          | Playing
+          [@@deriving bin_io, sexp]
+      end
+
       type t =
         { score : Market.Price.t
-        ; hand : Partial_hand.t
-        ; is_ready : bool
+        ; hand  : Partial_hand.t
+        ; phase : Phase.t
         }
         [@@deriving bin_io, sexp]
     end
@@ -114,10 +121,26 @@ module Room = struct
         [@@deriving bin_io, sexp]
     end
 
-    type t = { username : Username.t; event : User_event.t }
+    type t =
+      | Start_waiting
+      | Start_playing
+      | Player_event of { username : Username.t; event : User_event.t }
     [@@deriving bin_io, sexp]
 
-    let apply { username; event } room =
+    let set_phases room ~phase =
+      let users =
+        Map.map (users room) ~f:(fun player ->
+            let role : User.Role.t =
+              match player.role with
+              | Player p -> Player { p with phase }
+              | Observer _ -> player.role
+            in
+            { player with role }
+          )
+      in
+      { room with users }
+
+    let apply_player_update room ~username ~(event : User_event.t) =
       let users =
         Map.change (users room) username ~f:(
           function
@@ -145,7 +168,7 @@ module Room = struct
               set_role (Player
                   { score = Market.Price.zero
                   ; hand = Partial_hand.starting
-                  ; is_ready = false
+                  ; phase = Waiting { is_ready = false }
                   }
                 )
             | Player_score score ->
@@ -160,8 +183,9 @@ module Room = struct
               end
             | Player_ready is_ready ->
               begin match role with
-              | Player p -> set_role (Player { p with is_ready })
-              | Observer _ -> unchanged
+              | Player ({ phase = Waiting _; _ } as p) ->
+                set_role (Player { p with phase = Waiting { is_ready } })
+              | Player { phase = Playing; _ } | Observer _ -> unchanged
               end
             | Disconnected ->
               set role false
@@ -175,6 +199,15 @@ module Room = struct
             Map.add room.seating ~key:in_seat ~data:username
           | _ -> room.seating
       }
+
+    let apply update room =
+      match update with
+      | Start_waiting ->
+        set_phases room ~phase:(Waiting { is_ready = false })
+      | Start_playing ->
+        set_phases room ~phase:Playing
+      | Player_event { username; event } ->
+        apply_player_update room ~username ~event
   end
 end
 
@@ -226,9 +259,8 @@ module Update = struct
         )
       in
       let others =
-        let { Room.Update. username; event } = update in
-        match event with
-        | Joined ->
+        match update with
+        | Player_event { username; event = Joined } ->
           decr_count_map lobby.others username
         | _ -> lobby.others
       in

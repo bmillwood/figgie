@@ -247,28 +247,34 @@ module App = struct
         end;
         let exchange = Exchange.exec in_room.exchange ~my_name ~exec in
         { in_room with exchange }
-      | Broadcast (Room_update ({ username; event } as update)) ->
-        schedule (Add_message (Player_room_event
-          { username; room_id = None; event }
-        ));
-        { in_room with room = Lobby.Room.Update.apply update in_room.room }
-      | Broadcast New_round ->
-        schedule (Add_message New_round);
-        don't_wait_for begin
-          (* Sample the time *before* we send the RPC. Then the game end
-             time we get is actually roughly "last time we can expect to
-             send an RPC and have it arrive before the game ends". *)
-          let current_time = Time_ns.now () in
-          Rpc.Rpc.dispatch_exn Protocol.Time_remaining.rpc conn ()
-          >>| function
-          | Error #Protocol.not_playing -> ()
-          | Ok remaining ->
-            let end_time = Time_ns.add current_time remaining in
-            schedule (Action.playing (Set_clock end_time))
-        end;
-        let exchange = Exchange.Model.empty in
-        let playing = Playing.Model.initial in
-        { in_room with exchange; game = Playing playing }
+      | Broadcast (Room_update update) ->
+        let room = Lobby.Room.Update.apply update in_room.room in
+        let in_room = { in_room with room } in
+        begin match update with
+        | Player_event { username; event } ->
+          schedule (Add_message (Player_room_event
+            { username; room_id = None; event }
+          ));
+          in_room
+        | Start_playing ->
+          schedule (Add_message New_round);
+          don't_wait_for begin
+            (* Sample the time *before* we send the RPC. Then the game end
+               time we get is actually roughly "last time we can expect to
+               send an RPC and have it arrive before the game ends". *)
+            let current_time = Time_ns.now () in
+            Rpc.Rpc.dispatch_exn Protocol.Time_remaining.rpc conn ()
+            >>| function
+            | Error #Protocol.not_playing -> ()
+            | Ok remaining ->
+              let end_time = Time_ns.add current_time remaining in
+              schedule (Action.playing (Set_clock end_time))
+          end;
+          let exchange = Exchange.Model.empty in
+          let playing = Playing.Model.initial in
+          { in_room with exchange; game = Playing playing }
+        | Start_waiting -> in_room
+        end
       | Broadcast (Round_over results) ->
         schedule (Add_message (Round_over results));
         { in_room with game = Waiting { last_gold = Some results.gold } }
@@ -300,7 +306,10 @@ module App = struct
           { login with where = Lobby { lobby = new_lobby; updates } }
         | Lobby_update up ->
           begin match up with
-          | Room_update { room_id; update = { username; event } } ->
+          | Room_update
+              { room_id
+              ; update = Player_event { username; event }
+              } ->
             schedule (Add_message
               (Player_room_event { username; room_id = Some room_id; event })
             )
@@ -560,33 +569,28 @@ module App = struct
         ] |> view
       | In_room { exchange; game; room; my_hand; _ } ->
         let users =
-          room
-          |> Lobby.Room.Update.apply
-            { username = my_name; event = Player_hand my_hand }
+          Lobby.Room.Update.apply
+            (Player_event
+               { username = my_name; event = Player_hand my_hand })
+            room
           |> Lobby.Room.users
         in
-        let can_send_orders, gold, user_info =
+        let can_send_orders, gold =
           match game with
-          | Playing _ ->
-            ( true
-            , None
-            , User_info.playing ~users ~my_name
-            )
-          | Waiting { last_gold } ->
-            ( false
-            , last_gold
-            , User_info.waiting
-                ~inject_I'm_ready:(fun readiness ->
-                    inject (Action.in_room (I'm_ready readiness)))
-                ~users ~my_name ~last_gold
-            )
+          | Playing _ -> (true, None)
+          | Waiting { last_gold } -> (false, last_gold)
         in
         [ Exchange.view exchange ~my_name
             ~shortener:(Username.Shortener.of_list (Map.keys users))
             ~gold
             ~can_send_orders
             ~inject:exchange_inject
-        ; user_info
+        ; User_info.view
+            ~inject_I'm_ready:(fun readiness ->
+                inject (Action.in_room (I'm_ready readiness)))
+            ~users
+            ~my_name
+            ~gold
         ] |> view
       end
 
