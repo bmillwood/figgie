@@ -26,9 +26,13 @@ module Config = struct
         flag "-aggression"
           (optional_with_default half rational)
           ~doc:"N/D how often to send orders more agg than last"
+      and mean_chaos_interval =
+        flag "-mean-interval"
+          (optional_with_default (sec 5.) time_span)
+          ~doc:"SPAN average time between orders"
       in
       { aggression
-      ; mean_chaos_interval = Time.Span.of_sec 5.
+      ; mean_chaos_interval
       }
     ]
 end
