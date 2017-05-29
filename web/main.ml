@@ -331,13 +331,6 @@ module App = struct
           Pipe.iter_without_pushback pipe ~f:(fun update ->
               schedule (Action.in_room (Game_update update))
             )
-          |> don't_wait_for;
-          Rpc.Rpc.dispatch_exn Protocol.Start_playing.rpc conn Sit_anywhere
-          >>| begin function
-          | Error (`Not_logged_in | `Not_in_a_room) -> assert false
-          | Error (`Game_already_started | `Seat_occupied) -> assert false
-          | Error `You're_already_playing | Ok (_ : Lobby.Room.Seat.t) -> ()
-          end
         end;
         let in_room : In_room.Model.t =
           let room =

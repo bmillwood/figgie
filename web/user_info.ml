@@ -14,23 +14,34 @@ end
 
 module Action = struct
   type t =
-    | I'm_ready of bool
+    | Set_ready of bool
+    | Sit of Lobby.Room.Seat.t
   [@@deriving sexp_of]
 end
 open Action
 
-let apply_action (I'm_ready readiness) () ~conn =
-  don't_wait_for begin
-    Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn readiness
-    >>| function
-    | Ok ()
-    | Error
-        ( `Game_already_in_progress
-        | `You're_not_playing
-        | `Not_logged_in
-        | `Not_in_a_room
-        ) -> ()
-  end
+let apply_action action () ~conn =
+  match action with
+  | Set_ready readiness ->
+    don't_wait_for begin
+      Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn readiness
+      >>| function
+      | Ok ()
+      | Error
+          ( `Game_already_in_progress
+          | `You're_not_playing
+          | `Not_logged_in
+          | `Not_in_a_room
+          ) -> ()
+    end
+  | Sit seat ->
+    don't_wait_for begin
+      Rpc.Rpc.dispatch_exn Protocol.Start_playing.rpc conn (Sit_in seat)
+      >>| function
+      | Error (`Not_logged_in | `Not_in_a_room) -> assert false
+      | Error (`Game_already_started | `Seat_occupied) -> ()
+      | Error `You're_already_playing | Ok (_ : Lobby.Room.Seat.t) -> ()
+    end
 
 module Player = struct
   type t = Lobby.User.Player.t [@@deriving sexp]
@@ -50,13 +61,23 @@ module Position = struct
   include T
   include Comparable.Make(T)
 
-  let of_seat ~from seat =
+  let of_seat ~near seat =
     let clockwise_quarter_turns_from_north : Lobby.Room.Seat.t -> _ =
       function | North -> 0 | East -> 1 | South -> 2 | West -> 3
     in
     [| Near; Left; Far; Right |].(
       ( clockwise_quarter_turns_from_north seat
-      - clockwise_quarter_turns_from_north from
+      - clockwise_quarter_turns_from_north near
+      ) % 4
+    )
+
+  let to_seat ~south pos =
+    let clockwise_quarter_turns_from_near =
+      function | Near -> 0 | Left -> 1 | Far -> 2 | Right -> 3
+    in
+    [| Lobby.Room.Seat.South; West; North; East |].(
+      ( clockwise_quarter_turns_from_near pos
+      - clockwise_quarter_turns_from_near south
       ) % 4
     )
 
@@ -85,7 +106,7 @@ let people_in_places ~my_name ~room =
     Map.fold (Lobby.Room.seating room) ~init:Username.Map.empty
       ~f:(fun ~key:data ~data:key acc -> Map.add acc ~key ~data)
   in
-  let from : Lobby.Room.Seat.t =
+  let near : Lobby.Room.Seat.t =
     match Map.find seating_by_name my_name with
     | None -> South
     | Some seat -> seat
@@ -99,7 +120,7 @@ let people_in_places ~my_name ~room =
           ~f:(fun acc player ->
               Map.add
                 acc
-                ~key:(Position.of_seat ~from seat)
+                ~key:(Position.of_seat ~near seat)
                 ~data:player
             )
       )
@@ -119,11 +140,18 @@ let hand ~gold (hand : Partial_hand.t) =
   in
   known @ [unknown]
 
-let nobody =
+let nobody ~sit_here =
   Node.div [Attr.classes ["userinfo"]]
     [ Node.span [Attr.class_ "name"] [Node.text "[nobody]"]
     ; Node.create "br" [] []
-    ; Node.text (let nbsp = "\xc2\xa0" in nbsp)
+    ; match sit_here with
+      | Some sit_event ->
+        Node.button
+          [Attr.on_click (fun _mouseEvent -> sit_event)]
+          [Node.text "sit"]
+      | None ->
+        let nbsp = "\xc2\xa0" in
+        Node.text nbsp
     ]
 
 let somebody ~is_me ~all_scores ~gold ~inject (player : Player.t) =
@@ -146,7 +174,7 @@ let somebody ~is_me ~all_scores ~gold ~inject (player : Player.t) =
         in
         [ Node.button
             [ Id.attr Id.ready_button
-            ; Attr.on_click (fun _mouseEvent -> inject (I'm_ready set_it_to))
+            ; Attr.on_click (fun _mouseEvent -> inject (Set_ready set_it_to))
             ]
             [ icon ]
         ]
@@ -176,7 +204,18 @@ let view () ~inject ~room ~my_name ~gold =
   let in_position pos =
     Node.div [Attr.class_ (Position.class_ pos)]
       [ match Map.find seating pos with
-        | None -> nobody
+        | None ->
+          let sit_here =
+            Option.bind (Map.find (Lobby.Room.users room) my_name)
+              ~f:(fun me ->
+                  match me.role with
+                  | Observer _ ->
+                    let seat = Position.to_seat ~south:Near pos in
+                    Some (inject (Sit seat))
+                  | Player _ -> None
+                )
+          in
+          nobody ~sit_here
         | Some player ->
           let is_me = Username.equal my_name player.username in
           somebody ~is_me ~all_scores ~gold ~inject player
