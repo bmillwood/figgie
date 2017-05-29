@@ -50,7 +50,7 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
     in
     let player_list = Map.data players in
     let all_scores = List.map player_list ~f:(fun (_, _, score) -> score) in
-    let players =
+    let player_rows =
       [ List.map player_list
           ~f:(fun (username, is_connected, score) ->
               Node.tr []
@@ -72,7 +72,7 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
             )
       ; List.init (Int.max 0 (Lobby.max_players_per_room - num_players))
           ~f:(fun i ->
-            if i = 0 && not (Map.mem users my_name) then (
+            if i = 0 && not (Map.mem players my_name) then (
               Node.tr [] [Node.td [] [join_button ~rejoin:false]]
             ) else (
               let nbsp = "\xc2\xa0" in
@@ -112,7 +112,7 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
     Node.div
       [ Attr.class_ "room" ]
       [ id_item
-      ; Node.table [Attr.class_ "room"] players
+      ; Node.table [Attr.class_ "room"] player_rows
       ; Node.div [Attr.class_ "observers"] observers
       ]
   in
