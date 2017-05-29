@@ -118,7 +118,8 @@ let command =
               let last = Card.Hand.get lasts ~suit:exec.order.symbol in
               last := price_of_fills fills;
             );
-            Deferred.unit
+            Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc t.conn Hand
+            >>| Protocol.playing_exn
           | Hand new_hand ->
             hand := new_hand;
             Deferred.unit
