@@ -1,9 +1,36 @@
 open Core_kernel.Std
+open Async_kernel
+open Async_rpc_kernel
 open Incr_dom
 open Vdom
 
 open Figgie
 open Market
+
+module Model = struct
+  type t = unit
+  let initial = ()
+end
+
+module Action = struct
+  type t =
+    | I'm_ready of bool
+  [@@deriving sexp_of]
+end
+open Action
+
+let apply_action (I'm_ready readiness) () ~conn =
+  don't_wait_for begin
+    Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn readiness
+    >>| function
+    | Ok ()
+    | Error
+        ( `Game_already_in_progress
+        | `You're_not_playing
+        | `Not_logged_in
+        | `Not_in_a_room
+        ) -> ()
+  end
 
 module Player = struct
   type t = Lobby.User.Player.t [@@deriving sexp]
@@ -25,13 +52,19 @@ module Player = struct
 end
 
 module Position = struct
-  type t = | Me | Left | Middle | Right
+  module T = struct
+    type t =
+      | Near | Left | Far | Right
+      [@@deriving compare, sexp]
+  end
+  include T
+  include Comparable.Make(T)
 
   let class_ =
     function
-    | Me -> "myself"
+    | Near -> "myself"
     | Left -> "left"
-    | Middle -> "middle"
+    | Far -> "middle"
     | Right -> "right"
 end
 
@@ -68,7 +101,7 @@ let hand ~gold (hand : Partial_hand.t) =
 let player ~pos ~icons ~all_scores ~gold (player : Player.t) =
   let is_me =
     match pos with
-    | Position.Me -> true
+    | Position.Near -> true
     | _ -> false
   in
   let name =
@@ -88,7 +121,8 @@ let player ~pos ~icons ~all_scores ~gold (player : Player.t) =
     ] |> List.concat
   )
 
-let view ~inject_I'm_ready ~users ~my_name ~gold =
+let view () ~inject ~room ~my_name ~gold =
+  let users = Lobby.Room.users room in
   let players = Map.filter_map users ~f:Player.of_user in
   let me =
     match Map.find players my_name with
@@ -118,7 +152,7 @@ let view ~inject_I'm_ready ~users ~my_name ~gold =
       in
       [ Node.button
           [ Id.attr Id.ready_button
-          ; Attr.on_click (fun _mouseEvent -> inject_I'm_ready set_it_to)
+          ; Attr.on_click (fun _mouseEvent -> inject (I'm_ready set_it_to))
           ]
           [ icon ]
       ]
@@ -135,9 +169,9 @@ let view ~inject_I'm_ready ~users ~my_name ~gold =
     container
       [ Node.div [Id.attr Id.others]
         [ p ~pos:Left   left
-        ; p ~pos:Middle middle
+        ; p ~pos:Far    middle
         ; p ~pos:Right  right
         ]
-      ; p ~pos:Me (me, ready_button)
+      ; p ~pos:Near (me, ready_button)
       ]
   | _ -> assert false

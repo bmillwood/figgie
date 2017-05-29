@@ -1,17 +1,35 @@
 open! Core_kernel.Std
+open Async_rpc_kernel
 open Incr_dom
 open Vdom
 
 open Figgie
+
+module Model : sig
+  type t
+
+  val initial : t
+end
+
+module Action : sig
+  type t [@@deriving sexp_of]
+end
 
 val score_display
   :  ('k, Market.Price.t, _) Map.t
   -> Market.Price.t
   -> Node.t
 
+val apply_action
+  :  Action.t
+  -> Model.t
+  -> conn:Rpc.Connection.t
+  -> Model.t
+
 val view
-  :  inject_I'm_ready:(bool -> Event.t)
-  -> users:Lobby.User.t Username.Map.t
+  :  Model.t
+  -> inject:(Action.t -> Event.t)
+  -> room:Lobby.Room.t
   -> my_name:Username.t
   -> gold:Card.Suit.t option
   -> Node.t

@@ -54,7 +54,9 @@ module Room : sig
   module Id : Identifiable.S
 
   module Seat : sig
-    type t [@@deriving bin_io, compare, enumerate, sexp]
+    type t =
+      | North | East | South | West
+      [@@deriving bin_io, compare, enumerate, sexp]
     include Comparable.S_binable with type t := t
   end
 

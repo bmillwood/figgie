@@ -30,11 +30,12 @@ module In_room = struct
     end
 
     type t =
-      { room_id  : Lobby.Room.Id.t
-      ; room     : Lobby.Room.t
-      ; my_hand  : Partial_hand.t
-      ; exchange : Exchange.Model.t
-      ; game     : Game.t
+      { room_id   : Lobby.Room.Id.t
+      ; room      : Lobby.Room.t
+      ; my_hand   : Partial_hand.t
+      ; exchange  : Exchange.Model.t
+      ; user_info : User_info.Model.t
+      ; game      : Game.t
       }
   end
   open Model
@@ -48,8 +49,8 @@ module In_room = struct
     type t =
       | Game_update of Protocol.Game_update.t
       | Playing of Playing.Action.t
-      | I'm_ready of bool
       | Exchange of Exchange.Action.t
+      | User_info of User_info.Action.t
     [@@deriving sexp_of]
   end
 end
@@ -203,17 +204,6 @@ module App = struct
       ~conn ~my_name : In_room.Model.t
     =
     match t with
-    | I'm_ready readiness ->
-      don't_wait_for begin
-        Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn readiness
-        >>| function
-        | Ok ()
-        | Error `Game_already_in_progress
-        | Error `You're_not_playing
-        | Error `Not_logged_in
-        | Error `Not_in_a_room -> ()
-      end;
-      in_room
     | Playing pact ->
       In_room.update_round_if_playing in_room
         ~f:(apply_playing_action pact ~schedule)
@@ -224,6 +214,11 @@ module App = struct
           ~add_message:(fun msg -> schedule (Add_message msg))
       in
       { in_room with exchange }
+    | User_info uiact ->
+      let user_info =
+        User_info.apply_action uiact in_room.user_info ~conn
+      in
+      { in_room with user_info }
     | Game_update up ->
       let just_schedule act = schedule act; in_room in
       match up with
@@ -358,6 +353,7 @@ module App = struct
           ; room
           ; my_hand
           ; exchange = Exchange.Model.empty
+          ; user_info = User_info.Model.initial
           ; game = Waiting { last_gold = None }
           }
         in
@@ -567,13 +563,12 @@ module App = struct
                 Event.Ignore
             )
         ] |> view
-      | In_room { exchange; game; room; my_hand; _ } ->
-        let users =
+      | In_room { exchange; game; room; my_hand; user_info; _ } ->
+        let room =
           Lobby.Room.Update.apply
             (Player_event
                { username = my_name; event = Player_hand my_hand })
             room
-          |> Lobby.Room.users
         in
         let can_send_orders, gold =
           match game with
@@ -581,14 +576,15 @@ module App = struct
           | Waiting { last_gold } -> (false, last_gold)
         in
         [ Exchange.view exchange ~my_name
-            ~shortener:(Username.Shortener.of_list (Map.keys users))
+            ~shortener:
+              (Username.Shortener.of_list (Map.keys (Lobby.Room.users room)))
             ~gold
             ~can_send_orders
             ~inject:exchange_inject
         ; User_info.view
-            ~inject_I'm_ready:(fun readiness ->
-                inject (Action.in_room (I'm_ready readiness)))
-            ~users
+            user_info
+            ~inject:(fun uiact -> inject (Action.in_room (User_info uiact)))
+            ~room
             ~my_name
             ~gold
         ] |> view
