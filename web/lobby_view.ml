@@ -54,9 +54,7 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
       [ List.map player_list
           ~f:(fun (username, is_connected, score) ->
               Node.tr []
-                [ if Username.equal username my_name then (
-                      Node.td [] [join_button ~rejoin:true]
-                    ) else (
+                [ begin
                     let classes =
                       "name"
                       :: if is_connected then [] else ["disconnected"]
@@ -64,20 +62,16 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
                     Node.td
                       [Attr.classes classes]
                       [Hash_colour.username_span ~is_me:false username]
-                  )
+                  end
                 ; Node.td
                     [Attr.class_ "score"]
                     [User_info.score_display ~all_scores score]
                 ]
             )
       ; List.init (Int.max 0 (Lobby.max_players_per_room - num_players))
-          ~f:(fun i ->
-            if i = 0 && not (Map.mem players my_name) then (
-              Node.tr [] [Node.td [] [join_button ~rejoin:false]]
-            ) else (
+          ~f:(fun _ ->
               let nbsp = "\xc2\xa0" in
               Node.tr [] [Node.td [Attr.class_ "name"] [Node.text nbsp]]
-            )
           )
       ] |> List.concat
     in
@@ -86,8 +80,8 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
         List.filter_map ~f:(fun (cond, x) -> Option.some_if cond x)
       in
       let shortener = Username.Shortener.of_list (Map.keys users) in
-      List.concat_mapi (Map.data observers)
-        ~f:(fun i (username, is_connected, is_omniscient) ->
+      List.concat_map (Map.data observers)
+        ~f:(fun (username, is_connected, is_omniscient) ->
             let style =
               Hash_colour.username_style
                 ~is_me:(Username.equal username my_name)
@@ -102,18 +96,17 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
                 ]
             in
             let u = Username.Shortener.short shortener username in
-            keep_trues
-              [ i = 0, Icon.observer
-              ; true, Node.text " "
-              ; true, Node.span attrs [Node.text (Username.to_string u)]
-              ]
+            [ Node.text " "
+            ; Node.span attrs [Node.text (Username.to_string u)]
+            ]
           )
     in
     Node.div
       [ Attr.class_ "room" ]
       [ id_item
       ; Node.table [Attr.class_ "room"] player_rows
-      ; Node.div [Attr.class_ "observers"] observers
+      ; Node.div [Attr.class_ "observers"] (Icon.observer :: observers)
+      ; join_button ~rejoin:(Map.mem users my_name)
       ]
   in
   Map.to_alist model.rooms
