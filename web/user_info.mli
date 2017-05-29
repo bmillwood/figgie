@@ -16,7 +16,7 @@ module Action : sig
 end
 
 val score_display
-  :  ('k, Market.Price.t, _) Map.t
+  :  all_scores:Market.Price.t list
   -> Market.Price.t
   -> Node.t
 

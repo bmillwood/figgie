@@ -26,7 +26,6 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
           )
     in
     let num_players = Map.length players in
-    let scores = Map.map players ~f:(fun (_, _, score) -> score) in
     let delete_button =
       Node.button
         [ Attr.class_ "delete"
@@ -49,8 +48,10 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
         ]
         [Node.text button_text]
     in
+    let player_list = Map.data players in
+    let all_scores = List.map player_list ~f:(fun (_, _, score) -> score) in
     let players =
-      [ List.map (Map.data players)
+      [ List.map player_list
           ~f:(fun (username, is_connected, score) ->
               Node.tr []
                 [ if Username.equal username my_name then (
@@ -66,7 +67,7 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
                   )
                 ; Node.td
                     [Attr.class_ "score"]
-                    [User_info.score_display scores score]
+                    [User_info.score_display ~all_scores score]
                 ]
             )
       ; List.init (Int.max 0 (Lobby.max_players_per_room - num_players))

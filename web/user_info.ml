@@ -35,16 +35,6 @@ let apply_action (I'm_ready readiness) () ~conn =
 module Player = struct
   type t = Lobby.User.Player.t [@@deriving sexp]
 
-  let nobody : t =
-    { username = Username.of_string "[nobody]"
-    ; is_connected = true
-    ; role =
-      { score = Price.zero
-      ; hand = Partial_hand.empty
-      ; phase = Waiting { is_ready = false }
-      }
-    }
-
   let of_user user =
     match Lobby.User.role user with
     | Player p -> Some { user with role = p }
@@ -60,18 +50,27 @@ module Position = struct
   include T
   include Comparable.Make(T)
 
+  let of_seat ~from seat =
+    let clockwise_quarter_turns_from_north : Lobby.Room.Seat.t -> _ =
+      function | North -> 0 | East -> 1 | South -> 2 | West -> 3
+    in
+    [| Near; Left; Far; Right |].(
+      ( clockwise_quarter_turns_from_north seat
+      - clockwise_quarter_turns_from_north from
+      ) % 4
+    )
+
   let class_ =
     function
-    | Near -> "myself"
+    | Near -> "near"
     | Left -> "left"
-    | Far -> "middle"
+    | Far -> "far"
     | Right -> "right"
 end
 
-let score_display scores_map score =
+let score_display ~all_scores score =
   let ranking =
-    let is_better_score s = Price.O.(s > score) in
-    match Map.count scores_map ~f:is_better_score with
+    match List.count all_scores ~f:(fun s -> Price.O.(s > score)) with
     | 0 -> "first"
     | 1 -> "second"
     | 2 -> "third"
@@ -81,7 +80,29 @@ let score_display scores_map score =
     [Attr.classes ["score"; ranking]]
     [Node.text (Price.to_string score)]
 
-let container = Node.div [Id.attr Id.user_info]
+let people_in_places ~my_name ~room =
+  let seating_by_name =
+    Map.fold (Lobby.Room.seating room) ~init:Username.Map.empty
+      ~f:(fun ~key:data ~data:key acc -> Map.add acc ~key ~data)
+  in
+  let from : Lobby.Room.Seat.t =
+    match Map.find seating_by_name my_name with
+    | None -> South
+    | Some seat -> seat
+  in
+  Map.fold (Lobby.Room.seating room) ~init:Position.Map.empty
+    ~f:(fun ~key:seat ~data:username acc ->
+        Option.fold
+          (Option.bind (Map.find (Lobby.Room.users room) username)
+             ~f:Player.of_user)
+          ~init:acc
+          ~f:(fun acc player ->
+              Map.add
+                acc
+                ~key:(Position.of_seat ~from seat)
+                ~data:player
+            )
+      )
 
 let hand ~gold (hand : Partial_hand.t) =
   let known =
@@ -98,12 +119,14 @@ let hand ~gold (hand : Partial_hand.t) =
   in
   known @ [unknown]
 
-let player ~pos ~icons ~all_scores ~gold (player : Player.t) =
-  let is_me =
-    match pos with
-    | Position.Near -> true
-    | _ -> false
-  in
+let nobody =
+  Node.div [Attr.classes ["userinfo"]]
+    [ Node.span [Attr.class_ "name"] [Node.text "[nobody]"]
+    ; Node.create "br" [] []
+    ; Node.text (let nbsp = "\xc2\xa0" in nbsp)
+    ]
+
+let somebody ~is_me ~all_scores ~gold ~inject (player : Player.t) =
   let name =
     let classes =
       "name" :: if player.is_connected then [] else ["disconnected"]
@@ -111,67 +134,59 @@ let player ~pos ~icons ~all_scores ~gold (player : Player.t) =
     Hash_colour.username_span ~attrs:[Attr.classes classes] ~is_me
       player.username
   in
-  Node.div [Attr.classes ["userinfo"; Position.class_ pos]] (
-    [ [ name
-      ; score_display all_scores player.role.score
+  let ready =
+    match player.role.phase with
+    | Playing -> []
+    | Waiting { is_ready } ->
+      if is_me then (
+        let icon, set_it_to =
+          if is_ready
+          then Icon.not_ready, false
+          else Icon.ready, true
+        in
+        [ Node.button
+            [ Id.attr Id.ready_button
+            ; Attr.on_click (fun _mouseEvent -> inject (I'm_ready set_it_to))
+            ]
+            [ icon ]
+        ]
+      ) else (
+        if is_ready
+        then [Icon.ready]
+        else [Icon.not_ready]
+      )
+  in
+  let classes =
+    "userinfo"
+    :: if is_me then ["me"] else []
+  in
+  Node.div [Attr.classes classes] (
+    [ [name]
+    ; ready
+    ; [ score_display ~all_scores player.role.score
+      ; Node.create "br" [] []
       ]
-    ; icons
-    ; [ Node.create "br" [] [] ]
     ; hand ~gold player.role.hand
     ] |> List.concat
   )
 
 let view () ~inject ~room ~my_name ~gold =
-  let users = Lobby.Room.users room in
-  let players = Map.filter_map users ~f:Player.of_user in
-  let me =
-    match Map.find players my_name with
-    | None -> Player.nobody
-    | Some me -> me
-  in
-  let others = Map.remove players my_name in
-  let others =
-    Map.map others ~f:(fun o ->
-      let ready_icon =
-        match o.role.phase with
-        | Waiting { is_ready } ->
-          if is_ready
-          then [Icon.ready]
-          else [Icon.not_ready]
-        | Playing -> []
-      in
-      (o, ready_icon))
-  in
-  let ready_button =
-    match me.role.phase with
-    | Waiting { is_ready } ->
-      let icon, set_it_to =
-        if is_ready
-        then Icon.not_ready, false
-        else Icon.ready, true
-      in
-      [ Node.button
-          [ Id.attr Id.ready_button
-          ; Attr.on_click (fun _mouseEvent -> inject (I'm_ready set_it_to))
-          ]
-          [ icon ]
+  let seating = people_in_places ~my_name ~room in
+  let all_scores = List.map (Map.data seating) ~f:(fun p -> p.role.score) in
+  let in_position pos =
+    Node.div [Attr.class_ (Position.class_ pos)]
+      [ match Map.find seating pos with
+        | None -> nobody
+        | Some player ->
+          let is_me = Username.equal my_name player.username in
+          somebody ~is_me ~all_scores ~gold ~inject player
       ]
-    | Playing -> []
   in
-  let players = Map.add others ~key:me.username ~data:(me, ready_button) in
-  let all_scores = Map.map players ~f:(fun (p, _) -> p.role.score) in
-  let nobody = Player.nobody, [] in
-  match Map.data others @ List.init 3 ~f:(fun _ -> nobody) with
-  | left :: middle :: right :: _ ->
-    let p ~pos (p, icons) =
-      player ~pos ~icons ~all_scores ~gold p
-    in
-    container
-      [ Node.div [Id.attr Id.others]
-        [ p ~pos:Left   left
-        ; p ~pos:Far    middle
-        ; p ~pos:Right  right
+  Node.div [Id.attr Id.user_info]
+    [ in_position Far
+    ; Node.div [Attr.class_ "mid"]
+        [ in_position Left
+        ; in_position Right
         ]
-      ; p ~pos:Near (me, ready_button)
-      ]
-  | _ -> assert false
+    ; in_position Near
+    ]

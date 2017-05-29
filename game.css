@@ -11,7 +11,7 @@
 }
 #status.Disconnected, #status.Connecting { background-color: #445; }
 #status.Connected,    #status.LoggedIn   { background-color: #006; }
-#status.ConnectionFailed                  { background-color: #602; }
+#status.ConnectionFailed                 { background-color: #602; }
 
 .clock {
 	position: absolute;
@@ -69,34 +69,35 @@ tr#orderbuy  input { background-color: #355; }
 #tape .buy  { color: #0f4; }
 #tape .sell { color: #f04; }
 
-div#userinfo .name {
-	padding: 0 0.5em;
-	font-size: 0.8em;
-}
-div#userinfo .name.disconnected {
-	text-decoration: line-through;
-}
-div#userinfo .score {
-	float: right;
-	font-size: 0.8em;
-}
-div#others > div, div.myself {
+div.userinfo {
 	text-align: left;
 	display: inline-block;
 	vertical-align: top;
 	background-color: #224;
 }
-div#others > .left {
+div#userinfo .left {
 	float: left;
 	margin-left: 3em;
 }
-div#others > .middle {
-}
-div#others > .right {
+div#userinfo .right {
 	float: right;
 	margin-right: 3em;
 }
-div.myself {
+div#userinfo .near {
+	clear: both;
+}
+div#userinfo .me {
 	margin-top: 0.5em;
 	font-size: 2em;
+}
+div.userinfo .name {
+	padding: 0 0.5em;
+	font-size: 0.8em;
+}
+div.userinfo .name.disconnected {
+	text-decoration: line-through;
+}
+div.userinfo .score {
+	float: right;
+	font-size: 0.8em;
 }
