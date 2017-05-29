@@ -111,6 +111,7 @@ let command =
       Pipe.iter t.updates ~f:(function
         | Broadcast (Round_over results) ->
           Counts.clear counts;
+          pending_ack := None;
           Log.Global.sexp ~level:`Info [%message "round over"
             (results.gold : Suit.t)
           ];
