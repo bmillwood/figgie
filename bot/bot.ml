@@ -30,9 +30,11 @@ let updates  t = t.updates
 
 let new_order_id t = t.new_order_id ()
 
-let try_set_ready t =
-  Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc (conn t) true
+let try_set_ready_on_conn ~conn =
+  Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn true
   |> Deferred.ignore
+
+let try_set_ready t = try_set_ready_on_conn ~conn:(conn t)
 
 let join_any_room ~conn ~username =
   let%bind lobby_updates =
@@ -116,7 +118,7 @@ let start_playing ~conn ~username ~(room_choice : Room_choice.t) =
   | Error `You're_already_playing
   | Ok (_ : Lobby.Room.Seat.t) -> updates
 
-let run ~server ~config ~username ~room_choice ~f =
+let run ~server ~config ~username ~room_choice ~auto_ready ~f =
   Rpc.Connection.with_client
     ~host:(Host_and_port.host server)
     ~port:(Host_and_port.port server)
@@ -129,10 +131,28 @@ let run ~server ~config ~username ~room_choice ~f =
           r := Market.Order.Id.next id;
           id
       in
-      f { username; conn; updates; new_order_id } ~config)
+      let ready_if_auto () =
+        if auto_ready then (
+          try_set_ready_on_conn ~conn
+        ) else (
+          Deferred.unit
+        )
+      in
+      let handle_update : Protocol.Game_update.t -> unit =
+        function
+        | Broadcast (Round_over _) ->
+          don't_wait_for (ready_if_auto ())
+        | _ -> ()
+      in
+      let updates = Pipe.map updates ~f:(fun u -> handle_update u; u) in
+      let t = { username; conn; updates; new_order_id } in
+      let%bind () = ready_if_auto () in
+      f t ~config)
   >>| Or_error.of_exn_result
 
-let make_command ~summary ~config_param ~username_stem ~f =
+let make_command ~summary ~config_param ~username_stem
+    ?(auto_ready=false)
+    f =
   let open Command.Let_syntax in
   Command.async_or_error'
     ~summary
@@ -159,5 +179,7 @@ let make_command ~summary ~config_param ~username_stem ~f =
           "started"
             (username : Username.t)
         ];
-        run ~server ~config ~username ~room_choice ~f
+        run ~server ~config ~username ~room_choice
+          ~auto_ready
+          ~f
     ]

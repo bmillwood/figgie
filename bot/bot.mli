@@ -16,5 +16,6 @@ val make_command
   :  summary:string
   -> config_param:'a Command.Param.t
   -> username_stem:string
-  -> f:(t -> config:'a -> unit Deferred.t)
+  -> ?auto_ready:bool
+  -> (t -> config:'a -> unit Deferred.t)
   -> Command.t

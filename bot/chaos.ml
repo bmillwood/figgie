@@ -98,7 +98,8 @@ let command =
     ~summary:"Send orders randomly around last"
     ~config_param:Config.param
     ~username_stem:"chaosbot"
-    ~f:(fun t ~config ->
+    ~auto_ready:true
+    (fun t ~config ->
         Random.self_init ();
         let lasts = Card.Hand.init ~f:(fun _ -> ref (Price.of_int 5)) in
         let hand = ref (Card.Hand.create_all Size.zero) in
@@ -106,11 +107,10 @@ let command =
           chaos_loop t ~config ~lasts ~hand
         );
         let conn = Bot.conn t in
-        let%bind () = Bot.try_set_ready t in
         Pipe.iter (Bot.updates t) ~f:(function
           | Broadcast (Round_over _results) ->
             Card.Hand.iter lasts ~f:(fun r -> r := Price.of_int 5);
-            Bot.try_set_ready t
+            Deferred.unit
           | Broadcast (Exec exec) ->
             let fills = Exec.fills exec in
             if not (List.is_empty fills) then (

@@ -105,12 +105,12 @@ let command =
     ~summary:"Count cards"
     ~config_param:(Command.Param.return ())
     ~username_stem:"countbot"
-    ~f:(fun t ~config:() ->
+    ~auto_ready:true
+    (fun t ~config:() ->
       let conn     = Bot.conn     t in
       let username = Bot.username t in
       let counts = Counts.create () in
       let pending_ack = ref None in
-      let%bind () = Bot.try_set_ready t in
       Pipe.iter (Bot.updates t) ~f:(function
         | Broadcast (Round_over results) ->
           Counts.clear counts;

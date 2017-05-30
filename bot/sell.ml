@@ -33,7 +33,8 @@ let command =
     ~summary:"Offer all your cards at a fixed price"
     ~config_param
     ~username_stem:"sellbot"
-    ~f:(fun t ~config ->
+    ~auto_ready:true
+    (fun t ~config ->
       let username = Bot.username t in
       let sell_prices =
         Card.Hand.init ~f:(fun _suit -> ref config.initial_sell_price)
@@ -93,10 +94,10 @@ let command =
         | Some suit -> handle_filled ~suit ~size
         end
       in
-      let%bind () = Bot.try_set_ready t in
       Pipe.iter (Bot.updates t) ~f:(function
         | Broadcast (Round_over _) ->
-          Bot.try_set_ready t
+          reset_sell_prices ();
+          Deferred.unit
         | Broadcast (Exec exec) ->
           let order = exec.order in
           if Username.equal order.owner username
@@ -109,7 +110,6 @@ let command =
           (* The correctness of the below relies on sellbot never asking
              for a Hand update, only receiving them at the beginning of
              a new round. *)
-          reset_sell_prices ();
           Deferred.List.iter ~how:`Parallel Card.Suit.all ~f:(fun suit ->
             let size =
               Market.Size.min
