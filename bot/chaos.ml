@@ -78,16 +78,15 @@ let rec chaos_loop t ~config ~lasts ~hand =
   | Sell ->
     hand := Card.Hand.modify !hand ~suit ~f:(fun s -> Size.O.(s - size))
   end;
-  let order : Order.t =
-    { owner = Bot.username t
-    ; id = Bot.new_order_id t
-    ; symbol = suit
-    ; dir
-    ; price
-    ; size
-    }
-  in
-  match%bind Rpc.Rpc.dispatch_exn Protocol.Order.rpc (Bot.conn t) order with
+  match%bind
+    Bot.Staged_order.send_exn
+      (Bot.Staged_order.create t
+         ~symbol:suit
+         ~dir
+         ~price
+         ~size)
+      t
+  with
   | Error _ | Ok `Ack -> chaos_loop t ~config ~lasts ~hand
 
 let price_of_fills (fills : Order.t list) =
@@ -106,7 +105,6 @@ let command =
         don't_wait_for (
           chaos_loop t ~config ~lasts ~hand
         );
-        let conn = Bot.conn t in
         Pipe.iter (Bot.updates t) ~f:(function
           | Broadcast (Round_over _results) ->
             Card.Hand.iter lasts ~f:(fun r -> r := Price.of_int 5);
@@ -117,8 +115,7 @@ let command =
               let last = Card.Hand.get lasts ~suit:exec.order.symbol in
               last := price_of_fills fills;
             );
-            Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Hand
-            >>| Protocol.playing_exn
+            Bot.request_update_exn t Hand
           | Hand new_hand ->
             hand := new_hand;
             Deferred.unit

@@ -107,7 +107,6 @@ let command =
     ~username_stem:"countbot"
     ~auto_ready:true
     (fun t ~config:() ->
-      let conn     = Bot.conn     t in
       let username = Bot.username t in
       let counts = Counts.create () in
       let pending_ack = ref None in
@@ -137,8 +136,7 @@ let command =
               ~counts:(Counts.per_suits counts : Market.Size.t Card.Hand.t)
               ~gold:(Counts.ps_gold counts : float Hand.t)
           ];
-          Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
-          >>| Protocol.playing_exn
+          Bot.request_update_exn t Market
         | Hand hand ->
           Counts.update counts username
             ~f:(fun _ -> Partial_hand.create_known hand);
@@ -170,8 +168,7 @@ let command =
                   then begin
                     if Username.equal order.owner username
                     then begin
-                      Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn
-                        order.id
+                      Bot.cancel t order.id
                       >>= function
                       | Error e ->
                         Log.Global.sexp ~level:`Error
@@ -179,16 +176,15 @@ let command =
                         Deferred.unit
                       | Ok `Ack -> Deferred.unit
                     end else begin
-                      let id = Bot.new_order_id t in
-                      pending_ack := Some id;
-                      Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn
-                        { owner = username
-                        ; id
-                        ; symbol = order.symbol
-                        ; dir = Dir.other order.dir
-                        ; price = order.price
-                        ; size = order.size
-                        }
+                      let order =
+                        Bot.Staged_order.create t
+                          ~symbol:order.symbol
+                          ~dir:(Dir.other order.dir)
+                          ~price:order.price
+                          ~size:order.size
+                      in
+                      pending_ack := Some (Bot.Staged_order.id order);
+                      Bot.Staged_order.send_exn order t
                       >>= function
                       | Error (`Game_not_in_progress | `Not_enough_to_sell as e) ->
                         Log.Global.sexp ~level:`Info
@@ -196,7 +192,7 @@ let command =
                         Deferred.unit
                       | Error e ->
                         raise_s [%sexp (e : Protocol.Order.error)]
-                      | Ok `Ack -> Deferred.unit
+                      | Ok _id -> Deferred.unit
                     end
                   end else Deferred.unit))
         | _ -> Deferred.unit))

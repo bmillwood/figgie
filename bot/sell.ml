@@ -51,14 +51,13 @@ let command =
         else begin
           hand := Card.Hand.modify !hand ~suit
             ~f:(fun c -> Market.Size.O.(c - size));
-          Rpc.Rpc.dispatch_exn Protocol.Order.rpc (Bot.conn t)
-            { owner = username
-            ; id = Bot.new_order_id t
-            ; symbol = suit
-            ; dir = Sell
-            ; price = !(Card.Hand.get sell_prices ~suit)
-            ; size
-            }
+          Bot.Staged_order.send_exn
+            (Bot.Staged_order.create t
+               ~symbol:suit
+               ~dir:Sell
+               ~price:!(Card.Hand.get sell_prices ~suit)
+               ~size)
+            t
           >>= function
           | Error _ | Ok `Ack -> Deferred.unit
         end

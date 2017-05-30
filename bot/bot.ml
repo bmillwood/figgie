@@ -2,6 +2,7 @@ open Core
 open Async
 
 open Figgie
+open Market
 
 module Room_choice = struct
   type t =
@@ -21,20 +22,36 @@ type t =
   { username : Username.t
   ; conn : Rpc.Connection.t
   ; updates : Protocol.Game_update.t Pipe.Reader.t
-  ; new_order_id : unit -> Market.Order.Id.t
+  ; new_order_id : unit -> Order.Id.t
   }
 
 let username t = t.username
-let conn     t = t.conn
 let updates  t = t.updates
 
-let new_order_id t = t.new_order_id ()
+module Staged_order = struct
+  type t = Order.t
+
+  let create bot ~symbol ~dir ~price ~size : t =
+    { owner = username bot; id = bot.new_order_id ()
+    ; symbol; dir; price; size
+    }
+
+  let id (t : t) = t.id
+
+  let send_exn t bot = Rpc.Rpc.dispatch_exn Protocol.Order.rpc bot.conn t
+end
+
+let cancel t id = Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc t.conn id
+
+let request_update_exn t thing_to_get =
+  Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc t.conn thing_to_get
+  >>| Protocol.playing_exn
 
 let try_set_ready_on_conn ~conn =
   Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn true
   |> Deferred.ignore
 
-let try_set_ready t = try_set_ready_on_conn ~conn:(conn t)
+let try_set_ready t = try_set_ready_on_conn ~conn:t.conn
 
 let join_any_room ~conn ~username =
   let%bind lobby_updates =
@@ -125,10 +142,10 @@ let run ~server ~config ~username ~room_choice ~auto_ready ~f =
     (fun conn ->
       let%bind updates = start_playing ~conn ~username ~room_choice in
       let new_order_id =
-        let r = ref Market.Order.Id.zero in
+        let r = ref Order.Id.zero in
         fun () ->
           let id = !r in
-          r := Market.Order.Id.next id;
+          r := Order.Id.next id;
           id
       in
       let ready_if_auto () =
