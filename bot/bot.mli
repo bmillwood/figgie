@@ -8,6 +8,8 @@ type t
 val username : t -> Username.t
 val updates  : t -> Protocol.Game_update.t Pipe.Reader.t
 
+val unacked_orders : t -> Order.t list
+
 module Staged_order : sig
   type bot
   type t

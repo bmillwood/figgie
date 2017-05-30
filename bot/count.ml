@@ -109,21 +109,15 @@ let command =
     (fun t ~config:() ->
       let username = Bot.username t in
       let counts = Counts.create () in
-      let pending_ack = ref None in
       Pipe.iter (Bot.updates t) ~f:(function
         | Broadcast (Round_over results) ->
           Counts.clear counts;
-          pending_ack := None;
           Log.Global.sexp ~level:`Info [%message "round over"
             (results.gold : Suit.t)
           ];
           Bot.try_set_ready t
         | Broadcast (Exec exec) ->
           let order = exec.order in
-          if Option.exists !pending_ack ~f:(Order.Id.equal order.id)
-          then (
-            pending_ack := None
-          );
           Counts.see_order counts order;
           Counts.see_exec  counts ~order exec;
           begin if Username.equal order.owner username
@@ -141,7 +135,7 @@ let command =
           Counts.update counts username
             ~f:(fun _ -> Partial_hand.create_known hand);
           Deferred.unit
-        | Market book when Option.is_none !pending_ack ->
+        | Market book when List.is_empty (Bot.unacked_orders t) ->
           let ps = Counts.ps_gold counts in
           Deferred.List.iter ~how:`Parallel Suit.all ~f:(fun suit ->
             let p_gold = Hand.get ps ~suit in
@@ -183,7 +177,6 @@ let command =
                           ~price:order.price
                           ~size:order.size
                       in
-                      pending_ack := Some (Bot.Staged_order.id order);
                       Bot.Staged_order.send_exn order t
                       >>= function
                       | Error (`Game_not_in_progress | `Not_enough_to_sell as e) ->

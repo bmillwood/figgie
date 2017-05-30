@@ -18,27 +18,58 @@ module Room_choice = struct
       ~doc:"ID room to join on startup, defaults to first available"
 end
 
+module State = struct
+  type t =
+    { mutable next_order_id : Order.Id.t
+    ; unacked_orders        : Order.t Order.Id.Table.t
+    }
+
+  let create () =
+    { next_order_id = Order.Id.zero
+    ; unacked_orders = Order.Id.Table.create ()
+    }
+
+  let new_order_id t =
+    let id = t.next_order_id in
+    t.next_order_id <- Order.Id.next id;
+    id
+end
+
 type t =
   { username : Username.t
-  ; conn : Rpc.Connection.t
-  ; updates : Protocol.Game_update.t Pipe.Reader.t
-  ; new_order_id : unit -> Order.Id.t
+  ; conn     : Rpc.Connection.t
+  ; updates  : Protocol.Game_update.t Pipe.Reader.t
+  ; state    : State.t
   }
 
 let username t = t.username
 let updates  t = t.updates
 
+let unacked_orders t = Hashtbl.data t.state.unacked_orders
+
 module Staged_order = struct
   type t = Order.t
 
   let create bot ~symbol ~dir ~price ~size : t =
-    { owner = username bot; id = bot.new_order_id ()
+    { owner = username bot
+    ; id = State.new_order_id bot.state
     ; symbol; dir; price; size
     }
 
   let id (t : t) = t.id
 
-  let send_exn t bot = Rpc.Rpc.dispatch_exn Protocol.Order.rpc bot.conn t
+  let send_exn t bot =
+    let id = id t in
+    if Hashtbl.mem bot.state.unacked_orders id then (
+      return (Error `Duplicate_order_id)
+    ) else (
+      Hashtbl.set bot.state.unacked_orders ~key:id ~data:t;
+      let%map r = Rpc.Rpc.dispatch_exn Protocol.Order.rpc bot.conn t in
+      Result.iter_error r ~f:(fun _ ->
+          Hashtbl.remove bot.state.unacked_orders id
+        );
+      r
+    )
 end
 
 let cancel t id = Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc t.conn id
@@ -141,13 +172,7 @@ let run ~server ~config ~username ~room_choice ~auto_ready ~f =
     ~port:(Host_and_port.port server)
     (fun conn ->
       let%bind updates = start_playing ~conn ~username ~room_choice in
-      let new_order_id =
-        let r = ref Order.Id.zero in
-        fun () ->
-          let id = !r in
-          r := Order.Id.next id;
-          id
-      in
+      let state = State.create () in
       let ready_if_auto () =
         if auto_ready then (
           try_set_ready_on_conn ~conn
@@ -158,13 +183,17 @@ let run ~server ~config ~username ~room_choice ~auto_ready ~f =
       let handle_update : Protocol.Game_update.t -> unit =
         function
         | Broadcast (Round_over _) ->
+          Hashtbl.clear state.unacked_orders;
           don't_wait_for (ready_if_auto ())
+        | Broadcast (Exec exec) ->
+          if Username.equal username exec.order.owner then (
+            Hashtbl.remove state.unacked_orders exec.order.id
+          )
         | _ -> ()
       in
       let updates = Pipe.map updates ~f:(fun u -> handle_update u; u) in
-      let t = { username; conn; updates; new_order_id } in
       let%bind () = ready_if_auto () in
-      f t ~config)
+      f { username; conn; updates; state } ~config)
   >>| Or_error.of_exn_result
 
 let make_command ~summary ~config_param ~username_stem
