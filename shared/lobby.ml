@@ -99,7 +99,8 @@ module Room = struct
     | Player role -> Some { user with role }
     | Observer _ -> None
 
-  let has_user t ~username = Map.mem t.users username
+  let has_user   t ~username = Map.mem (users t)   username
+  let has_player t ~username = Map.mem (players t) username
 
   let is_full t = Map.length t.seating >= max_players_per_room
 

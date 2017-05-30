@@ -66,9 +66,10 @@ module Room : sig
 
   val users      : t -> User.t Username.Map.t
   val players    : t -> User.Player.t Username.Map.t
+  val has_user   : t -> username:Username.t -> bool
+  val has_player : t -> username:Username.t -> bool
   val seating    : t -> Username.t Seat.Map.t
   val in_seat    : t -> seat:Seat.t -> User.Player.t option
-  val has_user   : t -> username:Username.t -> bool
   val is_full    : t -> bool
   val is_empty   : t -> bool
   val can_delete : t -> bool

@@ -110,6 +110,7 @@ let command =
       let username = Bot.username t in
       let counts = Counts.create () in
       let pending_ack = ref None in
+      let%bind () = Bot.try_set_ready t in
       Pipe.iter (Bot.updates t) ~f:(function
         | Broadcast (Round_over results) ->
           Counts.clear counts;
@@ -117,8 +118,7 @@ let command =
           Log.Global.sexp ~level:`Info [%message "round over"
             (results.gold : Suit.t)
           ];
-          Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn true
-          |> Deferred.ignore
+          Bot.try_set_ready t
         | Broadcast (Exec exec) ->
           let order = exec.order in
           if Option.exists !pending_ack ~f:(Order.Id.equal order.id)

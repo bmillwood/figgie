@@ -93,10 +93,10 @@ let command =
         | Some suit -> handle_filled ~suit ~size
         end
       in
+      let%bind () = Bot.try_set_ready t in
       Pipe.iter (Bot.updates t) ~f:(function
         | Broadcast (Round_over _) ->
-          Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc (Bot.conn t) true
-          |> Deferred.ignore
+          Bot.try_set_ready t
         | Broadcast (Exec exec) ->
           let order = exec.order in
           if Username.equal order.owner username

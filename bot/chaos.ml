@@ -106,11 +106,11 @@ let command =
           chaos_loop t ~config ~lasts ~hand
         );
         let conn = Bot.conn t in
+        let%bind () = Bot.try_set_ready t in
         Pipe.iter (Bot.updates t) ~f:(function
           | Broadcast (Round_over _results) ->
             Card.Hand.iter lasts ~f:(fun r -> r := Price.of_int 5);
-            Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn true
-            |> Deferred.ignore
+            Bot.try_set_ready t
           | Broadcast (Exec exec) ->
             let fills = Exec.fills exec in
             if not (List.is_empty fills) then (

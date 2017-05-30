@@ -30,99 +30,106 @@ let updates  t = t.updates
 
 let new_order_id t = t.new_order_id ()
 
-let run ~server ~config ~username ~(room_choice : Room_choice.t) ~f =
+let try_set_ready t =
+  Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc (conn t) true
+  |> Deferred.ignore
+
+let join_any_room ~conn ~username =
+  let%bind lobby_updates =
+    match%map
+      Rpc.Pipe_rpc.dispatch Protocol.Get_lobby_updates.rpc conn ()
+      >>| ok_exn
+    with
+    | Error `Not_logged_in -> assert false
+    | Ok (lobby_updates, _metadata) -> lobby_updates
+  in
+  let can_join room =
+    not (Lobby.Room.is_full room) || Lobby.Room.has_player room ~username
+  in
+  let try_to_join id =
+    match%map
+      Rpc.Pipe_rpc.dispatch Protocol.Join_room.rpc conn id
+      >>| ok_exn
+    with
+    | Ok (updates, _pipe_metadata) ->
+      Pipe.close_read lobby_updates;
+      `Finished (id, updates)
+    | Error (`Already_in_a_room | `Not_logged_in) -> assert false
+    | Error `No_such_room -> `Repeat ()
+  in
+  Deferred.repeat_until_finished ()
+    (fun () ->
+      let%bind update =
+        match%map Pipe.read lobby_updates with
+        | `Eof -> failwith "Server hung up on us"
+        | `Ok update -> update
+      in
+      match update with
+      | Lobby_snapshot lobby ->
+        begin match
+            List.find (Map.to_alist lobby.rooms) ~f:(fun (_id, room) ->
+                can_join room)
+          with
+          | Some (id, room) ->
+            Log.Global.sexp ~level:`Debug [%message
+              "doesn't look full, joining"
+                (id : Lobby.Room.Id.t) (room : Lobby.Room.t)
+            ];
+            try_to_join id
+          | None ->
+            Log.Global.sexp ~level:`Debug [%message
+              "couldn't see an empty room, waiting"
+            ];
+            return (`Repeat ())
+        end
+      | Lobby_update (New_empty_room { room_id }) ->
+        try_to_join room_id
+      | Lobby_update (Lobby_update _ | Room_closed _ | Room_update _)
+      | Chat _ -> return (`Repeat ())
+    )
+
+let start_playing ~conn ~username ~(room_choice : Room_choice.t) =
+  let%bind () =
+    match%map Rpc.Rpc.dispatch_exn Protocol.Login.rpc conn username with
+    | Error (`Already_logged_in | `Invalid_username) -> assert false
+    | Ok () -> ()
+  in
+  let%bind (_room_id, updates) =
+    match room_choice with
+    | First_available ->
+      join_any_room ~conn ~username
+    | Named id ->
+      let%map (updates, _metadata) =
+        Rpc.Pipe_rpc.dispatch_exn Protocol.Join_room.rpc conn id
+      in
+      (id, updates)
+  in
+  match%map
+    Rpc.Rpc.dispatch_exn Protocol.Start_playing.rpc conn Sit_anywhere
+  with
+  | Error (`Not_logged_in | `Not_in_a_room) -> assert false
+  | Error ((`Game_already_started | `Seat_occupied) as error) ->
+    raise_s [%message
+      "Joined a room that didn't want new players"
+        (error : Protocol.Start_playing.error)
+    ]
+  | Error `You're_already_playing
+  | Ok (_ : Lobby.Room.Seat.t) -> updates
+
+let run ~server ~config ~username ~room_choice ~f =
   Rpc.Connection.with_client
     ~host:(Host_and_port.host server)
     ~port:(Host_and_port.port server)
     (fun conn ->
-      Rpc.Rpc.dispatch_exn Protocol.Login.rpc conn username
-      >>= function
-      | Error (`Already_logged_in | `Invalid_username) -> assert false
-      | Ok () ->
-        begin match room_choice with
-        | First_available ->
-          Rpc.Pipe_rpc.dispatch Protocol.Get_lobby_updates.rpc conn ()
-          >>| ok_exn
-          >>= begin function
-          | Error `Not_logged_in -> assert false
-          | Ok (lobby_updates, _metadata) ->
-            let can_join room =
-              Lobby.Room.has_user room ~username
-              || not (Lobby.Room.is_full room)
-            in
-            let try_to_join id =
-              Log.Global.sexp ~level:`Debug [%message
-                "joining room"
-                  (id : Lobby.Room.Id.t)
-              ];
-              Rpc.Pipe_rpc.dispatch Protocol.Join_room.rpc conn id
-              >>| ok_exn
-              >>| function
-              | Ok (updates, _pipe_metadata) ->
-                Pipe.close_read lobby_updates;
-                `Finished updates
-              | Error (`Already_in_a_room | `Not_logged_in) -> assert false
-              | Error `No_such_room -> `Repeat ()
-            in
-            Deferred.repeat_until_finished () (fun () ->
-              Pipe.read lobby_updates
-              >>= function
-              | `Eof -> failwith "Server hung up on us"
-              | `Ok (Lobby_snapshot lobby) ->
-                begin match
-                  List.find (Map.to_alist lobby.rooms) ~f:(fun (_id, room) ->
-                    can_join room)
-                with
-                | Some (id, room) ->
-                  Log.Global.sexp ~level:`Debug [%message
-                    "doesn't look full, joining"
-                      (id : Lobby.Room.Id.t) (room : Lobby.Room.t)
-                  ];
-                  try_to_join id
-                | None ->
-                  Log.Global.sexp ~level:`Debug [%message
-                    "couldn't see an empty room, waiting"
-                  ];
-                  return (`Repeat ())
-                end
-              | `Ok (Lobby_update (New_empty_room { room_id })) ->
-                try_to_join room_id
-              | _ -> return (`Repeat ())
-            )
-          end
-        | Named id ->
-          Rpc.Pipe_rpc.dispatch_exn Protocol.Join_room.rpc conn id
-          >>| fun (updates, _metadata) ->
-          updates
-        end
-        >>= fun updates ->
-        Rpc.Rpc.dispatch_exn
-          Protocol.Start_playing.rpc conn
-          Sit_anywhere
-        >>= begin function
-        | Error (`Not_logged_in | `Not_in_a_room) -> assert false
-        | Error ((`Game_already_started | `Seat_occupied) as error) ->
-          raise_s [%message
-            "Joined a room that didn't want new players"
-              (error : Protocol.Start_playing.error)
-          ]
-        | Error `You're_already_playing -> return ()
-        | Ok (_seat : Lobby.Room.Seat.t) -> return ()
-        end
-        >>= fun () ->
-        Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn true
-        >>= function
-        | Error (`Not_logged_in | `Not_in_a_room | `You're_not_playing) ->
-          assert false
-        | Error `Game_already_in_progress | Ok () ->
-          let new_order_id =
-            let r = ref Market.Order.Id.zero in
-            fun () ->
-              let id = !r in
-              r := Market.Order.Id.next id;
-              id
-          in
-          f { username; conn; updates; new_order_id } ~config)
+      let%bind updates = start_playing ~conn ~username ~room_choice in
+      let new_order_id =
+        let r = ref Market.Order.Id.zero in
+        fun () ->
+          let id = !r in
+          r := Market.Order.Id.next id;
+          id
+      in
+      f { username; conn; updates; new_order_id } ~config)
   >>| Or_error.of_exn_result
 
 let make_command ~summary ~config_param ~username_stem ~f =
