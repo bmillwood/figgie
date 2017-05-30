@@ -17,13 +17,18 @@ module Room_choice = struct
       ~doc:"ID room to join on startup, defaults to first available"
 end
 
-type 'a t =
-  { config : 'a
-  ; username : Username.t
+type t =
+  { username : Username.t
   ; conn : Rpc.Connection.t
   ; updates : Protocol.Game_update.t Pipe.Reader.t
   ; new_order_id : unit -> Market.Order.Id.t
   }
+
+let username t = t.username
+let conn     t = t.conn
+let updates  t = t.updates
+
+let new_order_id t = t.new_order_id ()
 
 let run ~server ~config ~username ~(room_choice : Room_choice.t) ~f =
   Rpc.Connection.with_client
@@ -117,7 +122,7 @@ let run ~server ~config ~username ~(room_choice : Room_choice.t) ~f =
               r := Market.Order.Id.next id;
               id
           in
-          f { config; username; conn; updates; new_order_id })
+          f { username; conn; updates; new_order_id } ~config)
   >>| Or_error.of_exn_result
 
 let make_command ~summary ~config_param ~username_stem ~f =

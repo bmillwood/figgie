@@ -33,13 +33,14 @@ let command =
     ~summary:"Offer all your cards at a fixed price"
     ~config_param
     ~username_stem:"sellbot"
-    ~f:(fun t ->
+    ~f:(fun t ~config ->
+      let username = Bot.username t in
       let sell_prices =
-        Card.Hand.init ~f:(fun _suit -> ref t.config.initial_sell_price)
+        Card.Hand.init ~f:(fun _suit -> ref config.initial_sell_price)
       in
       let reset_sell_prices () =
         Card.Hand.iter sell_prices ~f:(fun r ->
-          r := t.config.initial_sell_price)
+          r := config.initial_sell_price)
       in
       let hand = ref (Card.Hand.create_all Market.Size.zero) in
       let sell ~suit ~size =
@@ -49,9 +50,9 @@ let command =
         else begin
           hand := Card.Hand.modify !hand ~suit
             ~f:(fun c -> Market.Size.O.(c - size));
-          Rpc.Rpc.dispatch_exn Protocol.Order.rpc t.conn
-            { owner = t.username
-            ; id = t.new_order_id ()
+          Rpc.Rpc.dispatch_exn Protocol.Order.rpc (Bot.conn t)
+            { owner = username
+            ; id = Bot.new_order_id t
             ; symbol = suit
             ; dir = Sell
             ; price = !(Card.Hand.get sell_prices ~suit)
@@ -64,7 +65,7 @@ let command =
       let handle_filled ~suit ~size =
         let price_to_sell_at = Card.Hand.get sell_prices ~suit in
         price_to_sell_at :=
-          Market.O.(Price.(!price_to_sell_at + (size *$ t.config.fade)));
+          Market.O.(Price.(!price_to_sell_at + (size *$ config.fade)));
         sell ~suit ~size
       in
       let handle_my_filled_order ~suit (exec : Market.Exec.t) =
@@ -82,7 +83,7 @@ let command =
             (Market.Exec.fills exec)
             ~f:(fun order ->
                 suit := Some order.symbol;
-                if Username.equal order.owner t.username
+                if Username.equal order.owner username
                 then order.size
                 else Market.Size.zero
               )
@@ -92,13 +93,13 @@ let command =
         | Some suit -> handle_filled ~suit ~size
         end
       in
-      Pipe.iter t.updates ~f:(function
+      Pipe.iter (Bot.updates t) ~f:(function
         | Broadcast (Round_over _) ->
-          Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc t.conn true
+          Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc (Bot.conn t) true
           |> Deferred.ignore
         | Broadcast (Exec exec) ->
           let order = exec.order in
-          if Username.equal order.owner t.username
+          if Username.equal order.owner username
           then handle_my_filled_order ~suit:order.symbol exec
           else handle_exec exec
         | Hand new_hand ->
@@ -112,7 +113,7 @@ let command =
           Deferred.List.iter ~how:`Parallel Card.Suit.all ~f:(fun suit ->
             let size =
               Market.Size.min
-                t.config.size
+                config.size
                 (Card.Hand.get new_hand ~suit)
             in
             sell ~suit ~size)

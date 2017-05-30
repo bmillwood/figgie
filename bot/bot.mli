@@ -2,17 +2,17 @@ open Async
 
 open Figgie
 
-type 'a t =
-  { config : 'a
-  ; username : Username.t
-  ; conn : Rpc.Connection.t
-  ; updates : Protocol.Game_update.t Pipe.Reader.t
-  ; new_order_id : unit -> Market.Order.Id.t
-  }
+type t
+
+val username : t -> Username.t
+val conn     : t -> Rpc.Connection.t
+val updates  : t -> Protocol.Game_update.t Pipe.Reader.t
+
+val new_order_id : t -> Market.Order.Id.t
 
 val make_command
   :  summary:string
   -> config_param:'a Command.Param.t
   -> username_stem:string
-  -> f:('a t -> unit Deferred.t)
+  -> f:(t -> config:'a -> unit Deferred.t)
   -> Command.t

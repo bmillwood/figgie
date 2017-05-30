@@ -38,14 +38,12 @@ module Config = struct
 end
 open Config
 
-type t = Config.t Bot.t
-
 let chaos_interval config =
   Time.Span.scale config.mean_chaos_interval
     (Float.of_int (binomial ~n:100 ~p:half) /. 50.)
 
-let rec chaos_loop (t : t) ~lasts ~hand =
-  let%bind () = Clock.after (chaos_interval t.config) in
+let rec chaos_loop t ~config ~lasts ~hand =
+  let%bind () = Clock.after (chaos_interval config) in
   let suit = List.random_element_exn Card.Suit.all in
   let position = Card.Hand.get !hand ~suit in
   let last = !(Card.Hand.get lasts ~suit) in
@@ -61,7 +59,7 @@ let rec chaos_loop (t : t) ~lasts ~hand =
   in
   let dir =
     if Size.O.(position > zero) then (
-      let is_aggressive = bernoulli ~p:t.config.aggression in
+      let is_aggressive = bernoulli ~p:config.aggression in
       let passive_dir =
         match Ordering.of_int (Price.compare price last) with
         | Less -> Dir.Buy
@@ -81,16 +79,16 @@ let rec chaos_loop (t : t) ~lasts ~hand =
     hand := Card.Hand.modify !hand ~suit ~f:(fun s -> Size.O.(s - size))
   end;
   let order : Order.t =
-    { owner = t.username
-    ; id = t.new_order_id ()
+    { owner = Bot.username t
+    ; id = Bot.new_order_id t
     ; symbol = suit
     ; dir
     ; price
     ; size
     }
   in
-  match%bind Rpc.Rpc.dispatch_exn Protocol.Order.rpc t.conn order with
-  | Error _ | Ok `Ack -> chaos_loop t ~lasts ~hand
+  match%bind Rpc.Rpc.dispatch_exn Protocol.Order.rpc (Bot.conn t) order with
+  | Error _ | Ok `Ack -> chaos_loop t ~config ~lasts ~hand
 
 let price_of_fills (fills : Order.t list) =
   (List.hd_exn fills).price
@@ -100,17 +98,18 @@ let command =
     ~summary:"Send orders randomly around last"
     ~config_param:Config.param
     ~username_stem:"chaosbot"
-    ~f:(fun t ->
+    ~f:(fun t ~config ->
         Random.self_init ();
         let lasts = Card.Hand.init ~f:(fun _ -> ref (Price.of_int 5)) in
         let hand = ref (Card.Hand.create_all Size.zero) in
         don't_wait_for (
-          chaos_loop t ~lasts ~hand
+          chaos_loop t ~config ~lasts ~hand
         );
-        Pipe.iter t.updates ~f:(function
+        let conn = Bot.conn t in
+        Pipe.iter (Bot.updates t) ~f:(function
           | Broadcast (Round_over _results) ->
             Card.Hand.iter lasts ~f:(fun r -> r := Price.of_int 5);
-            Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc t.conn true
+            Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn true
             |> Deferred.ignore
           | Broadcast (Exec exec) ->
             let fills = Exec.fills exec in
@@ -118,7 +117,7 @@ let command =
               let last = Card.Hand.get lasts ~suit:exec.order.symbol in
               last := price_of_fills fills;
             );
-            Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc t.conn Hand
+            Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Hand
             >>| Protocol.playing_exn
           | Hand new_hand ->
             hand := new_hand;
