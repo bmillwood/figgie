@@ -75,8 +75,10 @@ end
 let cancel t id = Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc t.conn id
 
 let request_update_exn t thing_to_get =
-  Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc t.conn thing_to_get
-  >>| Protocol.playing_exn
+  match%map Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc t.conn thing_to_get with
+  | Error (`Not_logged_in | `Not_in_a_room | `You're_not_playing) -> assert false
+  | Error `Game_not_in_progress
+  | Ok () -> ()
 
 let try_set_ready_on_conn ~conn =
   Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn true
