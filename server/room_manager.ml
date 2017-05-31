@@ -89,22 +89,25 @@ let chat t ~username msg =
   Updates_manager.broadcast t.room_updates
     (Broadcast (Chat (username, msg)))
 
+let end_round t (round : Game.Round.t) =
+  let results = Game.end_round t.game round in
+  Updates_manager.broadcast t.room_updates
+    (Broadcast (Round_over results));
+  apply_room_update t Start_waiting;
+  Map.iter (Lobby.Room.seating t.room) ~f:(fun username ->
+      Result.iter (Game.Round.get_hand round ~username) ~f:(fun hand ->
+          let hand = Partial_hand.create_known hand in
+          apply_room_update t
+            (Player_event { username; event = Player_hand hand })
+        )
+    );
+  broadcast_scores t
+
 let setup_round t (round : Game.Round.t) =
   don't_wait_for begin
     Clock_ns.at (Game.Round.end_time round)
     >>| fun () ->
-    let results = Game.end_round t.game round in
-    Updates_manager.broadcast t.room_updates
-      (Broadcast (Round_over results));
-    apply_room_update t Start_waiting;
-    Map.iter (Lobby.Room.seating t.room) ~f:(fun username ->
-        Result.iter (Game.Round.get_hand round ~username) ~f:(fun hand ->
-            let hand = Partial_hand.create_known hand in
-            apply_room_update t
-              (Player_event { username; event = Player_hand hand })
-          )
-      );
-    broadcast_scores t
+    end_round t round
   end;
   apply_room_update t Start_playing;
   Map.iter (Lobby.Room.seating t.room) ~f:(fun username ->
