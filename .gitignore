@@ -1,4 +1,4 @@
 .merlin
 _build
-*.js
+virtualdom.compiled.js
 *.swp
