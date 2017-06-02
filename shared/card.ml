@@ -73,4 +73,7 @@ module Hand = struct
     f t.hearts;
     f t.diamonds;
     f t.clubs
+
+  let exists t ~f =
+    f t.spades || f t.hearts || f t.diamonds || f t.clubs
 end

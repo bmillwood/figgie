@@ -40,6 +40,17 @@ tr.sell  td { background-color: #313; }
 tr.buy   td { background-color: #133; }
 tr#suits td { background-color: #224; }
 
+.bought { animation: 1s 1 normal bought; }
+@keyframes bought {
+  from { background-color: #4b6; }
+  to   { }
+}
+.sold   { animation: 1s 1 normal sold;   }
+@keyframes sold {
+  from { background-color: #b46; }
+  to   { }
+}
+
 tr#ordersell input, tr#orderbuy input {
 	width: 2em;
 	margin: 0;

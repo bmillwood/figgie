@@ -589,14 +589,18 @@ module App = struct
     return { State.schedule }
 
   let on_display ~(old : Model.t) (new_ : Model.t) (state : State.t) =
-    begin match get_conn new_ with
-    | Some { login = Some { where = In_room r; _ }; _ } ->
-      Exchange.on_display r.exchange
-        ~schedule:(fun exact ->
-            state.schedule (Action.in_room (Exchange exact))
-          )
-    | _ -> ()
-    end;
+    let get_exchange model =
+      match get_conn model with
+      | Some { login = Some { where = In_room { exchange; _ }; _ }; _ }
+          -> Some exchange
+      | _ -> None
+    in
+    Option.iter (get_exchange new_) ~f:(fun exchange ->
+        Exchange.on_display ~old:(get_exchange old) exchange
+          ~schedule:(fun exact ->
+              state.schedule (Action.in_room (Exchange exact))
+            )
+      );
     Status_line.on_display ~old:(status_line old) (status_line new_);
     Chat.on_display
       ~old:old.messages

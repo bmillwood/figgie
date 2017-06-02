@@ -35,6 +35,7 @@ val view
   -> Vdom.Node.t
 
 val on_display
-  :  Model.t
+  :  old:Model.t option
+  -> Model.t
   -> schedule:(Action.t -> unit)
   -> unit
