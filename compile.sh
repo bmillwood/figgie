@@ -1,2 +1,2 @@
 #!/bin/bash -eux
-jbuilder build @default
+jbuilder build --dev @default
