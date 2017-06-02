@@ -1,0 +1,4 @@
+(alias (
+  (name default)
+  (deps (web/main.js bot/main.exe server/main.exe))
+))
