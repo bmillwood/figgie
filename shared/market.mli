@@ -33,6 +33,7 @@ module Dirpair : sig
   val set    : 'a t -> dir:Dir.t -> to_:'a       -> 'a t
   val modify : 'a t -> dir:Dir.t -> f:('a -> 'a) -> 'a t
 
+  val map  : 'a t -> f:('a -> 'b) -> 'b t
   val mapi : 'a t -> f:(Dir.t -> 'a -> 'b) -> 'b t
   val map2 : 'a t -> 'b t -> f:('a -> 'b -> 'c) -> 'c t
 end

@@ -55,6 +55,9 @@ module Dirpair = struct
     | Buy  -> { t with buy  = f t.buy  }
     | Sell -> { t with sell = f t.sell }
 
+  let map t ~f =
+    init ~f:(fun dir -> f (get t ~dir))
+
   let mapi t ~f =
     init ~f:(fun dir -> f dir (get t ~dir))
 
