@@ -15,7 +15,7 @@ let placeholder_of_id t id =
   Option.map (lookup_id t id) ~f:(fun c -> String.of_char (Char.uppercase c))
 
 let suppress_hotkeys_if_focused =
-  Id.Set.of_list [Id.login; Id.cmdline; Id.connect_to]
+  Id.Set.of_list [Id.login; Id.cmdline; Id.connect_to; Id.create_room]
 
 let char_code ev =
   Option.bind (Js.Optdef.to_option ev##.charCode) ~f:Char.of_int

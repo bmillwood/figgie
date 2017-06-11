@@ -5,31 +5,55 @@ open Vdom
 open Figgie
 
 module Action = struct
-  type t =
-    | Join_room of Lobby.Room.Id.t
-    | Delete_room of Lobby.Room.Id.t
+  module Room_action = struct
+    type t =
+      | Create
+      | Join
+      | Delete
+  end
+
+  type t = { room_id : Lobby.Room.Id.t; action : Room_action.t }
 end
+
+let player_row (p : Lobby.User.Player.t) ~all_scores =
+  Node.tr []
+    [ begin
+        let classes =
+          "name"
+          :: if p.is_connected then [] else ["disconnected"]
+        in
+        Node.td
+          [Attr.classes classes]
+          [Hash_colour.username_span ~is_me:false p.username]
+      end
+    ; Node.td
+        [Attr.class_ "score"]
+        [User_info.score_display ~all_scores p.role.score]
+    ]
+
+let no_player_row =
+  let nbsp = "\xc2\xa0" in
+  Node.tr [] [Node.td [Attr.class_ "name"] [Node.text nbsp]]
 
 let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
   let view_room ~id ~(room : Lobby.Room.t) =
+    let action act = inject { action = act; room_id = id } in
     let users = Lobby.Room.users room in
     let players, observers =
       Map.partition_map (Lobby.Room.users room)
         ~f:(fun user ->
-            let username     = Lobby.User.username     user in
-            let is_connected = Lobby.User.is_connected user in
             match Lobby.User.role user with
-            | Observer { is_omniscient } ->
-              `Snd (username, is_connected, is_omniscient)
-            | Player { hand = _; score; phase = _ } ->
-              `Fst (username, is_connected, score)
+            | Observer o ->
+                `Snd { user with role = o }
+            | Player p ->
+                `Fst { user with role = p }
           )
     in
     let num_players = Map.length players in
     let delete_button =
       Node.button
         [ Attr.class_ "delete"
-        ; Attr.on_click (fun _mouseEvent -> inject (Delete_room id))
+        ; Attr.on_click (fun _mouseEvent -> action Delete)
         ]
         [ Icon.delete ]
     in
@@ -43,36 +67,17 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
     let join_button ~rejoin =
       let button_text = if rejoin then "rejoin" else "join" in
       Node.button
-        [ Attr.class_ "join"
-        ; Attr.on_click (fun _mouseEvent -> inject (Join_room id))
+        [ Attr.class_ "room"
+        ; Attr.on_click (fun _mouseEvent -> action Join)
         ]
         [Node.text button_text]
     in
     let player_list = Map.data players in
-    let all_scores = List.map player_list ~f:(fun (_, _, score) -> score) in
+    let all_scores = List.map player_list ~f:(fun p -> p.role.score) in
     let player_rows =
-      [ List.map player_list
-          ~f:(fun (username, is_connected, score) ->
-              Node.tr []
-                [ begin
-                    let classes =
-                      "name"
-                      :: if is_connected then [] else ["disconnected"]
-                    in
-                    Node.td
-                      [Attr.classes classes]
-                      [Hash_colour.username_span ~is_me:false username]
-                  end
-                ; Node.td
-                    [Attr.class_ "score"]
-                    [User_info.score_display ~all_scores score]
-                ]
-            )
+      [ List.map player_list ~f:(fun p -> player_row p ~all_scores)
       ; List.init (Int.max 0 (Lobby.max_players_per_room - num_players))
-          ~f:(fun _ ->
-              let nbsp = "\xc2\xa0" in
-              Node.tr [] [Node.td [Attr.class_ "name"] [Node.text nbsp]]
-          )
+          ~f:(fun _ -> no_player_row)
       ] |> List.concat
     in
     let observers =
@@ -81,7 +86,7 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
       in
       let shortener = Username.Shortener.of_list (Map.keys users) in
       List.concat_map (Map.data observers)
-        ~f:(fun (username, is_connected, is_omniscient) ->
+        ~f:(fun { username; is_connected; role = { is_omniscient } } ->
             let style =
               Hash_colour.username_style
                 ~is_me:(Username.equal username my_name)
@@ -109,6 +114,44 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
       ; join_button ~rejoin:(Map.mem users my_name)
       ]
   in
+  let create_room =
+    Node.div
+      [ Attr.class_ "room" ]
+      [ Widget.textbox
+          ~id:Id.create_room
+          ~classes:["roomName"]
+          ~placeholder:"name"
+          ~on_submit:(fun s ->
+            let room_id = Lobby.Room.Id.of_string s in
+            inject { action = Create; room_id }
+          )
+          ()
+      ; Node.table [Attr.class_ "room"]
+          (List.init Lobby.max_players_per_room ~f:(fun _ -> no_player_row))
+      ; Node.div [Attr.class_ "observers"] [Icon.observer]
+      ; Node.button
+          [ Attr.class_ "room"
+          ; Attr.on_click (fun _mouseEvent ->
+                let input =
+                  Option.bind (Id.lookup_elt Id.create_room) ~f:(fun elt ->
+                      Js.Opt.to_option (Dom_html.CoerceTo.input elt)
+                    )
+                in
+                match input with
+                | None -> Event.Ignore
+                | Some input ->
+                  let room_id =
+                    input##.value
+                    |> Js.to_string
+                    |> Lobby.Room.Id.of_string
+                  in
+                  input##.value := Js.string "";
+                  inject { action = Create; room_id }
+              )
+          ]
+          [Node.text "create"]
+      ]
+  in
   Map.to_alist model.rooms
   |> List.map ~f:(fun (id, room) -> view_room ~id ~room)
-  |> Node.div [Id.attr Id.rooms]
+  |> fun rooms -> Node.div [Id.attr Id.rooms] (create_room :: rooms)

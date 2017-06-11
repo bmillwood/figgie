@@ -542,15 +542,25 @@ module App = struct
       | Lobby { lobby; updates = _ } ->
         [ Lobby_view.view lobby
             ~my_name
-            ~inject:(function
-              | Join_room id ->
-                inject (Action.logged_in (Join_room id))
-              | Delete_room id ->
+            ~inject:(fun { room_id; action } ->
+              match action with
+              | Join ->
+                inject (Action.logged_in (Join_room room_id))
+              | Delete ->
                 don't_wait_for begin
                   let open Async_kernel in
-                  Rpc.Rpc.dispatch_exn Protocol.Delete_room.rpc conn id
+                  Rpc.Rpc.dispatch_exn Protocol.Delete_room.rpc conn room_id
                   >>| function
                   | Error (`No_such_room | `Room_in_use) -> ()
+                  | Ok () -> ()
+                end;
+                Event.Ignore
+              | Create ->
+                don't_wait_for begin
+                  let open Async_kernel in
+                  Rpc.Rpc.dispatch_exn Protocol.Create_room.rpc conn room_id
+                  >>| function
+                  | Error `Room_already_exists -> ()
                   | Ok () -> ()
                 end;
                 Event.Ignore

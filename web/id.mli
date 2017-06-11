@@ -18,7 +18,8 @@ val status     : t
 val login      : t
 val connect_to : t
 
-val rooms : t
+val rooms       : t
+val create_room : t
 
 val ready_button : t
 

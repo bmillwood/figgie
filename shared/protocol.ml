@@ -80,6 +80,17 @@ module Join_room = struct
       ()
 end
 
+module Create_room = struct
+  type query = Lobby.Room.Id.t [@@deriving bin_io, sexp]
+  type response =
+    ( unit
+    , [ `Room_already_exists ]
+    ) Result.t [@@deriving bin_io, sexp]
+
+  let rpc =
+    Rpc.Rpc.create ~name:"create-room" ~version:1 ~bin_query ~bin_response
+end
+
 module Delete_room = struct
   type query = Lobby.Room.Id.t [@@deriving bin_io, sexp]
   type response =

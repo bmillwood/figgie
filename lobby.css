@@ -13,7 +13,7 @@ div.room ul {
 	margin: 0;
 	padding: 0;
 }
-button.join {
+button.room {
 	margin: 0;
 	padding: 0;
 	width: 100%;
@@ -40,16 +40,16 @@ div.room td.score {
 	text-align: right;
 }
 div.room .roomName {
-  font-weight: bold;
-  color: white;
+	font-weight: bold;
+	color: white;
 }
 div.room div.roomName {
 	margin: 0.2em;
 	min-width: 5em;
 }
 div.room input.roomName {
-  width: 7em;
-  padding: 0 0.2em;
+	width: 7em;
+	padding: 0 0.2em;
 	background-color: #448;
 }
 div.room div.observers {

@@ -20,7 +20,8 @@ let status     = "status"
 let login      = "login"
 let connect_to = "connectTo"
 
-let rooms = "rooms"
+let rooms       = "rooms"
+let create_room = "createRoom"
 
 let ready_button = "readyButton"
 
