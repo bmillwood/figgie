@@ -1,2 +1,2 @@
 #!/bin/bash -eux
-jbuilder build --dev @default
+jbuilder build --dev @install -j3

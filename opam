@@ -1,0 +1,23 @@
+opam-version: "1.2"
+maintainer:   "thebenmachine@gmail.com"
+authors:      ["Ben Millwood"]
+homepage:     "https://github.com/bmillwood/figgie"
+dev-repo:     "https://github.com/bmillwood/figgie.git"
+bug-reports:  "https://github.com/bmillwood/figgie/issues"
+
+build: [
+  ["jbuilder" "build" "-j" jobs "-p" name "@install"]
+]
+depends: [
+  "async"
+  "async_js"
+  "async_kernel"
+  "async_rpc_kernel"
+  "core"
+  "core_kernel"
+  "incr_dom"
+  "js_of_ocaml"
+  "js_of_ocaml-ppx"
+  "ppx_jane"
+  "websocket-async"
+]

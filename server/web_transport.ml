@@ -60,8 +60,8 @@ let serve ~port ~f =
         in
         let strings_to_client =
           Pipe.create_writer (fun reader ->
-            Pipe.transfer reader to_client ~f:(fun string ->
-              WS.Frame.of_bytes ~opcode:Binary string
+            Pipe.transfer reader to_client ~f:(fun content ->
+              WS.Frame.create ~opcode:Binary ~content ()
             )
           )
         in
