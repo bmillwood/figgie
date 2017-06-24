@@ -10,10 +10,10 @@ let gcd a b =
 
 module T = struct
   module T' : sig
-    type t = private { n : int; d : int } [@@deriving bin_io]
+    type t = private { n : int; d : int } [@@deriving bin_io, hash]
     val create : n:int -> d:int -> t
   end = struct
-    type t = { n : int; d : int } [@@deriving bin_io]
+    type t = { n : int; d : int } [@@deriving bin_io, hash]
 
     (* enforces d > 0 and gcd d n = 1 *)
     let create ~n ~d =
@@ -32,8 +32,6 @@ module T = struct
 
   let of_int n = create ~n ~d:1
   let to_float t = Float.of_int t.n /. Float.of_int t.d
-
-  let hash = Hashtbl.hash
 
   let sexp_of_t { n; d } =
     if d = 1
