@@ -1,62 +1,62 @@
 div#rooms {
-	padding: 0.5em 2em;
-	text-align: left;
+    padding: 0.5em 2em;
+    text-align: left;
 }
 div.room {
-	margin: 0.5em;
-	padding: 0.2em;
-	background-color: #225;
-	display: inline-block;
+    margin: 0.5em;
+    padding: 0.2em;
+    background-color: #225;
+    display: inline-block;
 }
 div.room ul {
-	list-style-type: none;
-	margin: 0;
-	padding: 0;
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
 }
 button.room {
-	margin: 0;
-	padding: 0;
-	width: 100%;
-	font-weight: bold;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    font-weight: bold;
 }
 button.delete {
-	float: right;
-	margin: 0;
-	padding: 0;
+    float: right;
+    margin: 0;
+    padding: 0;
 }
 button.delete:hover {
-	background-color: #904;
+    background-color: #904;
 }
 div.room td.name {
-	background-color: #004;
-	min-width: 5em;
-	margin: 0.2em;
-	min-width: 5em;
+    background-color: #004;
+    min-width: 5em;
+    margin: 0.2em;
+    min-width: 5em;
 }
 div.room .name.disconnected {
-	text-decoration: line-through;
+    text-decoration: line-through;
 }
 div.room td.score {
-	text-align: right;
+    text-align: right;
 }
 div.room .roomName {
-	font-weight: bold;
-	color: white;
+    font-weight: bold;
+    color: white;
 }
 div.room div.roomName {
-	margin: 0.2em;
-	min-width: 5em;
+    margin: 0.2em;
+    min-width: 5em;
 }
 div.room input.roomName {
-	width: 7em;
-	padding: 0 0.2em;
-	background-color: #448;
+    width: 7em;
+    padding: 0 0.2em;
+    background-color: #448;
 }
 div.room div.observers {
-  width: 7em;
-  font-size: small;
-  color: grey;
+    width: 7em;
+    font-size: small;
+    color: grey;
 }
 div.room .omniscient {
-  font-weight: bold;
+    font-weight: bold;
 }

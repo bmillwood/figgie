@@ -4,37 +4,37 @@
 .gold { background-color: gold; }
 
 #status {
-	position: relative;
-	padding: 0.1em 0.5em;
-	font-size: large;
-	text-align: left;
+    position: relative;
+    padding: 0.1em 0.5em;
+    font-size: large;
+    text-align: left;
 }
 #status.Disconnected, #status.Connecting { background-color: #445; }
 #status.Connected,    #status.LoggedIn   { background-color: #006; }
 #status.ConnectionFailed                 { background-color: #602; }
 
 .clock {
-	position: absolute;
-	right: 1em;
+    position: absolute;
+    right: 1em;
 }
 
 #exchange {
-	width: 100%;
-	padding: 0 1em 1em 1em;
+    width: 100%;
+    padding: 0 1em 1em 1em;
 }
 table#market {
 }
 table#market td {
-	position: relative;
-	padding: 0.05em 0.8em;
-	font-size: 18pt;
-	text-align: center;
+    position: relative;
+    padding: 0.05em 0.8em;
+    font-size: 18pt;
+    text-align: center;
 }
 span.owner {
-	position: absolute;
-	right: 0;
-	bottom: 0;
-	font-size: small;
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    font-size: small;
 }
 tr.sell  td { background-color: #313; }
 tr.buy   td { background-color: #133; }
@@ -42,73 +42,73 @@ tr#suits td { background-color: #224; }
 
 .bought { animation: 1s 1 normal bought; }
 @keyframes bought {
-  from { background-color: #4b6; }
-  to   { }
+    from { background-color: #4b6; }
+    to   { }
 }
 .sold   { animation: 1s 1 normal sold;   }
 @keyframes sold {
-  from { background-color: #b46; }
-  to   { }
+    from { background-color: #b46; }
+    to   { }
 }
 
 tr#ordersell input, tr#orderbuy input {
-	width: 2em;
-	margin: 0;
-	padding: 0;
-	color: white;
-	border: 0;
-	text-align: center;
-	font-size: 18pt;
+    width: 2em;
+    margin: 0;
+    padding: 0;
+    color: white;
+    border: 0;
+    text-align: center;
+    font-size: 18pt;
 }
 tr#ordersell input { background-color: #535; }
 tr#orderbuy  input { background-color: #355; }
 
 #tape {
-	display: block;
-	min-width: 15em;
-	height: 19em;
-	overflow-y: scroll;
-	background-color: #224;
+    display: block;
+    min-width: 15em;
+    height: 19em;
+    overflow-y: scroll;
+    background-color: #224;
 }
 #tape td {
-	padding: 0 0.2em;
+    padding: 0 0.2em;
 }
 #tape .oid, #tape .price {
-	text-align: center;
-	width: 1em;
+    text-align: center;
+    width: 1em;
 }
 #tape .buy  { color: #0f4; }
 #tape .sell { color: #f04; }
 
 div.userinfo {
-	text-align: left;
-	display: inline-block;
-	vertical-align: top;
-	background-color: #224;
+    text-align: left;
+    display: inline-block;
+    vertical-align: top;
+    background-color: #224;
 }
 div#userinfo .left {
-	float: left;
-	margin-left: 3em;
+    float: left;
+    margin-left: 3em;
 }
 div#userinfo .right {
-	float: right;
-	margin-right: 3em;
+    float: right;
+    margin-right: 3em;
 }
 div#userinfo .near {
-	clear: both;
+    clear: both;
 }
 div#userinfo .me {
-	margin-top: 0.5em;
-	font-size: 2em;
+    margin-top: 0.5em;
+    font-size: 2em;
 }
 div.userinfo .name {
-	padding: 0 0.5em;
-	font-size: 0.8em;
+    padding: 0 0.5em;
+    font-size: 0.8em;
 }
 div.userinfo .name.disconnected {
-	text-decoration: line-through;
+    text-decoration: line-through;
 }
 div.userinfo .score {
-	float: right;
-	font-size: 0.8em;
+    float: right;
+    font-size: 0.8em;
 }
