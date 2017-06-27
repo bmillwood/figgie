@@ -7,6 +7,7 @@ div.room {
     padding: 0.2em;
     background-color: #225;
     display: inline-block;
+    min-width: 5em;
 }
 div.room ul {
     list-style-type: none;
@@ -27,17 +28,16 @@ button.delete {
 button.delete:hover {
     background-color: #904;
 }
-div.room td.name {
+div.room .name {
     background-color: #004;
-    min-width: 5em;
     margin: 0.2em;
-    min-width: 5em;
 }
 div.room .name.disconnected {
     text-decoration: line-through;
 }
-div.room td.score {
-    text-align: right;
+div.room .score {
+    float: right;
+    margin-left: 0.5em;
 }
 div.room .roomName {
     font-weight: bold;

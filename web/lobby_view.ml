@@ -15,25 +15,41 @@ module Action = struct
   type t = { room_id : Lobby.Room.Id.t; action : Room_action.t }
 end
 
+let room_row ?(extra_classes=[]) contents =
+  Node.li
+    [Attr.classes ("name" :: extra_classes)]
+    contents
+
 let player_row (p : Lobby.User.Player.t) ~all_scores =
-  Node.tr []
-    [ begin
-        let classes =
-          "name"
-          :: if p.is_connected then [] else ["disconnected"]
-        in
-        Node.td
-          [Attr.classes classes]
-          [Hash_colour.username_span ~is_me:false p.username]
-      end
-    ; Node.td
-        [Attr.class_ "score"]
-        [User_info.score_display ~all_scores p.role.score]
+  room_row
+    ~extra_classes:(if p.is_connected then [] else ["disconnected"])
+    [ Hash_colour.username_span ~is_me:false p.username
+    ; User_info.score_display ~all_scores p.role.score
     ]
 
 let no_player_row =
   let nbsp = "\xc2\xa0" in
-  Node.tr [] [Node.td [Attr.class_ "name"] [Node.text nbsp]]
+  room_row [Node.text nbsp]
+
+let player_list ~(players : Lobby.User.Player.t Username.Map.t) =
+  let num_players = Map.length players in
+  let players = Map.data players in
+  let all_scores = List.map players ~f:(fun p -> p.role.score) in
+  [ List.map players ~f:(fun p -> player_row p ~all_scores)
+  ; List.init (Int.max 0 (Lobby.max_players_per_room - num_players))
+      ~f:(fun _ -> no_player_row)
+  ] |> List.concat
+  |> Node.ul [Attr.class_ "room"]
+
+let mk_room ~header ~player_rows ~observer_spans ~footer =
+  Node.div
+    [ Attr.class_ "room" ]
+    [ header
+    ; player_rows
+    ; Node.div [Attr.class_ "observers"]
+        (Icon.observer :: observer_spans)
+    ; footer
+    ]
 
 let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
   let view_room ~id ~(room : Lobby.Room.t) =
@@ -49,7 +65,6 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
                 `Fst { user with role = p }
           )
     in
-    let num_players = Map.length players in
     let delete_button =
       Node.button
         [ Attr.class_ "delete"
@@ -71,14 +86,6 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
         ; Attr.on_click (fun _mouseEvent -> action Join)
         ]
         [Node.text button_text]
-    in
-    let player_list = Map.data players in
-    let all_scores = List.map player_list ~f:(fun p -> p.role.score) in
-    let player_rows =
-      [ List.map player_list ~f:(fun p -> player_row p ~all_scores)
-      ; List.init (Int.max 0 (Lobby.max_players_per_room - num_players))
-          ~f:(fun _ -> no_player_row)
-      ] |> List.concat
     in
     let observers =
       let keep_trues =
@@ -106,30 +113,29 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
             ]
           )
     in
-    Node.div
-      [ Attr.class_ "room" ]
-      [ id_item
-      ; Node.table [Attr.class_ "room"] player_rows
-      ; Node.div [Attr.class_ "observers"] (Icon.observer :: observers)
-      ; join_button ~rejoin:(Map.mem users my_name)
-      ]
+    mk_room
+      ~header:id_item
+      ~player_rows:(player_list ~players)
+      ~observer_spans:observers
+      ~footer:(join_button ~rejoin:(Map.mem users my_name))
   in
   let create_room =
-    Node.div
-      [ Attr.class_ "room" ]
-      [ Widget.textbox
+    mk_room
+      ~header:(
+        Widget.textbox
           ~id:Id.create_room
           ~classes:["roomName"]
           ~placeholder:"name"
           ~on_submit:(fun s ->
-            let room_id = Lobby.Room.Id.of_string s in
-            inject { action = Create; room_id }
-          )
+              let room_id = Lobby.Room.Id.of_string s in
+              inject { action = Create; room_id }
+            )
           ()
-      ; Node.table [Attr.class_ "room"]
-          (List.init Lobby.max_players_per_room ~f:(fun _ -> no_player_row))
-      ; Node.div [Attr.class_ "observers"] [Icon.observer]
-      ; Node.button
+      )
+      ~player_rows:(player_list ~players:Username.Map.empty)
+      ~observer_spans:[]
+      ~footer:(
+        Node.button
           [ Attr.class_ "room"
           ; Attr.on_click (fun _mouseEvent ->
                 let input =
@@ -150,7 +156,7 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
               )
           ]
           [Node.text "create"]
-      ]
+      )
   in
   Map.to_alist model.rooms
   |> List.map ~f:(fun (id, room) -> view_room ~id ~room)
