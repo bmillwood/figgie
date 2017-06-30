@@ -32,13 +32,15 @@ end
 open Order_state
 
 type t =
-  { mutable next_order_id : Order.Id.t
+  { username              : Username.t
+  ; mutable next_order_id : Order.Id.t
   ; orders                : Order_state.t Order.Id.Table.t
   ; mutable hand          : Size.t Card.Hand.t option
   } [@@deriving sexp_of]
 
-let create () =
-  { next_order_id = Order.Id.zero
+let create ~username =
+  { username
+  ; next_order_id = Order.Id.zero
   ; orders        = Order.Id.Table.create ()
   ; hand          = None
   }
@@ -48,49 +50,67 @@ let clear t =
   t.hand <- None
 
 let send_order t ~conn ~(order : Order.t) =
-  if Hashtbl.mem t.orders order.id then (
+  let order_state = Order_state.of_order order in
+  match Hashtbl.add t.orders ~key:order.id ~data:order_state with
+  | `Duplicate ->
     return (Error `Duplicate_order_id)
-  ) else (
-    Hashtbl.set t.orders ~key:order.id ~data:(Order_state.of_order order);
+  | `Ok ->
     let%map r = Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn order in
     Result.iter_error r ~f:(fun _ ->
         Hashtbl.remove t.orders order.id
       );
     r
+
+let state_of_order t ~(order : Order.t) =
+  if Username.equal order.owner t.username then (
+    Some (Hashtbl.find_exn t.orders order.id)
+  ) else (
+    None
   )
 
-let ack _t ~order_state =
-  Order_state.ack order_state
+let ack t ~order =
+  Option.iter (state_of_order t ~order) ~f:Order_state.ack
 
-let out t ~id =
-  Option.iter (Hashtbl.find_and_remove t.orders id)
-    ~f:(fun order_state ->
-        Order_state.out order_state;
-      )
+let out t ~order =
+  Option.iter (state_of_order t ~order) ~f:(fun order_state ->
+      Hashtbl.remove t.orders order.id;
+      Order_state.out order_state
+    )
 
-let fill t ~order_state ~size =
-  let order = order_state.order in
-  Order_state.fill order_state ~size;
-  if Order_state.is_out order_state then (
-    out t ~id:order.id
-  );
-  t.hand <- Option.map t.hand ~f:(fun hand ->
-      Card.Hand.modify hand ~suit:order.symbol ~f:(fun amount ->
-          let new_amount =
-            Dir.fold order.dir ~buy:Size.(+) ~sell:Size.(-)
-              amount size
-          in
-          if Size.(<) new_amount Size.zero then (
-            raise_s [%message
-              "Bot.State.fill: new position is negative"
-                (t : t)
-                (order_state : Order_state.t)
-                (size : Size.t)
-            ]
-          ) else (
-            new_amount
-          )
+let filled t ~fill =
+  Option.iter (state_of_order t ~order:fill) ~f:(fun order_state ->
+      let order = order_state.order in
+      Order_state.fill order_state ~size:fill.size;
+      if Order_state.is_out order_state then (
+        out t ~order
+      );
+      t.hand <- Option.map t.hand ~f:(fun hand ->
+          Card.Hand.modify hand ~suit:order.symbol ~f:(fun amount ->
+              let new_amount =
+                Dir.fold order.dir ~buy:Size.(+) ~sell:Size.(-)
+                  amount fill.size
+              in
+              if Size.(<) new_amount Size.zero then (
+                raise_s [%message
+                  "Bot.State.fill: new position is negative"
+                    (hand : Size.t Card.Hand.t)
+                    (order_state : Order_state.t)
+                    (fill.size : Size.t)
+                ]
+              ) else (
+                new_amount
+              )
+            )
         )
+    )
+
+let exec t ~(exec : Exec.t) =
+  ack t ~order:exec.order;
+  let fills = Exec.fills exec in
+  let total_qty = List.sum (module Size) fills ~f:(fun o -> o.size) in
+  filled t ~fill:{ exec.order with size = total_qty };
+  List.iter (Exec.fills exec) ~f:(fun fill ->
+      filled t ~fill
     )
 
 let new_order_id t =

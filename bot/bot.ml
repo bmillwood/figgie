@@ -115,7 +115,7 @@ let run ~server ~config ~username ~room_choice ~auto_ready ~f =
     ~port:(Host_and_port.port server)
     (fun conn ->
       let%bind updates = start_playing ~conn ~username ~room_choice in
-      let state = State.create () in
+      let state = State.create ~username in
       let ready_if_auto () =
         if auto_ready then (
           try_set_ready_on_conn ~conn
@@ -129,24 +129,9 @@ let run ~server ~config ~username ~room_choice ~auto_ready ~f =
           State.clear state;
           don't_wait_for (ready_if_auto ())
         | Broadcast (Exec exec) ->
-          let fills = Exec.fills exec in
-          if Username.equal username exec.order.owner then (
-            let order_state =
-              Hashtbl.find_exn state.orders exec.order.id
-            in
-            State.ack state ~order_state;
-            List.iter fills ~f:(fun fill ->
-                State.fill state ~order_state ~size:fill.size
-              )
-          );
-          List.iter fills ~f:(fun fill ->
-              Option.iter (Hashtbl.find state.orders fill.id)
-                ~f:(fun order_state ->
-                    State.fill state ~order_state ~size:fill.size
-                  )
-            )
+          State.exec state ~exec
         | Broadcast (Out order) ->
-          State.out state ~id:order.id
+          State.out state ~order
         | Hand hand ->
           state.hand <- Some hand
         | _ -> ()
