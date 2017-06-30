@@ -43,14 +43,12 @@ let command =
         Card.Hand.iter sell_prices ~f:(fun r ->
           r := config.initial_sell_price)
       in
-      let hand = ref (Card.Hand.create_all Market.Size.zero) in
       let sell ~suit ~size =
-        let size = Market.Size.min size (Card.Hand.get !hand ~suit) in
+        let inventory = Card.Hand.get (Bot.sellable_hand t) ~suit in
+        let size = Market.Size.min size inventory in
         if Market.Size.(equal zero) size
         then Deferred.unit
         else begin
-          hand := Card.Hand.modify !hand ~suit
-            ~f:(fun c -> Market.Size.O.(c - size));
           Bot.Staged_order.send_exn
             (Bot.Staged_order.create t
                ~symbol:suit
@@ -103,9 +101,6 @@ let command =
           then handle_my_filled_order ~suit:order.symbol exec
           else handle_exec exec
         | Hand new_hand ->
-          hand := new_hand;
-          Log.Global.sexp ~level:`Debug
-            [%sexp (new_hand : Market.Size.t Card.Hand.t)];
           (* The correctness of the below relies on sellbot never asking
              for a Hand update, only receiving them at the beginning of
              a new round. *)

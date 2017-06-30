@@ -26,6 +26,8 @@ end
 module Dirpair : sig
   type 'a t = { buy : 'a; sell : 'a } [@@deriving bin_io, sexp]
 
+  val init : f:(Dir.t -> 'a) -> 'a t
+
   val create_both : 'a -> 'a t
   val create_dir : dir:Dir.t -> same:'a -> opp:'a -> 'a t
 
@@ -152,6 +154,8 @@ end
 
 module Halfbook : sig
   type t = Order.t list [@@deriving bin_io, sexp]
+
+  val add_order : t -> Order.t -> t
 end
 
 module Book : sig

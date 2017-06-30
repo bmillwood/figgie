@@ -73,11 +73,6 @@ let rec chaos_loop t ~config ~lasts ~hand =
     )
   in
   let size = Size.of_int 1 in
-  begin match dir with
-  | Buy -> ()
-  | Sell ->
-    hand := Card.Hand.modify !hand ~suit ~f:(fun s -> Size.O.(s - size))
-  end;
   match%bind
     Bot.Staged_order.send_exn
       (Bot.Staged_order.create t

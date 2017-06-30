@@ -10,6 +10,15 @@ val updates  : t -> Protocol.Game_update.t Pipe.Reader.t
 
 val unacked_orders : t -> Order.t list
 
+val open_orders : t -> Book.t
+
+(** [hand_if_no_fills] and [hand_if_filled] return [None] if we haven't heard
+    what our hand is yet. [sellable_hand], meanwhile, just says 0
+    in that case. *)
+val hand_if_no_fills : t -> Size.t           Card.Hand.t option
+val hand_if_filled   : t -> Size.t Dirpair.t Card.Hand.t option
+val sellable_hand    : t -> Size.t           Card.Hand.t
+
 module Staged_order : sig
   type bot
   type t
