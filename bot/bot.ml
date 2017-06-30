@@ -14,29 +14,11 @@ type t =
 let username t = t.username
 let updates  t = t.updates
 
-let unacked_orders t =
-  Hashtbl.fold t.state.orders
-    ~init:[]
-    ~f:(fun ~key:_ ~data:order_state acc ->
-        if order_state.is_acked then (
-          acc
-        ) else (
-          order_state.order :: acc
-        )
-      )
+let unacked_orders t = State.unacked_orders t.state
 
-let open_orders t =
-  Hashtbl.fold t.state.orders
-    ~init:(Card.Hand.create_all (Dirpair.create_both []))
-    ~f:(fun ~key:_ ~data:order_state orders ->
-        let order = order_state.order in
-        Card.Hand.modify orders ~suit:order.symbol
-          ~f:(Dirpair.modify ~dir:order.dir ~f:(fun halfbook ->
-              Halfbook.add_order halfbook order
-            ))
-      )
+let open_orders t = State.open_orders t.state
 
-let hand_if_no_fills t = t.state.hand
+let hand_if_no_fills t = State.hand_if_no_fills t.state
 
 let hand_if_filled t =
   Option.map (hand_if_no_fills t) ~f:(fun hand_if_no_fills ->
@@ -126,14 +108,14 @@ let run ~server ~config ~username ~room_choice ~auto_ready ~f =
       let handle_update : Protocol.Game_update.t -> unit =
         function
         | Broadcast (Round_over _) ->
-          State.clear state;
+          State.reset state;
           don't_wait_for (ready_if_auto ())
         | Broadcast (Exec exec) ->
           State.exec state ~exec
         | Broadcast (Out order) ->
           State.out state ~order
         | Hand hand ->
-          state.hand <- Some hand
+          State.set_hand state ~hand
         | _ -> ()
       in
       let updates = Pipe.map updates ~f:(fun u -> handle_update u; u) in

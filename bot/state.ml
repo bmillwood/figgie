@@ -45,9 +45,35 @@ let create ~username =
   ; hand          = None
   }
 
-let clear t =
+let reset t =
   Hashtbl.clear t.orders;
   t.hand <- None
+
+let hand_if_no_fills t = t.hand
+
+let set_hand t ~hand = t.hand <- Some hand
+
+let unacked_orders t =
+  Hashtbl.fold t.orders
+    ~init:[]
+    ~f:(fun ~key:_ ~data:order_state acc ->
+        if order_state.is_acked then (
+          acc
+        ) else (
+          order_state.order :: acc
+        )
+      )
+
+let open_orders t =
+  Hashtbl.fold t.orders
+    ~init:(Card.Hand.create_all (Dirpair.create_both []))
+    ~f:(fun ~key:_ ~data:order_state orders ->
+        let order = order_state.order in
+        Card.Hand.modify orders ~suit:order.symbol
+          ~f:(Dirpair.modify ~dir:order.dir ~f:(fun halfbook ->
+              Halfbook.add_order halfbook order
+            ))
+      )
 
 let send_order t ~conn ~(order : Order.t) =
   let order_state = Order_state.of_order order in
