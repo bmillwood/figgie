@@ -42,10 +42,10 @@ let chaos_interval config =
   Time.Span.scale config.mean_chaos_interval
     (Float.of_int (binomial ~n:100 ~p:half) /. 50.)
 
-let rec chaos_loop t ~config ~lasts ~hand =
+let rec chaos_loop t ~config ~lasts =
   let%bind () = Clock.after (chaos_interval config) in
   let suit = List.random_element_exn Card.Suit.all in
-  let position = Card.Hand.get !hand ~suit in
+  let position = Card.Hand.get (Bot.sellable_hand t) ~suit in
   let last = !(Card.Hand.get lasts ~suit) in
   let price =
     let l = Price.to_rational last in
@@ -82,7 +82,7 @@ let rec chaos_loop t ~config ~lasts ~hand =
          ~size)
       t
   with
-  | Error _ | Ok `Ack -> chaos_loop t ~config ~lasts ~hand
+  | Error _ | Ok `Ack -> chaos_loop t ~config ~lasts
 
 let price_of_fills (fills : Order.t list) =
   (List.hd_exn fills).price
@@ -96,9 +96,8 @@ let command =
     (fun t ~config ->
         Random.self_init ();
         let lasts = Card.Hand.init ~f:(fun _ -> ref (Price.of_int 5)) in
-        let hand = ref (Card.Hand.create_all Size.zero) in
         don't_wait_for (
-          chaos_loop t ~config ~lasts ~hand
+          chaos_loop t ~config ~lasts
         );
         Pipe.iter (Bot.updates t) ~f:(function
           | Broadcast (Round_over _results) ->
@@ -111,9 +110,6 @@ let command =
               last := price_of_fills fills;
             );
             Bot.request_update_exn t Hand
-          | Hand new_hand ->
-            hand := new_hand;
-            Deferred.unit
           | _ ->
             Deferred.unit
           )
