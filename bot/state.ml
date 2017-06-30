@@ -76,16 +76,50 @@ let open_orders t =
       )
 
 let send_order t ~conn ~(order : Order.t) =
-  let order_state = Order_state.of_order order in
-  match Hashtbl.add t.orders ~key:order.id ~data:order_state with
-  | `Duplicate ->
-    return (Error `Duplicate_order_id)
-  | `Ok ->
-    let%map r = Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn order in
-    Result.iter_error r ~f:(fun _ ->
-        Hashtbl.remove t.orders order.id
-      );
-    r
+  let send order =
+    let order_state = Order_state.of_order order in
+    match Hashtbl.add t.orders ~key:order.id ~data:order_state with
+    | `Duplicate ->
+      return (Error `Duplicate_order_id)
+    | `Ok ->
+      let%map r = Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn order in
+      Result.iter_error r ~f:(fun _ ->
+          Hashtbl.remove t.orders order.id
+        );
+      r
+  in
+  let rec send_without_self_trade ~opposite_side (order : Order.t) =
+    if Size.(equal zero) order.size then (
+      return (Ok `Ack)
+    ) else (
+      match opposite_side with
+      | [] -> send order
+      | opp :: opps ->
+        if Order.is_more_agg_or_equal order ~than:opp then (
+          let wait_for_cancel =
+            Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn opp.id
+            |> Deferred.ignore
+          in
+          let wait_for_order =
+            match Ordering.of_int (Size.compare order.size opp.size) with
+            | Less | Equal ->
+              return (Ok `Ack)
+            | Greater ->
+              send_without_self_trade ~opposite_side:opps
+                { order with size = Size.O.(order.size - opp.size) }
+          in
+          let%bind () = wait_for_cancel in
+          wait_for_order
+        ) else (
+          send order
+        )
+    )
+  in
+  let opposite_side =
+    Card.Hand.get (open_orders t) ~suit:order.symbol
+    |> Dirpair.get ~dir:(Dir.other order.dir)
+  in
+  send_without_self_trade ~opposite_side order
 
 let state_of_order t ~(order : Order.t) =
   if Username.equal order.owner t.username then (

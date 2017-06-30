@@ -28,7 +28,7 @@ module Config = struct
           ~doc:"N/D how often to send orders more agg than last"
       and mean_chaos_interval =
         flag "-mean-interval"
-          (optional_with_default (sec 5.) time_span)
+          (optional_with_default (sec 3.) time_span)
           ~doc:"SPAN average time between orders"
       in
       { aggression
