@@ -28,7 +28,7 @@ button.delete {
 button.delete:hover {
     background-color: #904;
 }
-div.room .name {
+div.room .names .name {
     background-color: #004;
     margin: 0.2em;
 }

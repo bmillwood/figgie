@@ -39,7 +39,7 @@ let player_list ~(players : Lobby.User.Player.t Username.Map.t) =
   ; List.init (Int.max 0 (Lobby.max_players_per_room - num_players))
       ~f:(fun _ -> no_player_row)
   ] |> List.concat
-  |> Node.ul [Attr.class_ "room"]
+  |> Node.ul [Attr.class_ "names"]
 
 let mk_room ~header ~player_rows ~observer_spans ~footer =
   Node.div
@@ -103,8 +103,10 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
               keep_trues
                 [ not is_connected, Attr.class_ "disconnected"
                 ; is_omniscient,    Attr.class_ "omniscient"
-                ; true,             Attr.class_ "name"
-                ; true,             Attr.style style
+                ]
+              @ [ Attr.class_ "name"
+                ; Attr.style style
+                ; Attr.create "title" (Username.to_string username)
                 ]
             in
             let u = Username.Shortener.short shortener username in
