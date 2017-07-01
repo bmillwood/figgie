@@ -5,6 +5,21 @@ open Figgie
 open Card
 open Market
 
+let max_loss_per_sell t ~symbol ~size =
+  let might_lose_pot = 130. in
+  match Bot.hand_if_filled t with
+  | None -> might_lose_pot
+  | Some hand ->
+    let if_sold =
+      Hand.map hand ~f:(Dirpair.get ~dir:Sell)
+      |> Per_symbol.get ~symbol
+    in
+    if Size.(if_sold - size > of_int 5) then (
+      10.
+    ) else (
+      might_lose_pot
+    )
+
 let total_num_cards_seen t =
   match Bot.room_with_my_hand t with
   | None -> Hand.create_all Size.zero
@@ -118,20 +133,23 @@ let command =
             Deferred.List.iter ~how:`Parallel
               (buy @ sell)
                 ~f:(fun order ->
-                  let want_to_trade =
-                    (* countbot doesn't understand the value of getting
-                       the most gold cards, so let's do the maximally
-                       conservative thing and assume (a) the pot is
-                       120 (8-card gold suit) and (b) this sale is losing
-                       us the pot (plus the 10 points per card). *)
-                    match order.dir with
-                    | Buy -> 130. *. p_gold <. Price.to_float order.price
-                    | Sell -> 10. *. p_gold >. Price.to_float order.price
-                  in
                   let size =
                     Size.min
                       order.size
                       (Hand.get (Bot.sellable_hand t) ~suit:order.symbol)
+                  in
+                  let want_to_trade =
+                    match order.dir with
+                    | Buy ->
+                      let loss =
+                        max_loss_per_sell t
+                          ~symbol:order.symbol
+                          ~size
+                      in
+                      loss *. p_gold <. Price.to_float order.price
+                    | Sell ->
+                      10. *. p_gold
+                      >. Price.to_float order.price
                   in
                   if want_to_trade && Size.(>) size Size.zero
                   then begin
