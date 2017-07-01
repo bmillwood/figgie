@@ -5,15 +5,38 @@ open Figgie
 open Card
 open Market
 
+let consecutive_product from to_ =
+  let rec go a f t =
+    if f > t then a else go (a *. Int.to_float f) (f + 1) t
+  in
+  go 1. from to_
+
+let choose n r =
+  let n = Size.to_int n in
+  let r = Size.to_int r in
+  (* n! / r!(n - r)! *)
+  let choose' n r =
+    consecutive_product (r + 1) n
+      /. consecutive_product 1 (n - r)
+  in
+  if r < 0 || r > n then (
+    0.
+  ) else if r * 2 > n then (
+    choose' n r
+  ) else (
+    choose' n (n - r)
+  )
+
 let likelihood ~counts ~long ~short =
+  let num_cards ~suit =
+    Params.num_cards_in_role (Suit.role suit ~long ~short)
+  in
   let sample_size =
     Hand.fold counts ~init:Size.zero ~f:Size.(+)
   in
   let is_impossible =
     List.exists Suit.all ~f:(fun suit ->
-        Size.(>)
-          (Hand.get counts ~suit)
-          (Params.num_cards_in_role (Suit.role suit ~long ~short))
+        Size.(>) (Hand.get counts ~suit) (num_cards ~suit)
       )
   in
   if is_impossible then (
@@ -21,32 +44,16 @@ let likelihood ~counts ~long ~short =
   ) else if Size.(equal zero) sample_size then (
     1.
   ) else (
-    let open Size.O in
-    let prod min max =
-      List.init (Size.to_int (max - min + Size.of_int 1))
-        ~f:(fun i -> min + Size.of_int i)
-    in
     let numerator =
-      prod (Size.of_int 1) sample_size
-      @ List.concat_map Suit.all ~f:(fun suit ->
-          let num_cards =
-            Params.num_cards_in_role (Suit.role suit ~long ~short)
-          in
-          prod
-            (num_cards - Hand.get counts ~suit + Size.of_int 1)
-            num_cards)
+      List.map Suit.all ~f:(fun suit ->
+          choose (num_cards ~suit) (Hand.get counts ~suit)
+        )
+      |> List.fold ~init:1. ~f:( *. )
     in
     let denominator =
-      prod
-        (Params.num_cards_in_deck - sample_size + Size.of_int 1)
-        Params.num_cards_in_deck
-      @ List.concat_map Suit.all ~f:(fun suit ->
-          prod (Size.of_int 1) (Hand.get counts ~suit))
+      choose Params.num_cards_in_deck sample_size
     in
-    List.reduce_balanced_exn ~f:( *. )
-      (List.map numerator ~f:Size.to_float)
-    /. List.reduce_balanced_exn ~f:( *. )
-      (List.map denominator ~f:Size.to_float)
+    numerator /. denominator
   )
 
 let max_loss_per_sell t ~symbol ~size =
