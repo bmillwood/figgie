@@ -21,4 +21,5 @@ val handle_update : t -> Protocol.Game_update.t -> unit
 val unacked_orders : t -> Order.t list
 val open_orders    : t -> Order.t list Dirpair.t Per_symbol.t
 
-val hand_if_no_fills : t -> Size.t Card.Hand.t option
+val hand_if_no_fills  : t -> Size.t Card.Hand.t option
+val room_with_my_hand : t -> Lobby.Room.t option

@@ -41,6 +41,8 @@ let sellable_hand t =
   | None -> Card.Hand.create_all Size.zero
   | Some hif -> Card.Hand.map hif ~f:(Dirpair.get ~dir:Sell)
 
+let room_with_my_hand t = State.room_with_my_hand t.state
+
 module Staged_order = struct
   type t = Order.t
 

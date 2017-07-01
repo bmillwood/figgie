@@ -36,6 +36,7 @@ type t =
   ; mutable next_order_id : Order.Id.t
   ; orders                : Order_state.t Order.Id.Table.t
   ; mutable hand          : Size.t Card.Hand.t option
+  ; mutable room          : Lobby.Room.t option
   } [@@deriving sexp_of]
 
 let create ~username =
@@ -43,6 +44,7 @@ let create ~username =
   ; next_order_id = Order.Id.zero
   ; orders        = Order.Id.Table.create ()
   ; hand          = None
+  ; room          = None
   }
 
 let reset t =
@@ -182,6 +184,27 @@ let handle_update t : Protocol.Game_update.t -> unit =
     handle_exec t ~exec
   | Broadcast (Out order) ->
     handle_out t ~order
+  | Room_snapshot room ->
+    t.room <- Some room
+  | Broadcast (Room_update update) ->
+    t.room <- Option.map t.room ~f:(Lobby.Room.Update.apply update)
   | Hand hand ->
     t.hand <- Some hand
   | _ -> ()
+
+let room_with_my_hand t =
+  Option.map t.room ~f:(fun room ->
+      let with_my_hand room =
+        match t.hand with
+        | None -> room
+        | Some hand ->
+          Lobby.Room.Update.apply
+            (Player_event
+               { username = t.username
+               ; event = Player_hand (Partial_hand.create_known hand)
+               }
+            )
+            room
+      in
+      with_my_hand room
+    )

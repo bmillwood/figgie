@@ -19,6 +19,8 @@ val hand_if_no_fills : t -> Size.t           Card.Hand.t option
 val hand_if_filled   : t -> Size.t Dirpair.t Card.Hand.t option
 val sellable_hand    : t -> Size.t           Card.Hand.t
 
+val room_with_my_hand : t -> Lobby.Room.t option
+
 module Staged_order : sig
   type bot
   type t
