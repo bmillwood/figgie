@@ -5,6 +5,49 @@ open Figgie
 open Card
 open Market
 
+let likelihood ~counts ~long ~short =
+  let sample_size =
+    Hand.fold counts ~init:Size.zero ~f:Size.(+)
+  in
+  let is_impossible =
+    List.exists Suit.all ~f:(fun suit ->
+        Size.(>)
+          (Hand.get counts ~suit)
+          (Params.cards_in_suit suit ~long ~short))
+  in
+  if is_impossible then (
+    0.
+  ) else if Size.(equal zero) sample_size then (
+    1.
+  ) else (
+    let open Size.O in
+    let prod min max =
+      List.init (Size.to_int (max - min + Size.of_int 1))
+        ~f:(fun i -> min + Size.of_int i)
+    in
+    let numerator =
+      prod (Size.of_int 1) sample_size
+      @ List.concat_map Suit.all ~f:(fun suit ->
+          let num_cards =
+            Params.cards_in_suit suit ~long ~short
+          in
+          prod
+            (num_cards - Hand.get counts ~suit + Size.of_int 1)
+            num_cards)
+    in
+    let denominator =
+      prod
+        (Params.num_cards_in_deck - sample_size + Size.of_int 1)
+        Params.num_cards_in_deck
+      @ List.concat_map Suit.all ~f:(fun suit ->
+          prod (Size.of_int 1) (Hand.get counts ~suit))
+    in
+    List.reduce_balanced_exn ~f:( *. )
+      (List.map numerator ~f:Size.to_float)
+    /. List.reduce_balanced_exn ~f:( *. )
+      (List.map denominator ~f:Size.to_float)
+  )
+
 let max_loss_per_sell t ~symbol ~size =
   let might_lose_pot = 130. in
   match Bot.hand_if_filled t with
@@ -39,69 +82,28 @@ let total_num_cards_seen t =
           )
       )
 
-let p_gold t ~suit =
-  let totals = total_num_cards_seen t in
-  let p_totals ?long ?short () =
+let ps_gold t =
+  let counts = total_num_cards_seen t in
+  let likelihoods ?long ?short () =
     let or_all suit =
       Option.value_map suit ~default:Suit.all ~f:List.return
     in
     List.sum (module Float) (or_all long) ~f:(fun long ->
         List.sum (module Float) (or_all short) ~f:(fun short ->
-            let sample_size =
-              Hand.fold totals ~init:Size.zero ~f:Size.(+)
-            in
-            let is_impossible =
-              List.exists Suit.all ~f:(fun suit ->
-                  Size.(>)
-                    (Hand.get totals ~suit)
-                    (Params.cards_in_suit suit ~long ~short))
-            in
-            if is_impossible then (
-              0.
-            ) else if Size.(equal zero) sample_size then (
-              1.
-            ) else (
-              let open Size.O in
-              let prod min max =
-                List.init (Size.to_int (max - min + Size.of_int 1))
-                  ~f:(fun i -> min + Size.of_int i)
-              in
-              let numerator =
-                prod (Size.of_int 1) sample_size
-                @ List.concat_map Suit.all ~f:(fun suit ->
-                    let num_cards =
-                      Params.cards_in_suit suit ~long ~short
-                    in
-                    prod
-                      (num_cards - Hand.get totals ~suit + Size.of_int 1)
-                      num_cards)
-              in
-              let denominator =
-                prod
-                  (Params.num_cards_in_deck - sample_size + Size.of_int 1)
-                  Params.num_cards_in_deck
-                @ List.concat_map Suit.all ~f:(fun suit ->
-                    prod (Size.of_int 1) (Hand.get totals ~suit))
-              in
-              List.reduce_balanced_exn ~f:( *. )
-                (List.map numerator ~f:Size.to_float)
-              /. List.reduce_balanced_exn ~f:( *. )
-                (List.map denominator ~f:Size.to_float)
-            )
+            likelihood ~counts ~long ~short
           )
       )
   in
-  if p_totals () =. 0. then (
+  let p_counts = likelihoods () in
+  if p_counts =. 0. then (
     raise_s [%message "these counts seem impossible"
       (Bot.room_with_my_hand t : Lobby.Room.t option)
-      (totals : Size.t Hand.t)
+      (counts : Size.t Hand.t)
     ]
   );
-  let p_long ~long = p_totals ~long () /. p_totals () in
-  p_long ~long:(Suit.opposite suit)
-
-let ps_gold t =
-  Hand.init ~f:(fun suit -> p_gold t ~suit)
+  Hand.init ~f:(fun suit ->
+      likelihoods ~long:(Suit.opposite suit) () /. p_counts
+    )
 
 let command =
   Bot.make_command
