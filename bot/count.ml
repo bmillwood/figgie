@@ -122,13 +122,10 @@ let command =
                     (* countbot doesn't understand the value of getting
                        the most gold cards, so let's do the maximally
                        conservative thing and assume (a) the pot is
-                       120 (8-card gold suit) and (b) this sale is taking
-                       us from first to a four-way pot split, losing
-                       three-quarters of the pot and the 10 for the gold
-                       card. Future work: use knowledge of our own and
-                       others' hand sizes to bound loss further. *)
+                       120 (8-card gold suit) and (b) this sale is losing
+                       us the pot (plus the 10 points per card). *)
                     match order.dir with
-                    | Buy -> 100. *. p_gold <. Price.to_float order.price
+                    | Buy -> 130. *. p_gold <. Price.to_float order.price
                     | Sell -> 10. *. p_gold >. Price.to_float order.price
                   in
                   let size =
