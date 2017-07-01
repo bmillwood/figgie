@@ -24,7 +24,12 @@ end
 let set_username_field_colour ~self input =
   (* this is so silly but I love it *)
   self##.style##.backgroundColor := Js.string (
-    Hash_colour.username_colour (Username.of_string input)
+    let u = Username.of_string input in
+    if String.is_empty input || Username.is_valid u then (
+      Hash_colour.username_colour (Username.of_string input)
+    ) else (
+      "red"
+    )
   )
 
 module Action = struct

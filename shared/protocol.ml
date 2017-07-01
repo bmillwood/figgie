@@ -82,10 +82,11 @@ end
 
 module Create_room = struct
   type query = Lobby.Room.Id.t [@@deriving bin_io, sexp]
-  type response =
-    ( unit
-    , [ `Room_already_exists ]
-    ) Result.t [@@deriving bin_io, sexp]
+  type error =
+    [ `Room_already_exists
+    | `Invalid_room_name
+    ] [@@deriving bin_io, sexp]
+  type response = (unit, error) Result.t [@@deriving bin_io, sexp]
 
   let rpc =
     Rpc.Rpc.create ~name:"create-room" ~version:1 ~bin_query ~bin_response

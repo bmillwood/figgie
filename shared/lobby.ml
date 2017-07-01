@@ -58,7 +58,11 @@ module User = struct
 end
 
 module Room = struct
-  module Id : Identifiable.S = String
+  module Id = struct
+    include String
+    let is_valid id =
+      not (String.is_empty id) && String.for_all id ~f:Char.is_print
+  end
 
   module Seat = struct
     module T = struct

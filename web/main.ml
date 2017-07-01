@@ -561,6 +561,7 @@ module App = struct
                   Rpc.Rpc.dispatch_exn Protocol.Create_room.rpc conn room_id
                   >>| function
                   | Error `Room_already_exists -> ()
+                  | Error `Invalid_room_name -> ()
                   | Ok () -> ()
                 end;
                 Event.Ignore

@@ -42,6 +42,8 @@ let lobby_snapshot t : Lobby.t =
 let new_room t ~room_id =
   if Hashtbl.mem t.rooms room_id then (
     Error `Room_already_exists
+  ) else if not (Lobby.Room.Id.is_valid room_id) then (
+    Error `Invalid_room_name
   ) else (
     let new_room =
       Room_manager.create ~id:room_id
@@ -56,9 +58,9 @@ let new_room t ~room_id =
 
 let new_room_exn t ~room_id =
   match new_room t ~room_id with
-  | Error `Room_already_exists ->
+  | Error error ->
       raise_s [%message
-        "Room already exists" (room_id : Lobby.Room.Id.t)
+        "Room creation failed" (error : Protocol.Create_room.error)
       ]
   | Ok () -> ()
 

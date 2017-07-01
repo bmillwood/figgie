@@ -51,7 +51,10 @@ module User : sig
 end
 
 module Room : sig
-  module Id : Identifiable.S
+  module Id : sig
+    include Identifiable.S
+    val is_valid : t -> bool
+  end
 
   module Seat : sig
     type t =
