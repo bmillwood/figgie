@@ -19,6 +19,23 @@ module Suit = struct
     let i2 = (i1 + Random.int 3 + 1) mod 4 in
     let all = Array.of_list all in
     (all.(i1), all.(i2))
+
+  module Role = struct
+    type t =
+      | Normal
+      | Short
+      | Long
+    [@@deriving enumerate, sexp]
+  end
+
+  let role t ~short ~long : Role.t =
+    if equal t long then (
+      Long
+    ) else if equal t short then (
+      Short
+    ) else (
+      Normal
+    )
 end
 
 module Hand = struct

@@ -135,9 +135,11 @@ module Round = struct
     let hands, gold =
       let open Card in
       let long, short = Suit.random_two () in
-      let deck = Hand.init ~f:(fun _ -> ref Params.normal_suit_cards) in
-      Hand.get deck ~suit:long := Params.long_suit_cards;
-      Hand.get deck ~suit:short := Params.short_suit_cards;
+      let deck =
+        Hand.init ~f:(fun _ -> ref (Params.num_cards_in_role Normal))
+      in
+      Hand.get deck ~suit:long  := Params.num_cards_in_role Long;
+      Hand.get deck ~suit:short := Params.num_cards_in_role Short;
       let remaining_suits = ref Suit.all in
       let hands =
         Array.init num_players ~f:(fun _i ->

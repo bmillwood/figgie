@@ -11,6 +11,16 @@ module Suit : sig
   val opposite : t -> t
 
   val random_two : unit -> t * t
+
+  module Role : sig
+    type t =
+      | Normal
+      | Short
+      | Long
+    [@@deriving enumerate, sexp]
+  end
+
+  val role : t -> short:t -> long:t -> Role.t
 end
 
 module Hand : sig

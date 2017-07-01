@@ -13,7 +13,8 @@ let likelihood ~counts ~long ~short =
     List.exists Suit.all ~f:(fun suit ->
         Size.(>)
           (Hand.get counts ~suit)
-          (Params.cards_in_suit suit ~long ~short))
+          (Params.num_cards_in_role (Suit.role suit ~long ~short))
+      )
   in
   if is_impossible then (
     0.
@@ -29,7 +30,7 @@ let likelihood ~counts ~long ~short =
       prod (Size.of_int 1) sample_size
       @ List.concat_map Suit.all ~f:(fun suit ->
           let num_cards =
-            Params.cards_in_suit suit ~long ~short
+            Params.num_cards_in_role (Suit.role suit ~long ~short)
           in
           prod
             (num_cards - Hand.get counts ~suit + Size.of_int 1)

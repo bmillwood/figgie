@@ -16,18 +16,15 @@ let validate_price price =
     Ok ()
   )
 
-let normal_suit_cards = Market.Size.of_int 10
-let long_suit_cards = Market.Size.of_int 12
-let short_suit_cards = Market.Size.of_int 8
+let num_cards_in_role (role : Card.Suit.Role.t) =
+  let num =
+    match role with
+    | Normal -> 10
+    | Long   -> 12
+    | Short  -> 8
+  in
+  Market.Size.of_int num
 
-let cards_in_suit suit ~long ~short =
-  if Card.Suit.equal suit long
-  then long_suit_cards
-  else if Card.Suit.equal suit short
-  then short_suit_cards
-  else normal_suit_cards
-
-let num_cards_in_deck =
-  Market.Size.O.(2 * normal_suit_cards + long_suit_cards + short_suit_cards)
+let num_cards_in_deck = Market.Size.of_int 40
 
 let num_cards_per_hand = Market.Size.of_int 10
