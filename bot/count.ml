@@ -127,13 +127,16 @@ let command =
                        three-quarters of the pot and the 10 for the gold
                        card. Future work: use knowledge of our own and
                        others' hand sizes to bound loss further. *)
-                    (* countbot also doesn't know its own position, so the sell
-                       can fail. That's fine. It ignores the reject. *)
                     match order.dir with
                     | Buy -> 100. *. p_gold <. Price.to_float order.price
                     | Sell -> 10. *. p_gold >. Price.to_float order.price
                   in
-                  if want_to_trade
+                  let size =
+                    Size.min
+                      order.size
+                      (Hand.get (Bot.sellable_hand t) ~suit:order.symbol)
+                  in
+                  if want_to_trade && Size.(>) size Size.zero
                   then begin
                     if Username.equal order.owner username
                     then begin
