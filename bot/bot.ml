@@ -105,17 +105,11 @@ let run ~server ~config ~username ~room_choice ~auto_ready ~f =
           Deferred.unit
         )
       in
-      let handle_update : Protocol.Game_update.t -> unit =
-        function
+      let handle_update (update : Protocol.Game_update.t) =
+        State.handle_update state update;
+        match update with
         | Broadcast (Round_over _) ->
-          State.reset state;
           don't_wait_for (ready_if_auto ())
-        | Broadcast (Exec exec) ->
-          State.exec state ~exec
-        | Broadcast (Out order) ->
-          State.out state ~order
-        | Hand hand ->
-          State.set_hand state ~hand
         | _ -> ()
       in
       let updates = Pipe.map updates ~f:(fun u -> handle_update u; u) in

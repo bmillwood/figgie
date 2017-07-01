@@ -51,8 +51,6 @@ let reset t =
 
 let hand_if_no_fills t = t.hand
 
-let set_hand t ~hand = t.hand <- Some hand
-
 let unacked_orders t =
   Hashtbl.fold t.orders
     ~init:[]
@@ -75,6 +73,11 @@ let open_orders t =
             ))
       )
 
+let new_order_id t =
+  let id = t.next_order_id in
+  t.next_order_id <- Order.Id.next id;
+  id
+
 let send_order t ~conn ~(order : Order.t) =
   let send order =
     let order_state = Order_state.of_order order in
@@ -84,6 +87,7 @@ let send_order t ~conn ~(order : Order.t) =
     | `Ok ->
       let%map r = Rpc.Rpc.dispatch_exn Protocol.Order.rpc conn order in
       Result.iter_error r ~f:(fun _ ->
+          Order_state.out order_state;
           Hashtbl.remove t.orders order.id
         );
       r
@@ -128,10 +132,7 @@ let state_of_order t ~(order : Order.t) =
     None
   )
 
-let ack t ~order =
-  Option.iter (state_of_order t ~order) ~f:Order_state.ack
-
-let out t ~order =
+let handle_out t ~order =
   Option.iter (state_of_order t ~order) ~f:(fun order_state ->
       Hashtbl.remove t.orders order.id;
       Order_state.out order_state
@@ -142,7 +143,7 @@ let filled t ~fill =
       let order = order_state.order in
       Order_state.fill order_state ~size:fill.size;
       if Order_state.is_out order_state then (
-        out t ~order
+        handle_out t ~order
       );
       t.hand <- Option.map t.hand ~f:(fun hand ->
           Card.Hand.modify hand ~suit:order.symbol ~f:(fun amount ->
@@ -164,8 +165,8 @@ let filled t ~fill =
         )
     )
 
-let exec t ~(exec : Exec.t) =
-  ack t ~order:exec.order;
+let handle_exec t ~(exec : Exec.t) =
+  Option.iter (state_of_order t ~order:exec.order) ~f:Order_state.ack;
   let fills = Exec.fills exec in
   let total_qty = List.sum (module Size) fills ~f:(fun o -> o.size) in
   filled t ~fill:{ exec.order with size = total_qty };
@@ -173,7 +174,14 @@ let exec t ~(exec : Exec.t) =
       filled t ~fill
     )
 
-let new_order_id t =
-  let id = t.next_order_id in
-  t.next_order_id <- Order.Id.next id;
-  id
+let handle_update t : Protocol.Game_update.t -> unit =
+  function
+  | Broadcast (Round_over _) ->
+    reset t
+  | Broadcast (Exec exec) ->
+    handle_exec t ~exec
+  | Broadcast (Out order) ->
+    handle_out t ~order
+  | Hand hand ->
+    t.hand <- Some hand
+  | _ -> ()
