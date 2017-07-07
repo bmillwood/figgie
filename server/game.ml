@@ -23,37 +23,6 @@ module Player = struct
     username : Username.t;
     mutable chips : Market.Price.t;
   } [@@deriving sexp]
-
-  let create ~username = { username; chips = Market.Price.zero }
-end
-
-module Waiting = struct
-  module Player = struct
-    type t = {
-      p : Player.t;
-      mutable is_ready : bool;
-    }
-
-    let create player = { p = player; is_ready = false }
-  end
-
-  type t = {
-    players : Player.t Username.Table.t;
-  }
-
-  let waiting_for t =
-    let waiting_for_connects =
-      Int.max 0 (Params.num_players - Hashtbl.length t.players)
-    in
-    let waiting_for_readies = Hashtbl.count t.players ~f:(fun p -> not p.is_ready) in
-    waiting_for_connects + waiting_for_readies
-
-  let set_ready t ~username ~is_ready =
-    match Hashtbl.find t.players username with
-    | None -> Error `You're_not_playing
-    | Some p ->
-      p.is_ready <- is_ready;
-      Ok ()
 end
 
 module Round = struct
@@ -96,21 +65,30 @@ module Round = struct
       Map.fold t.players
         ~init:(Username.Map.empty, Market.Size.zero, Username.Map.empty)
         ~f:(fun ~key:username ~data:player (winners, winning_amount, losers) ->
-          let gold = Card.Hand.get player.hand ~suit:t.gold in
+          let hand = player.hand in
+          let gold = Card.Hand.get hand ~suit:t.gold in
           match Ordering.of_int (Market.Size.compare gold winning_amount) with
           | Greater ->
-              ( Username.Map.singleton username gold
-              , gold
-              , Map.merge winners losers ~f:(fun ~key:_ -> function
+            ( Username.Map.singleton username hand
+            , gold
+            , Map.merge winners losers ~f:(fun ~key:_ -> function
                   | `Left x | `Right x -> Some x
                   | `Both (_, _) -> assert false)
-              )
-          | Equal -> (Map.add winners ~key:username ~data:gold, gold, losers)
-          | Less -> (winners, winning_amount, Map.add losers ~key:username ~data:gold))
+            )
+          | Equal ->
+            ( Map.add winners ~key:username ~data:hand
+            , gold
+            , losers
+            )
+          | Less -> (winners, winning_amount, Map.add losers ~key:username ~data:hand))
     in
     let total_gold_cards =
       let open Market.Size.O in
-      let sum_map = Map.fold ~init:zero ~f:(fun ~key:_ ~data:n acc -> n + acc) in
+      let sum_map =
+        Map.fold ~init:zero ~f:(fun ~key:_ ~data:hand acc ->
+            acc + Card.Hand.get hand ~suit:t.gold
+          )
+      in
       sum_map winners + sum_map losers
     in
     let pot_size =
@@ -121,14 +99,29 @@ module Round = struct
     let pot_per_winner =
       Market.Price.O.(pot_size / Map.length winners)
     in
-    let scores_this_round =
+    let positions_this_round =
       Map.merge winners losers
-        ~f:(fun ~key:_ -> function
-          | `Left x -> Some Market.O.(Price.(x *$ Params.gold_card_value + pot_per_winner))
-          | `Right x -> Some Market.O.(x *$ Params.gold_card_value)
-          | `Both (_, _) -> assert false)
+        ~f:(fun ~key:_ merge ->
+            let is_winner, hand =
+              match merge with
+              | `Left hand -> true, hand
+              | `Right hand -> false, hand
+              | `Both (_, _) -> assert false
+            in
+            let num_gold_cards = Card.Hand.get hand ~suit:t.gold in
+            let score_from_gold_cards =
+              Market.O.(num_gold_cards *$ Params.gold_card_value)
+            in
+            let score_from_pot =
+              if is_winner then pot_per_winner else Market.Price.zero
+            in
+            let cash =
+              Market.Price.O.(score_from_gold_cards + score_from_pot)
+            in
+            Some { Market.Positions.cash; stuff = hand }
+          )
     in
-    { Protocol.Round_results.gold = t.gold; scores_this_round }
+    { Protocol.Round_results.gold = t.gold; positions_this_round }
 
   let start ~(config : Config.t) ~players =
     let num_players = Map.length players in
@@ -287,7 +280,7 @@ end
 
 module Phase = struct
   type t =
-    | Waiting_for_players of Waiting.t
+    | Waiting_for_players
     | Playing of Round.t
 end
 
@@ -300,62 +293,19 @@ let phase t = t.phase
 
 let create ~config =
   { config
-  ; phase = Waiting_for_players { players = Username.Table.create () }
+  ; phase = Waiting_for_players
   }
 
-let player_join t ~username =
-  match t.phase with
-  | Playing _ -> Error `Game_already_started
-  | Waiting_for_players waiting ->
-    if Hashtbl.length waiting.players >= Params.num_players
-    then Error `Seat_occupied
-    else begin
-      let player =
-        Hashtbl.find_or_add waiting.players username
-          ~default:(fun () -> Waiting.Player.create (Player.create ~username))
-      in
-      ignore player;
-      Ok ()
-    end
+let start_round t ~room =
+  let round_players =
+    Map.map (Lobby.Room.players room) ~f:(fun player ->
+        { Player.username = player.username; chips = player.role.score }
+      )
+  in
+  let round = Round.start ~config:t.config ~players:round_players in
+  t.phase <- Playing round;
+  round
 
 let end_round t (round : Round.t) =
-  let players = Username.Table.create () in
-  Map.iteri round.players ~f:(fun ~key:_ ~data:player ->
-    Hashtbl.set players ~key:player.p.username
-      ~data:(Waiting.Player.create player.p));
-  t.phase <- Waiting_for_players { players };
-  let results = Round.results round in
-  Map.iteri results.scores_this_round ~f:(fun ~key:player ~data:score ->
-    let player = Hashtbl.find_exn players player in
-    player.p.chips <- Market.Price.O.(player.p.chips + score));
-  results
-
-let set_ready t ~username ~is_ready =
-  match t.phase with
-  | Playing _ -> Error `Game_already_started
-  | Waiting_for_players waiting ->
-    Waiting.set_ready waiting ~username ~is_ready
-    >>= fun () ->
-    if is_ready && Waiting.waiting_for waiting = 0
-    then begin
-      let round_players =
-        Hashtbl.to_alist waiting.players
-        |> Username.Map.of_alist_exn
-        |> Map.map ~f:(fun player -> player.p)
-      in
-      let round = Round.start ~config:t.config ~players:round_players in
-      t.phase <- Playing round;
-      Ok (`Started round)
-    end else Ok `Still_waiting
-
-let players t =
-  match t.phase with
-  | Waiting_for_players waiting ->
-    Hashtbl.to_alist waiting.players
-    |> List.map ~f:(fun (key, waiter) -> (key, waiter.p))
-    |> Username.Map.of_alist_exn
-  | Playing round ->
-    Map.map round.players ~f:(fun player -> player.p)
-
-let scores t =
-  Map.map (players t) ~f:(fun player -> player.chips)
+  t.phase <- Waiting_for_players;
+  Round.results round

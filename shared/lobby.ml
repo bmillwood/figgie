@@ -108,6 +108,20 @@ module Room = struct
 
   let is_empty t = Map.is_empty t.users
 
+  let is_ready t =
+    let players = players t in
+    let enough_players =
+      Int.equal Params.num_players (Map.length players)
+    in
+    let all_ready =
+      Map.for_all players ~f:(fun p ->
+        match p.role.phase with
+        | Waiting { is_ready } -> is_ready
+        | Playing -> true
+      )
+    in
+    enough_players && all_ready
+
   let can_delete t =
     Map.for_all t.users ~f:(fun user -> not user.is_connected)
 

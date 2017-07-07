@@ -28,12 +28,6 @@ let apply_room_update t update =
   Updates_manager.broadcast t.lobby_updates
     (Lobby_update (Room_update { room_id = t.id; update }))
 
-let broadcast_scores t =
-  Map.iteri (Game.scores t.game) ~f:(fun ~key:username ~data:score ->
-      apply_room_update t
-        (Player_event { username; event = Player_score score })
-    )
-
 let start_playing t ~username ~(in_seat : Protocol.Start_playing.query) =
   let open Result.Monad_infix in
   begin match Map.find (Lobby.Room.users t.room) username with
@@ -55,9 +49,7 @@ let start_playing t ~username ~(in_seat : Protocol.Start_playing.query) =
       not (Map.mem (Lobby.Room.seating t.room) seat)
     )
   )
-  >>= fun in_seat ->
-  Game.player_join t.game ~username
-  >>| fun () ->
+  >>| fun in_seat ->
   apply_room_update t
     (Player_event
        { username
@@ -77,7 +69,7 @@ let player_join t ~username =
   Updates_manager.update t.room_updates ~username
     (Room_snapshot (room_snapshot t));
   begin match Game.phase t.game with
-  | Waiting_for_players _ -> ()
+  | Waiting_for_players -> ()
   | Playing round ->
     Updates_manager.updates t.room_updates ~username
       [ Broadcast (Room_update Start_playing)
@@ -96,14 +88,21 @@ let end_round t (round : Game.Round.t) =
   Updates_manager.broadcast t.room_updates
     (Broadcast (Round_over results));
   apply_room_update t Start_waiting;
-  Map.iter (Lobby.Room.seating t.room) ~f:(fun username ->
-      Result.iter (Game.Round.get_hand round ~username) ~f:(fun hand ->
-          let hand = Partial_hand.create_known hand in
+  Map.iter2 (Lobby.Room.players t.room) results.positions_this_round
+    ~f:(fun ~key:_ ~data:merge ->
+        match merge with
+        | `Left _ | `Right _ -> ()
+        | `Both (player, this_round) ->
+          let hand = Partial_hand.create_known this_round.stuff in
+          let username = player.username in
           apply_room_update t
-            (Player_event { username; event = Player_hand hand })
-        )
-    );
-  broadcast_scores t
+            (Player_event { username; event = Player_hand hand });
+          let score =
+            Market.Price.O.(player.role.score + this_round.cash)
+          in
+          apply_room_update t
+            (Player_event { username; event = Player_score score });
+      )
 
 let setup_round t (round : Game.Round.t) =
   don't_wait_for begin
@@ -112,25 +111,35 @@ let setup_round t (round : Game.Round.t) =
     end_round t round
   end;
   apply_room_update t Start_playing;
-  Map.iter (Lobby.Room.seating t.room) ~f:(fun username ->
+  Map.iteri (Lobby.Room.players t.room) ~f:(fun ~key:username ~data:player ->
       let unknown_hand =
         Partial_hand.create_unknown Params.num_cards_per_hand
       in
       apply_room_update t
         (Player_event { username; event = Player_hand unknown_hand });
-      tell_player_their_hand t round ~username
-    );
-  broadcast_scores t
+      tell_player_their_hand t round ~username;
+      let score =
+        Market.Price.O.(player.role.score - Params.pot_per_player)
+      in
+      apply_room_update t
+        (Player_event { username; event = Player_score score })
+    )
 
 let player_ready t ~username ~is_ready =
-  Result.map (Game.set_ready t.game ~username ~is_ready)
-    ~f:(fun started_or_not ->
-        apply_room_update t
-          (Player_event { username; event = Player_ready is_ready });
-        match started_or_not with
-        | `Started round -> setup_round t round
-        | `Still_waiting -> ()
-      )
+  match Game.phase t.game with
+  | Playing _ -> Error `Game_already_started
+  | Waiting_for_players ->
+    if Lobby.Room.has_player t.room ~username then (
+      apply_room_update t
+        (Player_event { username; event = Player_ready is_ready });
+      if Lobby.Room.is_ready t.room then (
+        Game.start_round t.game ~room:t.room
+        |> setup_round t
+      );
+      Ok ()
+    ) else (
+      Error `You're_not_playing
+    )
 
 let cancel_all_for_player t ~username ~round =
   match Game.Round.cancel_orders round ~sender:username with
@@ -147,7 +156,7 @@ let player_disconnected t ~username =
     begin match cancel_all_for_player t ~username ~round with
     | Error `You're_not_playing | Ok `Ack -> ()
     end
-  | Waiting_for_players _ ->
+  | Waiting_for_players ->
     begin match player_ready t ~username ~is_ready:false with
     | Error (`Game_already_started | `You're_not_playing)
     | Ok () -> ()
@@ -167,7 +176,7 @@ let rpc_implementations =
   let during_game rpc f =
     implement rpc (fun ~room ~username query ->
         match Game.phase room.game with
-        | Waiting_for_players _ -> return (Error `Game_not_in_progress)
+        | Waiting_for_players -> return (Error `Game_not_in_progress)
         | Playing round -> f ~username ~room ~round query
       )
   in

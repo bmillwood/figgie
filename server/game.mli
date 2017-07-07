@@ -8,10 +8,6 @@ module Config : sig
   val arg : t Command.Param.t
 end
 
-module Waiting : sig
-  type t
-end
-
 module Round : sig
   type t
 
@@ -44,7 +40,7 @@ end
 
 module Phase : sig
   type t =
-    | Waiting_for_players of Waiting.t
+    | Waiting_for_players
     | Playing of Round.t
 end
 
@@ -54,19 +50,6 @@ val phase : t -> Phase.t
 
 val create : config:Config.t -> t
 
-val scores : t -> Price.t Username.Map.t
-
-val player_join
-  :  t
-  -> username:Username.t 
-  -> (unit, [> `Game_already_started | `Seat_occupied ]) Result.t
-
-val set_ready
-  :  t
-  -> username:Username.t
-  -> is_ready:bool
-  -> ( [ `Started of Round.t | `Still_waiting ]
-     , [ `You're_not_playing | `Game_already_started ]
-     ) Result.t
+val start_round : t -> room:Lobby.Room.t -> Round.t
 
 val end_round : t -> Round.t -> Protocol.Round_results.t
