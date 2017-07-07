@@ -22,7 +22,7 @@ module Message : sig
         }
     | Joined_room of Lobby.Room.Id.t
     | New_round
-    | Round_over of Protocol.Round_results.t
+    | Round_over of Lobby.Room.Update.Round_results.t
     | Order_reject of Order.t * Protocol.Order.error
     | Cancel_reject of [ `All | `Id of Order.Id.t ] * Protocol.Cancel.error
     [@@deriving sexp_of]

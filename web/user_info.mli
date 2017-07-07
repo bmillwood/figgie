@@ -30,6 +30,7 @@ val view
   :  Model.t
   -> inject:(Action.t -> Event.t)
   -> room:Lobby.Room.t
+  -> my_hand:Partial_hand.t
   -> my_name:Username.t
   -> gold:Card.Suit.t option
   -> Node.t

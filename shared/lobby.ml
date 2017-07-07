@@ -71,15 +71,16 @@ module Room = struct
     include Comparable.Make_binable(T)
   end
 
-
   type t =
     { seating : Username.t Seat.Map.t
     ; users   : User.t Username.Map.t
+    ; gold    : Card.Suit.t option
     } [@@deriving bin_io, sexp]
 
   let empty =
     { seating = Seat.Map.empty
     ; users = Username.Map.empty
+    ; gold = None
     }
 
   let users t = t.users
@@ -131,31 +132,88 @@ module Room = struct
         | Joined
         | Observer_became_omniscient
         | Observer_started_playing of { in_seat : Seat.t }
-        | Player_score of Market.Price.t
-        | Player_hand  of Partial_hand.t
         | Player_ready of bool
         | Disconnected
         [@@deriving bin_io, sexp]
     end
 
-    type t =
-      | Start_waiting
-      | Start_playing
-      | Player_event of { username : Username.t; event : User_event.t }
-    [@@deriving bin_io, sexp]
+    module Round_results = struct
+      type t =
+        { gold : Card.Suit.t
+        ; hands : Market.Size.t Card.Hand.t Username.Map.t
+        } [@@deriving bin_io, sexp]
 
-    let set_phases room ~phase =
-      let users =
-        Map.map (users room) ~f:(fun player ->
-            let role : User.Role.t =
-              match player.role with
-              | Player p -> Player { p with phase }
-              | Observer _ -> player.role
-            in
-            { player with role }
-          )
-      in
-      { room with users }
+      let positions_this_round t =
+        let winners, _, losers =
+          Map.fold t.hands
+            ~init:(Username.Map.empty, Market.Size.zero, Username.Map.empty)
+            ~f:(fun ~key:username ~data:hand (winners, winning_amount, losers) ->
+                let gold = Card.Hand.get hand ~suit:t.gold in
+                match Ordering.of_int (Market.Size.compare gold winning_amount) with
+                | Greater ->
+                  ( Username.Map.singleton username hand
+                  , gold
+                  , Map.merge winners losers ~f:(fun ~key:_ -> function
+                        | `Left x | `Right x -> Some x
+                        | `Both (_, _) -> assert false)
+                  )
+                | Equal ->
+                  ( Map.add winners ~key:username ~data:hand
+                  , gold
+                  , losers
+                  )
+                | Less ->
+                  ( winners
+                  , winning_amount
+                  , Map.add losers ~key:username ~data:hand
+                  )
+              )
+        in
+        let total_gold_cards =
+          let open Market.Size.O in
+          let sum_map =
+            Map.fold ~init:zero ~f:(fun ~key:_ ~data:hand acc ->
+                acc + Card.Hand.get hand ~suit:t.gold
+              )
+          in
+          sum_map winners + sum_map losers
+        in
+        let pot_size =
+          Market.O.(Price.(
+              Params.pot - total_gold_cards *$ Params.gold_card_value
+            ))
+        in
+        let pot_per_winner =
+          Market.Price.O.(pot_size / Map.length winners)
+        in
+        Map.merge winners losers
+          ~f:(fun ~key:_ merge ->
+              let is_winner, hand =
+                match merge with
+                | `Left hand -> true, hand
+                | `Right hand -> false, hand
+                | `Both (_, _) -> assert false
+              in
+              let num_gold_cards = Card.Hand.get hand ~suit:t.gold in
+              let score_from_gold_cards =
+                Market.O.(num_gold_cards *$ Params.gold_card_value)
+              in
+              let score_from_pot =
+                if is_winner then pot_per_winner else Market.Price.zero
+              in
+              let cash =
+                Market.Price.O.(score_from_gold_cards + score_from_pot)
+              in
+              Some { Market.Positions.cash; stuff = hand }
+            )
+    end
+
+    type t =
+      | Start_round
+      | Player_event of { username : Username.t; event : User_event.t }
+      | Exec of Market.Exec.t
+      | Round_over of Round_results.t
+    [@@deriving bin_io, sexp]
 
     let apply_player_update room ~username ~(event : User_event.t) =
       let users =
@@ -184,20 +242,10 @@ module Room = struct
             | Observer_started_playing { in_seat = _ } ->
               set_role (Player
                   { score = Market.Price.zero
-                  ; hand = Partial_hand.starting
+                  ; hand = Partial_hand.empty
                   ; phase = Waiting { is_ready = false }
                   }
                 )
-            | Player_score score ->
-              begin match role with
-              | Player p -> set_role (Player { p with score })
-              | Observer _ -> unchanged
-              end
-            | Player_hand hand ->
-              begin match role with
-              | Player p -> set_role (Player { p with hand })
-              | Observer _ -> unchanged
-              end
             | Player_ready is_ready ->
               begin match role with
               | Player ({ phase = Waiting _; _ } as p) ->
@@ -209,22 +257,105 @@ module Room = struct
             end
         )
       in
-      { users
-      ; seating =
-          match event with
-          | Observer_started_playing { in_seat } ->
-            Map.add room.seating ~key:in_seat ~data:username
-          | _ -> room.seating
-      }
+      let seating =
+        match event with
+        | Observer_started_playing { in_seat } ->
+          Map.add room.seating ~key:in_seat ~data:username
+        | _ -> room.seating
+      in
+      { room with users; seating }
 
     let apply update room =
       match update with
-      | Start_waiting ->
-        set_phases room ~phase:(Waiting { is_ready = false })
-      | Start_playing ->
-        set_phases room ~phase:Playing
+      | Start_round ->
+        let users =
+          Map.map (users room) ~f:(fun player ->
+              let role : User.Role.t =
+                match player.role with
+                | Player p ->
+                  let hand = Partial_hand.starting in
+                  let score =
+                    Market.Price.O.(p.score - Params.pot_per_player)
+                  in
+                  Player { phase = Playing; hand; score }
+                | Observer _ -> player.role
+              in
+              { player with role }
+            )
+        in
+        { room with users; gold = None }
       | Player_event { username; event } ->
         apply_player_update room ~username ~event
+      | Exec exec ->
+        let adjust_for_posted_sell =
+          let do_nothing _username hand = hand in
+          match exec.posted with
+          | None -> do_nothing
+          | Some posted ->
+            Market.Dir.fold posted.dir
+              ~buy:do_nothing
+              ~sell:(fun username hand ->
+                  if Username.equal posted.owner username then (
+                    Partial_hand.selling hand
+                      ~suit:posted.symbol ~size:posted.size
+                  ) else (
+                    hand
+                  )
+                )
+        in
+        let users =
+          Map.merge
+            (users room)
+            (Market.Exec.position_effect exec)
+            ~f:(fun ~key:_ ->
+                function
+                | `Left user ->
+                  Some (user, Market.Positions.zero)
+                | `Both (user, pos) ->
+                  Some (user, pos)
+                | `Right _pos ->
+                  None
+              )
+          |> Map.map ~f:(fun ((user : User.t), (pos : Market.Positions.t)) ->
+              match user.role with
+              | Observer _ -> user
+              | Player p ->
+                let score = Market.Price.O.(p.score + pos.cash) in
+                let hand =
+                  Partial_hand.apply_positions_diff
+                    p.hand
+                    ~diff:pos.stuff
+                  |> adjust_for_posted_sell user.username
+                in
+                { user with role = Player { p with score; hand } }
+            )
+        in
+        { room with users }
+      | Round_over results ->
+        let users =
+          Map.merge
+            (users room)
+            (Round_results.positions_this_round results)
+            ~f:(fun ~key:_ ->
+              function
+              | `Left user -> Some user
+              | `Right _ -> None
+              | `Both (user, pos) ->
+                let role : User.Role.t =
+                  match user.role with
+                  | Player p ->
+                    let phase : User.Player.Data.Phase.t =
+                      Waiting { is_ready = false }
+                    in
+                    let hand = Partial_hand.create_known pos.stuff in
+                    let score = Market.Price.O.(p.score + pos.cash) in
+                    Player { hand; score; phase }
+                  | Observer _ -> user.role
+                in
+                Some { user with role }
+            )
+        in
+        { room with users; gold = Some results.gold }
   end
 end
 

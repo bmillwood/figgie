@@ -198,7 +198,7 @@ let somebody ~is_me ~all_scores ~gold ~inject (player : Player.t) =
     ] |> List.concat
   )
 
-let view () ~inject ~room ~my_name ~gold =
+let view () ~inject ~room ~my_hand ~my_name ~gold =
   let seating = people_in_places ~my_name ~room in
   let all_scores = List.map (Map.data seating) ~f:(fun p -> p.role.score) in
   let in_position pos =
@@ -218,6 +218,11 @@ let view () ~inject ~room ~my_name ~gold =
           nobody ~sit_here
         | Some player ->
           let is_me = Username.equal my_name player.username in
+          let player =
+            if is_me
+            then { player with role = { player.role with hand = my_hand } }
+            else player
+          in
           somebody ~is_me ~all_scores ~gold ~inject player
       ]
   in

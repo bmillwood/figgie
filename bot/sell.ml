@@ -92,10 +92,10 @@ let command =
         end
       in
       Pipe.iter (Bot.updates t) ~f:(function
-        | Broadcast (Round_over _) ->
+        | Broadcast (Room_update (Round_over _)) ->
           reset_sell_prices ();
           Deferred.unit
-        | Broadcast (Exec exec) ->
+        | Broadcast (Room_update (Exec exec)) ->
           let order = exec.order in
           if Username.equal order.owner username
           then handle_my_filled_order ~suit:order.symbol exec

@@ -72,17 +72,12 @@ let max_loss_per_sell t ~symbol ~size =
     )
 
 let total_num_cards_seen t =
-  match Bot.room_with_my_hand t with
+  match Bot.players t with
   | None -> Hand.create_all Size.zero
-  | Some room ->
+  | Some players ->
     let hands =
-      Lobby.Room.users room
-      |> Map.filter_map ~f:(fun (user : Lobby.User.t) ->
-          match user.role with
-          | Player p -> Some p.hand
-          | Observer _ -> None
-        )
-      |> Map.data
+      Map.data players
+      |> List.map ~f:(fun p -> p.role.hand)
     in
     Hand.init ~f:(fun suit ->
         List.sum (module Size) hands ~f:(fun hand ->
@@ -105,7 +100,7 @@ let ps_gold t =
   let p_counts = likelihoods () in
   if p_counts =. 0. then (
     raise_s [%message "these counts seem impossible"
-      (Bot.room_with_my_hand t : Lobby.Room.t option)
+      (Bot.players t : Lobby.User.Player.t Username.Map.t option)
       (counts : Size.t Hand.t)
     ]
   );
@@ -122,7 +117,7 @@ let command =
     (fun t ~config:() ->
       let username = Bot.username t in
       Pipe.iter (Bot.updates t) ~f:(function
-        | Broadcast (Exec exec) ->
+        | Broadcast (Room_update (Exec exec)) ->
           let order = exec.order in
           begin if Username.equal order.owner username
           then

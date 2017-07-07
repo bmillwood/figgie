@@ -41,7 +41,7 @@ let sellable_hand t =
   | None -> Card.Hand.create_all Size.zero
   | Some hif -> Card.Hand.map hif ~f:(Dirpair.get ~dir:Sell)
 
-let room_with_my_hand t = State.room_with_my_hand t.state
+let players t = State.players t.state
 
 module Staged_order = struct
   type t = Order.t
@@ -110,7 +110,7 @@ let run ~server ~config ~username ~room_choice ~auto_ready ~f =
       let handle_update (update : Protocol.Game_update.t) =
         State.handle_update state update;
         match update with
-        | Broadcast (Round_over _) ->
+        | Broadcast (Room_update (Round_over _)) ->
           don't_wait_for (ready_if_auto ())
         | _ -> ()
       in

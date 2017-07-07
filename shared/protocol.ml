@@ -34,20 +34,11 @@ module Get_lobby_updates = struct
       ()
 end
 
-module Round_results = struct
-  type t = {
-    gold : Card.Suit.t;
-    positions_this_round : Market.Positions.t Username.Map.t;
-  } [@@deriving bin_io, sexp]
-end
-
 module Broadcast = struct
   type t =
     | Room_update of Lobby.Room.Update.t
     | Chat of Username.t * string
-    | Exec of Market.Exec.t
     | Out of Market.Order.t
-    | Round_over of Round_results.t
     [@@deriving bin_io, sexp]
 end
 

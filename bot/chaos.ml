@@ -100,10 +100,10 @@ let command =
           chaos_loop t ~config ~lasts
         );
         Pipe.iter (Bot.updates t) ~f:(function
-          | Broadcast (Round_over _results) ->
+          | Broadcast (Room_update (Round_over _results)) ->
             Card.Hand.iter lasts ~f:(fun r -> r := Price.of_int 5);
             Deferred.unit
-          | Broadcast (Exec exec) ->
+          | Broadcast (Room_update (Exec exec)) ->
             let fills = Exec.fills exec in
             if not (List.is_empty fills) then (
               let last = Card.Hand.get lasts ~suit:exec.order.symbol in

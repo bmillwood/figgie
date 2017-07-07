@@ -22,7 +22,7 @@ module Message = struct
         }
     | Joined_room of Lobby.Room.Id.t
     | New_round
-    | Round_over of Protocol.Round_results.t
+    | Round_over of Lobby.Room.Update.Round_results.t
     | Order_reject of Order.t * Protocol.Order.error
     | Cancel_reject of [ `All | `Id of Order.Id.t ] * Protocol.Cancel.error
     [@@deriving sexp_of]
@@ -87,7 +87,7 @@ let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
           Some ("sees all things", " in ")
         | Observer_started_playing { in_seat = _ } ->
           Some ("is playing", " in ")
-        | Player_score _ | Player_hand _ | Player_ready _ ->
+        | Player_ready _ ->
           None
         | Disconnected ->
           Some ("disconnected", " from ")

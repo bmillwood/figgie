@@ -52,4 +52,4 @@ val create : config:Config.t -> t
 
 val start_round : t -> room:Lobby.Room.t -> Round.t
 
-val end_round : t -> Round.t -> Protocol.Round_results.t
+val end_round : t -> Round.t -> Lobby.Room.Update.Round_results.t

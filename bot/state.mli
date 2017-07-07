@@ -22,4 +22,4 @@ val unacked_orders : t -> Order.t list
 val open_orders    : t -> Order.t list Dirpair.t Per_symbol.t
 
 val hand_if_no_fills  : t -> Size.t Card.Hand.t option
-val room_with_my_hand : t -> Lobby.Room.t option
+val players : t -> Lobby.User.Player.t Username.Map.t option

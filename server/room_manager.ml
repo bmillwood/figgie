@@ -57,7 +57,7 @@ let start_playing t ~username ~(in_seat : Protocol.Start_playing.query) =
        });
   in_seat
 
-let tell_player_their_hand t round ~username =
+let tell_player_their_hand t ~round ~username =
   Result.iter (Game.Round.get_hand round ~username) ~f:(fun hand ->
       Updates_manager.update t.room_updates ~username (Hand hand)
     )
@@ -72,10 +72,10 @@ let player_join t ~username =
   | Waiting_for_players -> ()
   | Playing round ->
     Updates_manager.updates t.room_updates ~username
-      [ Broadcast (Room_update Start_playing)
+      [ Broadcast (Room_update Start_round)
       ; Market (Game.Round.market round)
       ];
-    tell_player_their_hand t round ~username
+    tell_player_their_hand t ~round ~username
   end;
   updates_r
 
@@ -85,24 +85,7 @@ let chat t ~username msg =
 
 let end_round t (round : Game.Round.t) =
   let results = Game.end_round t.game round in
-  Updates_manager.broadcast t.room_updates
-    (Broadcast (Round_over results));
-  apply_room_update t Start_waiting;
-  Map.iter2 (Lobby.Room.players t.room) results.positions_this_round
-    ~f:(fun ~key:_ ~data:merge ->
-        match merge with
-        | `Left _ | `Right _ -> ()
-        | `Both (player, this_round) ->
-          let hand = Partial_hand.create_known this_round.stuff in
-          let username = player.username in
-          apply_room_update t
-            (Player_event { username; event = Player_hand hand });
-          let score =
-            Market.Price.O.(player.role.score + this_round.cash)
-          in
-          apply_room_update t
-            (Player_event { username; event = Player_score score });
-      )
+  apply_room_update t (Round_over results)
 
 let setup_round t (round : Game.Round.t) =
   don't_wait_for begin
@@ -110,19 +93,9 @@ let setup_round t (round : Game.Round.t) =
     >>| fun () ->
     end_round t round
   end;
-  apply_room_update t Start_playing;
-  Map.iteri (Lobby.Room.players t.room) ~f:(fun ~key:username ~data:player ->
-      let unknown_hand =
-        Partial_hand.create_unknown Params.num_cards_per_hand
-      in
-      apply_room_update t
-        (Player_event { username; event = Player_hand unknown_hand });
-      tell_player_their_hand t round ~username;
-      let score =
-        Market.Price.O.(player.role.score - Params.pot_per_player)
-      in
-      apply_room_update t
-        (Player_event { username; event = Player_score score })
+  apply_room_update t Start_round;
+  Map.iter_keys (Lobby.Room.players t.room) ~f:(fun username ->
+      tell_player_their_hand t ~round ~username
     )
 
 let player_ready t ~username ~is_ready =
@@ -217,62 +190,7 @@ let rpc_implementations =
         match Game.Round.add_order round ~order ~sender:username with
         | (Error _) as e -> return e
         | Ok exec ->
-          Updates_manager.broadcast room.room_updates (Broadcast (Exec exec));
-          let adjust_for_posted_sell =
-            let do_nothing _username _hand = None in
-            match exec.posted with
-            | None -> do_nothing
-            | Some posted ->
-              Market.Dir.fold posted.dir
-                ~buy:do_nothing
-                ~sell:(fun username hand ->
-                    if Username.equal posted.owner username then (
-                      Some (
-                        Partial_hand.selling hand
-                          ~suit:posted.symbol ~size:posted.size
-                      )
-                    ) else (
-                      None
-                    )
-                  )
-          in
-          let updates =
-            Map.merge
-              (Lobby.Room.players room.room)
-              (Market.Exec.position_effect exec)
-              ~f:(fun ~key:_ ->
-                  let open Lobby.Room.Update.User_event in
-                  function
-                  | `Left user ->
-                    Option.map
-                      (adjust_for_posted_sell user.username user.role.hand)
-                      ~f:(fun new_hand -> [Player_hand new_hand])
-                  | `Right _ -> assert false
-                  | `Both (user, pos_diff) ->
-                      let score =
-                        Market.Price.O.(user.role.score + pos_diff.cash)
-                      in
-                      let hand =
-                        Partial_hand.apply_positions_diff user.role.hand
-                          ~diff:pos_diff.stuff
-                      in
-                      let hand =
-                        Option.value ~default:hand
-                          (adjust_for_posted_sell user.username hand)
-                      in
-                      Some
-                        [ Player_score score
-                        ; Player_hand hand
-                        ]
-                )
-            |> Map.to_alist
-            |> List.concat_map ~f:(fun (username, events) ->
-                List.map events ~f:(fun event ->
-                    Lobby.Room.Update.Player_event { username; event }
-                  )
-              )
-          in
-          List.iter updates ~f:(apply_room_update room);
+          apply_room_update room (Exec exec);
           return (Ok `Ack)
       )
   ; during_game Protocol.Cancel.rpc

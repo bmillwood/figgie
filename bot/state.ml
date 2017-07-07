@@ -178,33 +178,32 @@ let handle_exec t ~(exec : Exec.t) =
 
 let handle_update t : Protocol.Game_update.t -> unit =
   function
-  | Broadcast (Round_over _) ->
-    reset t
-  | Broadcast (Exec exec) ->
-    handle_exec t ~exec
   | Broadcast (Out order) ->
     handle_out t ~order
   | Room_snapshot room ->
     t.room <- Some room
   | Broadcast (Room_update update) ->
-    t.room <- Option.map t.room ~f:(Lobby.Room.Update.apply update)
+    t.room <- Option.map t.room ~f:(Lobby.Room.Update.apply update);
+    begin match update with
+    | Round_over _ -> reset t
+    | Exec exec ->
+      handle_exec t ~exec
+    | _ -> ()
+    end
   | Hand hand ->
     t.hand <- Some hand
   | _ -> ()
 
-let room_with_my_hand t =
+let players t =
   Option.map t.room ~f:(fun room ->
-      let with_my_hand room =
-        match t.hand with
-        | None -> room
-        | Some hand ->
-          Lobby.Room.Update.apply
-            (Player_event
-               { username = t.username
-               ; event = Player_hand (Partial_hand.create_known hand)
-               }
-            )
-            room
-      in
-      with_my_hand room
+      let players = Lobby.Room.players room in
+      match t.hand with
+      | None -> players
+      | Some hand ->
+        Map.change players t.username
+          ~f:(Option.map ~f:(fun (player : Lobby.User.Player.t) ->
+              let hand = Partial_hand.create_known hand in
+              let role = { player.role with hand } in
+              { player with role }
+            ))
     )

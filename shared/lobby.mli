@@ -84,17 +84,23 @@ module Room : sig
         | Joined
         | Observer_became_omniscient
         | Observer_started_playing of { in_seat : Seat.t }
-        | Player_score of Market.Price.t
-        | Player_hand  of Partial_hand.t
         | Player_ready of bool
         | Disconnected
       [@@deriving bin_io, sexp]
     end
 
+    module Round_results : sig
+      type t =
+        { gold : Card.Suit.t
+        ; hands : Market.Size.t Card.Hand.t Username.Map.t
+        } [@@deriving sexp_of]
+    end
+
     type t =
-      | Start_waiting
-      | Start_playing
+      | Start_round
       | Player_event of { username : Username.t; event : User_event.t }
+      | Exec of Market.Exec.t
+      | Round_over of Round_results.t
     [@@deriving bin_io, sexp]
 
     val apply : t -> room -> room

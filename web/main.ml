@@ -229,29 +229,11 @@ module App = struct
       | Market market ->
         let exchange = Exchange.set_market in_room.exchange ~market in
         { in_room with exchange }
-      | Broadcast (Exec exec) ->
-        don't_wait_for begin
-          let%map () =
-            Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
-            >>| Protocol.playing_exn
-          and () =
-            Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Hand
-            >>| Protocol.playing_exn
-          in
-          ()
-        end;
-        let exchange = Exchange.exec in_room.exchange ~my_name ~exec in
-        { in_room with exchange }
       | Broadcast (Room_update update) ->
         let room = Lobby.Room.Update.apply update in_room.room in
         let in_room = { in_room with room } in
         begin match update with
-        | Player_event { username; event } ->
-          schedule (Add_message (Player_room_event
-            { username; room_id = None; event }
-          ));
-          in_room
-        | Start_playing ->
+        | Start_round ->
           schedule (Add_message New_round);
           don't_wait_for begin
             (* Sample the time *before* we send the RPC. Then the game end
@@ -268,11 +250,28 @@ module App = struct
           let exchange = Exchange.Model.empty in
           let playing = Playing.Model.initial in
           { in_room with exchange; game = Playing playing }
-        | Start_waiting -> in_room
+        | Player_event { username; event } ->
+          schedule (Add_message (Player_room_event
+            { username; room_id = None; event }
+          ));
+          in_room
+        | Round_over results ->
+          schedule (Add_message (Round_over results));
+          { in_room with game = Waiting { last_gold = Some results.gold } }
+        | Exec exec ->
+          don't_wait_for begin
+            let%map () =
+              Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
+              >>| Protocol.playing_exn
+            and () =
+              Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Hand
+              >>| Protocol.playing_exn
+            in
+            ()
+          end;
+          let exchange = Exchange.exec in_room.exchange ~my_name ~exec in
+          { in_room with exchange }
         end
-      | Broadcast (Round_over results) ->
-        schedule (Add_message (Round_over results));
-        { in_room with game = Waiting { last_gold = Some results.gold } }
       | Broadcast (Chat (username, msg)) ->
         let is_me = Username.equal username my_name in
         just_schedule (Add_message (Chat { username; is_me; msg }))
@@ -568,12 +567,6 @@ module App = struct
             )
         ] |> view
       | In_room { exchange; game; room; my_hand; user_info; _ } ->
-        let room =
-          Lobby.Room.Update.apply
-            (Player_event
-               { username = my_name; event = Player_hand my_hand })
-            room
-        in
         let can_send_orders, gold =
           match game with
           | Playing _ -> (true, None)
@@ -589,6 +582,7 @@ module App = struct
             user_info
             ~inject:(fun uiact -> inject (Action.in_room (User_info uiact)))
             ~room
+            ~my_hand
             ~my_name
             ~gold
         ] |> view

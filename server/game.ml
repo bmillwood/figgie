@@ -21,7 +21,6 @@ end
 module Player = struct
   type t = {
     username : Username.t;
-    mutable chips : Market.Price.t;
   } [@@deriving sexp]
 end
 
@@ -60,68 +59,10 @@ module Round = struct
 
   let market t = t.market
 
-  let results t =
-    let winners, _, losers =
-      Map.fold t.players
-        ~init:(Username.Map.empty, Market.Size.zero, Username.Map.empty)
-        ~f:(fun ~key:username ~data:player (winners, winning_amount, losers) ->
-          let hand = player.hand in
-          let gold = Card.Hand.get hand ~suit:t.gold in
-          match Ordering.of_int (Market.Size.compare gold winning_amount) with
-          | Greater ->
-            ( Username.Map.singleton username hand
-            , gold
-            , Map.merge winners losers ~f:(fun ~key:_ -> function
-                  | `Left x | `Right x -> Some x
-                  | `Both (_, _) -> assert false)
-            )
-          | Equal ->
-            ( Map.add winners ~key:username ~data:hand
-            , gold
-            , losers
-            )
-          | Less -> (winners, winning_amount, Map.add losers ~key:username ~data:hand))
-    in
-    let total_gold_cards =
-      let open Market.Size.O in
-      let sum_map =
-        Map.fold ~init:zero ~f:(fun ~key:_ ~data:hand acc ->
-            acc + Card.Hand.get hand ~suit:t.gold
-          )
-      in
-      sum_map winners + sum_map losers
-    in
-    let pot_size =
-      Market.O.(Price.(
-          Params.pot - total_gold_cards *$ Params.gold_card_value
-        ))
-    in
-    let pot_per_winner =
-      Market.Price.O.(pot_size / Map.length winners)
-    in
-    let positions_this_round =
-      Map.merge winners losers
-        ~f:(fun ~key:_ merge ->
-            let is_winner, hand =
-              match merge with
-              | `Left hand -> true, hand
-              | `Right hand -> false, hand
-              | `Both (_, _) -> assert false
-            in
-            let num_gold_cards = Card.Hand.get hand ~suit:t.gold in
-            let score_from_gold_cards =
-              Market.O.(num_gold_cards *$ Params.gold_card_value)
-            in
-            let score_from_pot =
-              if is_winner then pot_per_winner else Market.Price.zero
-            in
-            let cash =
-              Market.Price.O.(score_from_gold_cards + score_from_pot)
-            in
-            Some { Market.Positions.cash; stuff = hand }
-          )
-    in
-    { Protocol.Round_results.gold = t.gold; positions_this_round }
+  let results t : Lobby.Room.Update.Round_results.t =
+    { gold = t.gold
+    ; hands = Map.map t.players ~f:(fun p -> p.hand)
+    }
 
   let start ~(config : Config.t) ~players =
     let num_players = Map.length players in
@@ -159,7 +100,6 @@ module Round = struct
       List.map2_exn (Map.data players) (Array.to_list hands) ~f:(fun p hand ->
         let player = Player.create p in
         player.hand <- hand;
-        p.chips <- Market.Price.O.(p.chips - Params.pot_per_player);
         p.username, player)
       |> Username.Map.of_alist_exn
     in
@@ -205,15 +145,8 @@ module Round = struct
           ~buy:Fn.id ~sell:Market.Size.neg
           executed_order.size
       in
-      let cashflow_for_owner =
-        Market.Dir.fold executed_order.dir
-          ~buy:Market.Price.neg ~sell:Fn.id
-          Market.O.(executed_order.size *$ executed_order.price)
-      in
       add_cards ~player:owner  size_for_owner;
       add_cards ~player:sender (Market.Size.neg size_for_owner);
-      owner.p.chips  <- Market.Price.O.(owner.p.chips  + cashflow_for_owner);
-      sender.p.chips <- Market.Price.O.(sender.p.chips - cashflow_for_owner)
     in
     List.iter exec.fully_filled ~f:(fun executed_order ->
       let owner = Map.find_exn t.players executed_order.owner in
@@ -299,7 +232,7 @@ let create ~config =
 let start_round t ~room =
   let round_players =
     Map.map (Lobby.Room.players room) ~f:(fun player ->
-        { Player.username = player.username; chips = player.role.score }
+        { Player.username = player.username }
       )
   in
   let round = Round.start ~config:t.config ~players:round_players in
