@@ -43,7 +43,7 @@ module Waiting = struct
 
   let waiting_for t =
     let waiting_for_connects =
-      Int.max 0 (Lobby.max_players_per_room - Hashtbl.length t.players)
+      Int.max 0 (Params.num_players - Hashtbl.length t.players)
     in
     let waiting_for_readies = Hashtbl.count t.players ~f:(fun p -> not p.is_ready) in
     waiting_for_connects + waiting_for_readies
@@ -82,7 +82,6 @@ module Round = struct
 
   type t = {
     players : Player.t Username.Map.t;
-    pot : Market.Price.t;
     mutable market : Market.Book.t;
     gold : Card.Suit.t;
     end_time : Time_ns.t;
@@ -115,7 +114,9 @@ module Round = struct
       sum_map winners + sum_map losers
     in
     let pot_size =
-      Market.O.(Price.(t.pot - total_gold_cards *$ Params.gold_card_value))
+      Market.O.(Price.(
+          Params.pot - total_gold_cards *$ Params.gold_card_value
+        ))
     in
     let pot_per_winner =
       Market.Price.O.(pot_size / Map.length winners)
@@ -161,21 +162,18 @@ module Round = struct
       done;
       Array.map hands ~f:(Hand.map ~f:(fun r -> !r)), Suit.opposite long
     in
-    let to_pot = Params.pot_per_player in
-    let pot = ref Market.Price.zero in
     let players =
       List.map2_exn (Map.data players) (Array.to_list hands) ~f:(fun p hand ->
         let player = Player.create p in
         player.hand <- hand;
-        p.chips <- Market.Price.O.(p.chips - to_pot);
-        pot := Market.Price.O.(!pot + to_pot);
+        p.chips <- Market.Price.O.(p.chips - Params.pot_per_player);
         p.username, player)
       |> Username.Map.of_alist_exn
     in
     (* Note we don't actually schedule anything to happen at this time.
        That's done by the server, for reasons. *)
     let end_time = Time_ns.(add (now ()) config.length_of_round) in
-    { players; pot = !pot; market = Market.Book.empty; gold; end_time }
+    { players; market = Market.Book.empty; gold; end_time }
 
   let add_player_order t
     ~order:(sent_order : Market.Order.t)
@@ -309,7 +307,7 @@ let player_join t ~username =
   match t.phase with
   | Playing _ -> Error `Game_already_started
   | Waiting_for_players waiting ->
-    if Hashtbl.length waiting.players >= Lobby.max_players_per_room
+    if Hashtbl.length waiting.players >= Params.num_players
     then Error `Seat_occupied
     else begin
       let player =

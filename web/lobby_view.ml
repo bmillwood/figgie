@@ -36,7 +36,7 @@ let player_list ~(players : Lobby.User.Player.t Username.Map.t) =
   let players = Map.data players in
   let all_scores = List.map players ~f:(fun p -> p.role.score) in
   [ List.map players ~f:(fun p -> player_row p ~all_scores)
-  ; List.init (Int.max 0 (Lobby.max_players_per_room - num_players))
+  ; List.init (Int.max 0 (Params.num_players - num_players))
       ~f:(fun _ -> no_player_row)
   ] |> List.concat
   |> Node.ul [Attr.class_ "names"]

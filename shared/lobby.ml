@@ -1,7 +1,5 @@
 open Core_kernel.Std
 
-let max_players_per_room = 4
-
 module User = struct
   module Gen = struct
     type 'role t =
@@ -106,7 +104,7 @@ module Room = struct
   let has_user   t ~username = Map.mem (users t)   username
   let has_player t ~username = Map.mem (players t) username
 
-  let is_full t = Map.length t.seating >= max_players_per_room
+  let is_full t = Map.length t.seating >= Params.num_players
 
   let is_empty t = Map.is_empty t.users
 

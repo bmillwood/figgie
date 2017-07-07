@@ -1,7 +1,5 @@
 open Core_kernel.Std
 
-val max_players_per_room : int
-
 module User : sig
   module Gen : sig
     type 'role t =
