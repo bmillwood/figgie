@@ -332,7 +332,7 @@ let end_round t (round : Round.t) =
 
 let set_ready t ~username ~is_ready =
   match t.phase with
-  | Playing _ -> Error `Game_already_in_progress
+  | Playing _ -> Error `Game_already_started
   | Waiting_for_players waiting ->
     Waiting.set_ready waiting ~username ~is_ready
     >>= fun () ->

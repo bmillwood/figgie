@@ -28,7 +28,7 @@ let apply_action action () ~conn =
       >>| function
       | Ok ()
       | Error
-          ( `Game_already_in_progress
+          ( `Game_already_started
           | `You're_not_playing
           | `Not_logged_in
           | `Not_in_a_room

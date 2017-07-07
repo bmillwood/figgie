@@ -136,7 +136,7 @@ module Is_ready = struct
     ( unit
     , [ not_in_a_room
       | `You're_not_playing
-      | `Game_already_in_progress
+      | `Game_already_started
       ]
     ) Result.t
     [@@deriving bin_io, sexp]

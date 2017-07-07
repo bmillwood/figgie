@@ -149,7 +149,7 @@ let player_disconnected t ~username =
     end
   | Waiting_for_players _ ->
     begin match player_ready t ~username ~is_ready:false with
-    | Error (`Game_already_in_progress | `You're_not_playing)
+    | Error (`Game_already_started | `You're_not_playing)
     | Ok () -> ()
     end
   end;
@@ -176,7 +176,7 @@ let rpc_implementations =
       )
   ; implement Protocol.Is_ready.rpc (fun ~room ~username is_ready ->
         match player_ready room ~username ~is_ready with
-        | Error (`Game_already_in_progress | `You're_not_playing as e) ->
+        | Error (`Game_already_started | `You're_not_playing as e) ->
           return (Error e)
         | Ok r -> return (Ok r)
       )

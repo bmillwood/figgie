@@ -66,7 +66,7 @@ val set_ready
   -> username:Username.t
   -> is_ready:bool
   -> ( [ `Started of Round.t | `Still_waiting ]
-     , [ `You're_not_playing | `Game_already_in_progress ]
+     , [ `You're_not_playing | `Game_already_started ]
      ) Result.t
 
 val end_round : t -> Round.t -> Protocol.Round_results.t
