@@ -103,12 +103,14 @@ div#userinfo .me {
 }
 div.userinfo .name {
     padding: 0 0.5em;
-    font-size: 0.8em;
 }
 div.userinfo .name.disconnected {
     text-decoration: line-through;
 }
 div.userinfo .score {
     float: right;
-    font-size: 0.8em;
+}
+div#userinfo .observers {
+    margin: 0.1em 4em;
+    text-align: left;
 }

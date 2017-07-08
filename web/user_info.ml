@@ -198,6 +198,36 @@ let somebody ~is_me ~all_scores ~gold ~inject (player : Player.t) =
     ] |> List.concat
   )
 
+let observer_row ~my_name ~room =
+  let observers =
+    Map.data (Lobby.Room.users room)
+    |> List.filter_map ~f:(fun user ->
+        match Lobby.User.role user with
+        | Player _ -> None
+        | Observer o -> Some { user with role = o }
+      )
+  in
+  let keep_trues =
+    List.filter_map ~f:(fun (cond, x) -> Option.some_if cond x)
+  in
+  let observer_spans =
+    List.concat_map observers ~f:(fun o ->
+        let attrs =
+          keep_trues
+            [ not o.is_connected, Attr.class_ "disconnected"
+            ; o.role.is_omniscient,    Attr.class_ "omniscient"
+            ]
+        in
+        let is_me = Username.equal o.username my_name in
+        [ Node.text " "
+        ; Hash_colour.username_span ~attrs ~is_me o.username
+        ]
+      )
+  in
+  Node.div
+    [ Attr.class_ "observers" ]
+    (Icon.observer :: observer_spans)
+
 let view () ~inject ~room ~my_hand ~my_name ~gold =
   let seating = people_in_places ~my_name ~room in
   let all_scores = List.map (Map.data seating) ~f:(fun p -> p.role.score) in
@@ -233,4 +263,5 @@ let view () ~inject ~room ~my_hand ~my_name ~gold =
         ; in_position Right
         ]
     ; in_position Near
+    ; observer_row ~my_name ~room
     ]

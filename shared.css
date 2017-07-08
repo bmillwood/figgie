@@ -49,8 +49,7 @@ button:hover {
 
 div#historycmd {
     width: 40em;
-    display: inline-block;
-    vertical-align: top;
+    margin: auto;
     text-align: left;
 }
 ul#history {
@@ -82,3 +81,10 @@ input#cmdline:disabled {
 .second { background-color: silver; color: black; }
 .third  { background-color: brown;  color: black; }
 .last   { background-color: red;    color: white; }
+
+.observers {
+    font-size: small;
+}
+.omniscient {
+    font-weight: bold;
+}

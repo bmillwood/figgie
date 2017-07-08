@@ -52,11 +52,3 @@ div.room input.roomName {
     padding: 0 0.2em;
     background-color: #448;
 }
-div.room div.observers {
-    width: 7em;
-    font-size: small;
-    color: grey;
-}
-div.room .omniscient {
-    font-weight: bold;
-}
