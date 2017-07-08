@@ -6,7 +6,8 @@ open Figgie
 type t =
   { id : Lobby.Room.Id.t
   ; mutable room : Lobby.Room.t
-  ; game : Game.t
+  ; game_config : Game.Config.t
+  ; mutable game : Game.t option
   ; lobby_updates : Protocol.Lobby_update.t Updates_manager.t
   ; room_updates  : Protocol.Game_update.t  Updates_manager.t
   }
@@ -14,7 +15,8 @@ type t =
 let create ~game_config ~id ~lobby_updates =
   { id
   ; room = Lobby.Room.empty
-  ; game = Game.create ~config:game_config
+  ; game_config
+  ; game = None
   ; lobby_updates
   ; room_updates = Updates_manager.create ()
   }
@@ -58,7 +60,7 @@ let start_playing t ~username ~(in_seat : Protocol.Start_playing.query) =
   in_seat
 
 let tell_player_their_hand t ~round ~username =
-  Result.iter (Game.Round.get_hand round ~username) ~f:(fun hand ->
+  Result.iter (Game.get_hand round ~username) ~f:(fun hand ->
       Updates_manager.update t.room_updates ~username (Hand hand)
     )
 
@@ -68,28 +70,28 @@ let player_join t ~username =
   apply_room_update t (Player_event { username; event = Joined });
   Updates_manager.update t.room_updates ~username
     (Room_snapshot (room_snapshot t));
-  begin match Game.phase t.game with
-  | Waiting_for_players -> ()
-  | Playing round ->
-    Updates_manager.updates t.room_updates ~username
-      [ Broadcast (Room_update Start_round)
-      ; Market (Game.Round.market round)
-      ];
-    tell_player_their_hand t ~round ~username
-  end;
+  Option.iter t.game ~f:(fun round ->
+      Updates_manager.updates t.room_updates ~username
+        [ Broadcast (Room_update Start_round)
+        ; Market (Game.market round)
+        ];
+      tell_player_their_hand t ~round ~username
+    );
   updates_r
 
 let chat t ~username msg =
   Updates_manager.broadcast t.room_updates
     (Broadcast (Chat (username, msg)))
 
-let end_round t (round : Game.Round.t) =
-  let results = Game.end_round t.game round in
+let end_round t (round : Game.t) =
+  let results = Game.results round in
+  t.game <- None;
   apply_room_update t (Round_over results)
 
-let setup_round t (round : Game.Round.t) =
+let setup_round t (round : Game.t) =
+  t.game <- Some round;
   don't_wait_for begin
-    Clock_ns.at (Game.Round.end_time round)
+    Clock_ns.at (Game.end_time round)
     >>| fun () ->
     end_round t round
   end;
@@ -99,23 +101,23 @@ let setup_round t (round : Game.Round.t) =
     )
 
 let player_ready t ~username ~is_ready =
-  match Game.phase t.game with
-  | Playing _ -> Error `Game_already_started
-  | Waiting_for_players ->
+  if Option.is_some t.game then (
+    Error `Game_already_started
+  ) else (
     if Lobby.Room.has_player t.room ~username then (
       apply_room_update t
         (Player_event { username; event = Player_ready is_ready });
       if Lobby.Room.is_ready t.room then (
-        Game.start_round t.game ~room:t.room
-        |> setup_round t
+        setup_round t (Game.create ~config:t.game_config ~room:t.room)
       );
       Ok ()
     ) else (
       Error `You're_not_playing
     )
+  )
 
 let cancel_all_for_player t ~username ~round =
-  match Game.Round.cancel_orders round ~sender:username with
+  match Game.cancel_orders round ~sender:username with
   | Error `You're_not_playing as e -> e
   | Ok orders ->
     List.iter orders ~f:(fun order ->
@@ -124,12 +126,12 @@ let cancel_all_for_player t ~username ~round =
     Ok `Ack
 
 let player_disconnected t ~username =
-  begin match Game.phase t.game with
-  | Playing round ->
+  begin match t.game with
+  | Some round ->
     begin match cancel_all_for_player t ~username ~round with
     | Error `You're_not_playing | Ok `Ack -> ()
     end
-  | Waiting_for_players ->
+  | None ->
     begin match player_ready t ~username ~is_ready:false with
     | Error (`Game_already_started | `You're_not_playing)
     | Ok () -> ()
@@ -148,9 +150,9 @@ let rpc_implementations =
   in
   let during_game rpc f =
     implement rpc (fun ~room ~username query ->
-        match Game.phase room.game with
-        | Waiting_for_players -> return (Error `Game_not_in_progress)
-        | Playing round -> f ~username ~room ~round query
+        match room.game with
+        | None -> return (Error `Game_not_in_progress)
+        | Some round -> f ~username ~room ~round query
       )
   in
   [ implement Protocol.Start_playing.rpc (fun ~room ~username in_seat ->
@@ -165,7 +167,7 @@ let rpc_implementations =
   ; during_game Protocol.Time_remaining.rpc
       (fun ~username:_ ~room:_ ~round () ->
         let span =
-          Time_ns.diff (Game.Round.end_time round) (Time_ns.now ())
+          Time_ns.diff (Game.end_time round) (Time_ns.now ())
         in
         return (Ok span)
       )
@@ -173,7 +175,7 @@ let rpc_implementations =
       (fun ~username ~room ~round which ->
         match which with
         | Hand ->
-          begin match Game.Round.get_hand round ~username with
+          begin match Game.get_hand round ~username with
           | Error `You're_not_playing as e -> return e
           | Ok hand ->
               Updates_manager.update room.room_updates ~username
@@ -182,12 +184,12 @@ let rpc_implementations =
           end
         | Market ->
           Updates_manager.update room.room_updates ~username
-            (Market (Game.Round.market round));
+            (Market (Game.market round));
           return (Ok ())
       )
   ; during_game Protocol.Order.rpc
       (fun ~username ~room ~round order ->
-        match Game.Round.add_order round ~order ~sender:username with
+        match Game.add_order round ~order ~sender:username with
         | (Error _) as e -> return e
         | Ok exec ->
           apply_room_update room (Exec exec);
@@ -195,7 +197,7 @@ let rpc_implementations =
       )
   ; during_game Protocol.Cancel.rpc
       (fun ~username ~room ~round id ->
-        match Game.Round.cancel_order round ~id ~sender:username with
+        match Game.cancel_order round ~id ~sender:username with
         | (Error (`No_such_order | `You're_not_playing)) as e -> return e
         | Ok order ->
           Updates_manager.broadcast room.room_updates
