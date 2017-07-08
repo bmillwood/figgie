@@ -5,7 +5,10 @@ let default_async_rpc_port = 58828
 let default_websocket_port = 58829
 
 module Login = struct
-  type query = Username.t [@@deriving bin_io, sexp]
+  type query =
+    { username : Username.t
+    ; is_bot   : bool
+    } [@@deriving bin_io, sexp]
   type response =
     ( unit
     , [ `Invalid_username | `Already_logged_in ]

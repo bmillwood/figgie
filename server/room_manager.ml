@@ -64,11 +64,11 @@ let tell_player_their_hand t ~round ~username =
       Updates_manager.update t.room_updates ~username (Hand hand)
     )
 
-let player_join t ~username =
+let player_join t ~username ~is_bot =
   let updates_r, updates_w = Pipe.create () in
   Updates_manager.subscribe t.room_updates ~username ~updates:updates_w;
   apply_room_update t
-    (Player_event { username; event = Joined { is_bot = false } });
+    (Player_event { username; event = Joined { is_bot } });
   Updates_manager.update t.room_updates ~username
     (Room_snapshot (room_snapshot t));
   Option.iter t.game ~f:(fun round ->
@@ -140,13 +140,17 @@ let player_disconnected t ~username =
   end;
   apply_room_update t (Player_event { username; event = Disconnected })
 
+module Rpc_state = struct
+  type nonrec t = { room : t; username : Username.t }
+end
+
 let rpc_implementations =
   let implement rpc f =
     Rpc.Rpc.implement rpc (fun r q ->
         match r with
         | Error (`Not_logged_in | `Not_in_a_room as e) ->
           return (Error e)
-        | Ok (t, username) -> f ~room:t ~username q
+        | Ok { Rpc_state.room; username } -> f ~room ~username q
       )
   in
   let during_game rpc f =

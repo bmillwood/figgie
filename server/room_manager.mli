@@ -17,6 +17,7 @@ val is_empty      : t -> bool
 val player_join
   :  t
   -> username:Username.t
+  -> is_bot:bool
   -> Protocol.Game_update.t Pipe.Reader.t
 
 val chat : t -> username:Username.t -> string -> unit
@@ -29,6 +30,9 @@ val start_playing
   -> in_seat:Protocol.Start_playing.query
   -> Protocol.Start_playing.response
 
+module Rpc_state : sig
+  type nonrec t = { room : t; username : Username.t }
+end
+
 val rpc_implementations
-  : (t * Username.t, Protocol.not_in_a_room) Result.t
-    Rpc.Implementation.t list
+  : (Rpc_state.t, Protocol.not_in_a_room) Result.t Rpc.Implementation.t list

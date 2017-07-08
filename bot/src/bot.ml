@@ -61,7 +61,9 @@ end
 let cancel t id = Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc t.conn id
 
 let request_update_exn t thing_to_get =
-  match%map Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc t.conn thing_to_get with
+  match%map
+    Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc t.conn thing_to_get
+  with
   | Error (`Not_logged_in | `Not_in_a_room | `You're_not_playing) -> assert false
   | Error `Game_not_in_progress
   | Ok () -> ()
@@ -74,7 +76,10 @@ let try_set_ready t = try_set_ready_on_conn ~conn:t.conn
 
 let start_playing ~conn ~username ~room_choice ~where_to_sit =
   let%bind () =
-    match%map Rpc.Rpc.dispatch_exn Protocol.Login.rpc conn username with
+    match%map
+      Rpc.Rpc.dispatch_exn Protocol.Login.rpc conn
+        { username; is_bot = true }
+    with
     | Error (`Already_logged_in | `Invalid_username) -> assert false
     | Ok () -> ()
   in

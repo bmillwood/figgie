@@ -371,7 +371,8 @@ module App = struct
     match t with
     | Start_login username ->
       don't_wait_for begin
-        Rpc.Rpc.dispatch_exn Protocol.Login.rpc conn.conn username
+        Rpc.Rpc.dispatch_exn Protocol.Login.rpc conn.conn
+          { username; is_bot = false }
         >>= function
         | Error (`Already_logged_in | `Invalid_username) -> Deferred.unit
         | Ok () ->

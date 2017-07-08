@@ -37,6 +37,11 @@ let subscribe t ~username ~updates =
       new_client
   )
 
+let unsubscribe t ~username =
+  Option.iter (Hashtbl.find_and_remove t.clients username) ~f:(fun client ->
+      Client.ghost client
+    )
+
 let update t ~username update =
   Option.iter (Hashtbl.find t.clients username) ~f:(fun client ->
     Client.update client update

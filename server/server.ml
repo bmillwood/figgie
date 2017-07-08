@@ -11,6 +11,7 @@ module Connection_state = struct
       | Logged_in of
         { conn : Rpc.Connection.t
         ; username : Username.t
+        ; is_bot : bool
         ; room : Room_manager.t option
         }
   end
@@ -84,7 +85,7 @@ let create ~game_config ~chat_enabled ~rooms =
 let player_disconnected t ~(connection_state : Connection_state.t) =
   match !connection_state with
   | Not_logged_in _ -> ()
-  | Logged_in { conn = _; username; room } ->
+  | Logged_in { username; room; _ } ->
     match room with
     | None ->
       Updates_manager.broadcast t.lobby_updates
@@ -95,11 +96,11 @@ let player_disconnected t ~(connection_state : Connection_state.t) =
 let implementations t =
   let from_lobby =
     [ Rpc.Rpc.implement Protocol.Login.rpc
-        (fun (state : Connection_state.t) username ->
+        (fun (state : Connection_state.t) { username; is_bot } ->
           match !state with
           | Not_logged_in { conn } ->
             if Username.is_valid username then (
-              state := Logged_in { conn; username; room = None };
+              state := Logged_in { conn; username; is_bot; room = None };
               Updates_manager.broadcast t.lobby_updates
                 (Lobby_update (Lobby_update { username; event = Connected }));
               return (Ok ())
@@ -129,20 +130,22 @@ let implementations t =
         )
     ; Rpc.Pipe_rpc.implement Protocol.Join_room.rpc
         (fun (state : Connection_state.t) room_id ->
-          return begin match !state with
-          | Not_logged_in _ -> Error `Not_logged_in
-          | Logged_in { room = Some _; _ } -> Error `Already_in_a_room
-          | Logged_in { room = None; username; conn } -> Ok (username, conn)
-          end
-          >>=? fun (username, conn) ->
-          begin match Hashtbl.find t.rooms room_id with
-          | None -> return (Error `No_such_room)
-          | Some room -> return (Ok room)
-          end
-          >>=? fun room ->
-          let updates_r = Room_manager.player_join room ~username in
-          state := Logged_in { username; conn; room = Some room };
-          return (Ok updates_r)
+          match !state with
+          | Not_logged_in _ ->
+            return (Error `Not_logged_in)
+          | Logged_in { room = Some _; _ } ->
+            return (Error `Already_in_a_room)
+          | Logged_in ({ room = None; username; conn = _; is_bot } as l) ->
+            begin match Hashtbl.find t.rooms room_id with
+              | None -> return (Error `No_such_room)
+              | Some room -> return (Ok room)
+            end
+            >>=? fun room ->
+            let updates_r =
+              Room_manager.player_join room ~username ~is_bot
+            in
+            state := Logged_in { l with room = Some room };
+            return (Ok updates_r)
       )
     ; Rpc.Rpc.implement Protocol.Request_bot.rpc
         (fun (_state : Connection_state.t) { type_; room; seat } ->
@@ -188,11 +191,11 @@ let implementations t =
           ) else (
             match !state with
             | Not_logged_in _ -> return (Error `Not_logged_in)
-            | Logged_in { room = None; username; conn = _ } ->
+            | Logged_in { room = None; username; _ } ->
               Updates_manager.broadcast t.lobby_updates
                 (Chat (username, msg));
               return (Ok ())
-            | Logged_in { room = Some room; username; conn = _ } ->
+            | Logged_in { room = Some room; username; _ } ->
               Room_manager.chat room ~username msg;
               return (Ok ())
           )
@@ -205,8 +208,8 @@ let implementations t =
             match !state with
             | Not_logged_in _ -> Error `Not_logged_in
             | Logged_in { room = None; _ } -> Error `Not_in_a_room
-            | Logged_in { room = Some room; username; conn = _ } ->
-              Ok (room, username)
+            | Logged_in { room = Some room; username; _ } ->
+              Ok { room; username }
           )
       )
   in
