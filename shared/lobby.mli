@@ -6,6 +6,7 @@ module User : sig
       { username     : Username.t
       ; role         : 'role
       ; is_connected : bool
+      ; is_bot       : bool
       }
   end
 
@@ -81,7 +82,7 @@ module Room : sig
 
     module User_event : sig
       type t =
-        | Joined
+        | Joined of { is_bot : bool }
         | Observer_became_omniscient
         | Observer_started_playing of { in_seat : Seat.t }
         | Player_ready of bool

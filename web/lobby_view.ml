@@ -93,23 +93,23 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
       in
       let shortener = Username.Shortener.of_list (Map.keys users) in
       List.concat_map (Map.data observers)
-        ~f:(fun { username; is_connected; role = { is_omniscient } } ->
+        ~f:(fun o ->
             let style =
               Hash_colour.username_style
-                ~is_me:(Username.equal username my_name)
-                username
+                ~is_me:(Username.equal o.username my_name)
+                o.username
             in
             let attrs =
               keep_trues
-                [ not is_connected, Attr.class_ "disconnected"
-                ; is_omniscient,    Attr.class_ "omniscient"
+                [ not o.is_connected,   Attr.class_ "disconnected"
+                ; o.role.is_omniscient, Attr.class_ "omniscient"
                 ]
               @ [ Attr.class_ "name"
                 ; Attr.style style
-                ; Attr.create "title" (Username.to_string username)
+                ; Attr.create "title" (Username.to_string o.username)
                 ]
             in
-            let u = Username.Shortener.short shortener username in
+            let u = Username.Shortener.short shortener o.username in
             [ Node.text " "
             ; Node.span attrs [Node.text (Username.to_string u)]
             ]

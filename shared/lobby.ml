@@ -6,6 +6,7 @@ module User = struct
       { username     : Username.t
       ; role         : 'role
       ; is_connected : bool
+      ; is_bot       : bool
       } [@@deriving bin_io, sexp]
   end
 
@@ -124,12 +125,14 @@ module Room = struct
     enough_players && all_ready
 
   let can_delete t =
-    Map.for_all t.users ~f:(fun user -> not user.is_connected)
+    Map.for_all t.users ~f:(fun user ->
+        not user.is_connected || user.is_bot
+      )
 
   module Update = struct
     module User_event = struct
       type t =
-        | Joined
+        | Joined of { is_bot : bool }
         | Observer_became_omniscient
         | Observer_started_playing of { in_seat : Seat.t }
         | Player_ready of bool
@@ -221,22 +224,23 @@ module Room = struct
           function
           | None ->
             begin match event with
-            | Joined ->
+            | Joined { is_bot } ->
               Some
                 { username
                 ; role = Observer { is_omniscient = false }
                 ; is_connected = true
+                ; is_bot
                 }
             | _ -> None
             end
-          | Some { username = _; role; is_connected } as unchanged ->
-            let set (role : User.Role.t) is_connected =
-              Some { User.Gen.username; role; is_connected }
+          | Some { username; role; is_connected; is_bot } as unchanged ->
+            let set (role : User.Role.t) is_connected is_bot =
+              Some { User.Gen.username; role; is_connected; is_bot }
             in
-            let set_role role = set role is_connected in
+            let set_role role = set role is_connected is_bot in
             begin match event with
-            | Joined ->
-              set role true
+            | Joined { is_bot } ->
+              set role true is_bot
             | Observer_became_omniscient ->
               set_role (Observer { is_omniscient = true })
             | Observer_started_playing { in_seat = _ } ->
@@ -253,7 +257,7 @@ module Room = struct
               | Player { phase = Playing; _ } | Observer _ -> unchanged
               end
             | Disconnected ->
-              set role false
+              set role false is_bot
             end
         )
       in
@@ -408,7 +412,7 @@ module Update = struct
       in
       let others =
         match update with
-        | Player_event { username; event = Joined } ->
+        | Player_event { username; event = Joined { is_bot = false } } ->
           decr_count_map lobby.others username
         | _ -> lobby.others
       in

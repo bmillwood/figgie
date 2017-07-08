@@ -81,8 +81,11 @@ let view (t : Model.t) ~is_connected ~(inject : Action.t -> _) =
     | Player_room_event { username; room_id; event } ->
       let message_parts =
         match event with
-        | Joined ->
-          Some ("joined", " ")
+        | Joined { is_bot } ->
+          let bot_prefix =
+            if is_bot then "(bot) " else ""
+          in
+          Some (bot_prefix ^ "joined", " ")
         | Observer_became_omniscient ->
           Some ("sees all things", " in ")
         | Observer_started_playing { in_seat = _ } ->

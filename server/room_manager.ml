@@ -67,7 +67,8 @@ let tell_player_their_hand t ~round ~username =
 let player_join t ~username =
   let updates_r, updates_w = Pipe.create () in
   Updates_manager.subscribe t.room_updates ~username ~updates:updates_w;
-  apply_room_update t (Player_event { username; event = Joined });
+  apply_room_update t
+    (Player_event { username; event = Joined { is_bot = false } });
   Updates_manager.update t.room_updates ~username
     (Room_snapshot (room_snapshot t));
   Option.iter t.game ~f:(fun round ->
