@@ -113,30 +113,21 @@ let ps_gold ~counts =
     )
 
 let trade_with t ~(order : Order.t) ~size =
-  if Username.equal order.owner (Bot.username t) then (
-    match%bind Bot.cancel t order.id with
-    | Error e ->
-      Log.Global.sexp ~level:`Error
-        [%sexp (e : Protocol.Cancel.error)];
-      Deferred.unit
-    | Ok `Ack -> Deferred.unit
-  ) else (
-    let order =
-      Bot.Staged_order.create t
-        ~symbol:order.symbol
-        ~dir:(Dir.other order.dir)
-        ~price:order.price
-        ~size
-    in
-    match%bind Bot.Staged_order.send_exn order t with
-    | Error (`Game_not_in_progress | `Not_enough_to_sell as e) ->
-      Log.Global.sexp ~level:`Info
-        [%message "Reject" (e : Protocol.Order.error)];
-      Deferred.unit
-    | Error e ->
-      raise_s [%sexp (e : Protocol.Order.error)]
-    | Ok `Ack -> Deferred.unit
-  )
+  let order =
+    Bot.Staged_order.create t
+      ~symbol:order.symbol
+      ~dir:(Dir.other order.dir)
+      ~price:order.price
+      ~size
+  in
+  match%bind Bot.Staged_order.send_exn order t with
+  | Error (`Game_not_in_progress | `Not_enough_to_sell as e) ->
+    Log.Global.sexp ~level:`Info
+      [%message "Reject" (e : Protocol.Order.error)];
+    Deferred.unit
+  | Error e ->
+    raise_s [%sexp (e : Protocol.Order.error)]
+  | Ok `Ack -> Deferred.unit
 
 let spec =
   Bot.Spec.create
