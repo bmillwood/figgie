@@ -13,6 +13,7 @@ module Action : sig
   end
 
   type t = { room_id : Lobby.Room.Id.t; action : Room_action.t }
+    [@@deriving sexp_of]
 end
 
 val view

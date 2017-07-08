@@ -80,7 +80,7 @@ module Logged_in = struct
   module Action = struct
     type t =
       | Lobby_update of Protocol.Lobby_update.t
-      | Join_room of Lobby.Room.Id.t
+      | Lobby_view of Lobby_view.Action.t
       | In_room of In_room.Action.t
     [@@deriving sexp_of]
   end
@@ -343,18 +343,18 @@ module App = struct
         end
       | _ -> login
       end
-    | Join_room id ->
+    | Lobby_view { room_id; action = Join } ->
       begin match login.where with
       | In_room _ -> login
       | Lobby { lobby; updates } ->
         Pipe.close_read updates;
         don't_wait_for begin
-          Rpc.Pipe_rpc.dispatch_exn Protocol.Join_room.rpc conn id
+          Rpc.Pipe_rpc.dispatch_exn Protocol.Join_room.rpc conn room_id
           >>= fun (pipe, _metadata) ->
           schedule (Add_message (
               Chat.Message.status
                 [ Chat.Message.horizontal_rule
-                ; Node.text (sprintf !"Joined %{Lobby.Room.Id}" id)
+                ; Node.text (sprintf !"Joined %{Lobby.Room.Id}" room_id)
                 ]
             ));
           Pipe.iter_without_pushback pipe ~f:(fun update ->
@@ -364,14 +364,14 @@ module App = struct
         let in_room : In_room.Model.t =
           let room =
             Option.value ~default:Lobby.Room.empty
-              (Map.find lobby.rooms id)
+              (Map.find lobby.rooms room_id)
           in
           let my_hand =
             match Map.find (Lobby.Room.players room) login.my_name with
             | Some p -> p.role.hand
             | None -> Partial_hand.empty
           in
-          { room_id = id
+          { room_id
           ; room
           ; my_hand
           ; exchange = Exchange.Model.empty
@@ -381,6 +381,28 @@ module App = struct
         in
         { login with where = In_room in_room }
       end
+    | Lobby_view { room_id; action = Delete } ->
+      don't_wait_for begin
+        Rpc.Rpc.dispatch_exn Protocol.Delete_room.rpc conn room_id
+        >>| function
+        | Error err ->
+          schedule (Add_message (
+              Chat.Message.(simple error)
+                !"Can't delete: %{sexp:Protocol.Delete_room.error}"
+                err
+            ))
+        | Ok () -> ()
+      end;
+      login
+    | Lobby_view { room_id; action = Create } ->
+      don't_wait_for begin
+        Rpc.Rpc.dispatch_exn Protocol.Create_room.rpc conn room_id
+        >>| function
+        | Error `Room_already_exists -> ()
+        | Error `Invalid_room_name -> ()
+        | Ok () -> ()
+      end;
+      login
     | In_room iract ->
       begin match login.where with
       | In_room room ->
@@ -576,37 +598,16 @@ module App = struct
     in
     match get_conn model with
     | None | Some { login = None; _ } -> view []
-    | Some { login = Some login; conn; host_and_port = _ } ->
+    | Some { login = Some login; conn = _; host_and_port = _ } ->
       let my_name = login.my_name in
       let exchange_inject act = inject (Action.in_room (Exchange act)) in
       begin match login.where with
       | Lobby { lobby; updates = _ } ->
         [ Lobby_view.view lobby
             ~my_name
-            ~inject:(fun { room_id; action } ->
-              match action with
-              | Join ->
-                inject (Action.logged_in (Join_room room_id))
-              | Delete ->
-                don't_wait_for begin
-                  let open Async_kernel in
-                  Rpc.Rpc.dispatch_exn Protocol.Delete_room.rpc conn room_id
-                  >>| function
-                  | Error (`No_such_room | `Room_in_use) -> ()
-                  | Ok () -> ()
-                end;
-                Event.Ignore
-              | Create ->
-                don't_wait_for begin
-                  let open Async_kernel in
-                  Rpc.Rpc.dispatch_exn Protocol.Create_room.rpc conn room_id
-                  >>| function
-                  | Error `Room_already_exists -> ()
-                  | Error `Invalid_room_name -> ()
-                  | Ok () -> ()
-                end;
-                Event.Ignore
-            )
+            ~inject:(fun lvact ->
+                inject (Action.logged_in (Lobby_view lvact))
+              )
         ] |> view
       | In_room { exchange; game; room; my_hand; user_info; _ } ->
         let can_send_orders, gold =

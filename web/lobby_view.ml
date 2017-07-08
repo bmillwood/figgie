@@ -10,9 +10,11 @@ module Action = struct
       | Create
       | Join
       | Delete
+    [@@deriving sexp_of]
   end
 
   type t = { room_id : Lobby.Room.Id.t; action : Room_action.t }
+    [@@deriving sexp_of]
 end
 
 let room_row ?(extra_classes=[]) contents =
