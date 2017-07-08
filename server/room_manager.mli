@@ -14,6 +14,8 @@ val create
 val room_snapshot : t -> Lobby.Room.t
 val is_empty      : t -> bool
 
+val close : t -> unit
+
 val player_join
   :  t
   -> username:Username.t

@@ -6,6 +6,7 @@ open Figgie
 type t =
   { id : Lobby.Room.Id.t
   ; mutable room : Lobby.Room.t
+  ; mutable closed : bool
   ; game_config : Game.Config.t
   ; mutable game : Game.t option
   ; lobby_updates : Protocol.Lobby_update.t Updates_manager.t
@@ -15,6 +16,7 @@ type t =
 let create ~game_config ~id ~lobby_updates =
   { id
   ; room = Lobby.Room.empty
+  ; closed = false
   ; game_config
   ; game = None
   ; lobby_updates
@@ -24,7 +26,22 @@ let create ~game_config ~id ~lobby_updates =
 let room_snapshot t = t.room
 let is_empty t = Lobby.Room.is_empty t.room
 
+let close t =
+  Map.iter_keys (Lobby.Room.users t.room) ~f:(fun username ->
+      Updates_manager.unsubscribe t.room_updates ~username
+    );
+  Updates_manager.broadcast t.lobby_updates
+    (Lobby_update (Room_closed { room_id = t.id }));
+  t.closed <- true
+
 let apply_room_update t update =
+  if t.closed then (
+    raise_s [%message
+      "Applied update to closed room"
+        (t.id : Lobby.Room.Id.t)
+        (update : Lobby.Room.Update.t)
+    ]
+  );
   t.room <- Lobby.Room.Update.apply update t.room;
   Updates_manager.broadcast t.room_updates (Broadcast (Room_update update));
   Updates_manager.broadcast t.lobby_updates

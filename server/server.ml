@@ -179,8 +179,7 @@ let implementations t =
               return (Error `Room_in_use)
             ) else (
               Hashtbl.remove t.rooms room_id;
-              Updates_manager.broadcast t.lobby_updates
-                (Lobby_update (Room_closed { room_id }));
+              Room_manager.close rm;
               return (Ok ())
             )
       )
