@@ -63,6 +63,10 @@ module Dirpair = struct
 
   let map2 t1 t2 ~f =
     init ~f:(fun dir -> f (get t1 ~dir) (get t2 ~dir))
+
+  let iteri t ~(f : Dir.t -> _) =
+    f Buy  t.buy;
+    f Sell t.sell
 end
 
 module type With_units = sig

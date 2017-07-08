@@ -80,27 +80,6 @@ let likelihoods ~counts ?long ?short () =
         )
     )
 
-let max_loss_per_sell t ~counts ~symbol ~size =
-  let might_lose_pot =
-    let p_big_pot =
-      likelihoods ~counts ~long:(Suit.opposite symbol) ~short:symbol ()
-        /. likelihoods ~counts ~long:(Suit.opposite symbol) ()
-    in
-    p_big_pot *. 130. +. (1. -. p_big_pot) *. 110.
-  in
-  match Bot.hand_if_filled t with
-  | None -> might_lose_pot
-  | Some hand ->
-    let if_sold =
-      Hand.map hand ~f:(Dirpair.get ~dir:Sell)
-      |> Per_symbol.get ~symbol
-    in
-    if Size.(if_sold - size > of_int 5) then (
-      10.
-    ) else (
-      might_lose_pot
-    )
-
 let ps_gold ~counts =
   let p_counts = likelihoods ~counts () in
   if p_counts =. 0. then (
@@ -129,6 +108,70 @@ let trade_with t ~(order : Order.t) ~size =
     raise_s [%sexp (e : Protocol.Order.error)]
   | Ok `Ack -> Deferred.unit
 
+let consider_halfbook t ~symbol ~dir ~counts ~ps halfbook =
+  let max_can_trade_size =
+    match (dir : Dir.t) with
+    | Buy -> Card.Hand.get (Bot.sellable_hand t) ~suit:symbol
+    | Sell -> Params.num_cards_in_deck
+  in
+  let p_gold = Card.Hand.get ps ~suit:symbol in
+  let fair_without_pot_transfer =
+    p_gold *. Price.to_float Params.gold_card_value
+  in
+  let good_to_fair px =
+    Dir.fold dir ~buy:Float.(>=) ~sell:Float.(<=)
+      px fair_without_pot_transfer
+  in
+  let candidates_to_trade_with, profit, size =
+    let rec go cs profit size =
+      function
+      | [] -> (cs, profit, size)
+      | o :: os ->
+        if good_to_fair (Price.to_float o.Order.price) then (
+          let this_size = Size.min o.size Size.O.(max_can_trade_size - size) in
+          let profit =
+            Size.to_float size
+            *. Float.abs (Price.to_float o.price -. fair_without_pot_transfer)
+            +. profit
+          in
+          let size = Size.O.(size + this_size) in
+          if Size.equal size max_can_trade_size then (
+            ({ o with size = this_size } :: cs, profit, size)
+          ) else (
+            go (o :: cs) profit size os
+          )
+        ) else (
+          (cs, profit, size)
+        )
+    in
+    go [] 0. Size.zero halfbook
+  in
+  let candidates_to_trade_with = List.rev candidates_to_trade_with in
+  let expected_loss_if_losing_pot =
+    match dir with
+    | Buy ->
+      let sellable_qty = Card.Hand.get (Bot.sellable_hand t) ~suit:symbol in
+      let after_selling = Size.O.(sellable_qty - size) in
+      if Size.(after_selling > of_int 5) then (
+        0.
+      ) else (
+        let p_big_pot =
+          likelihoods ~counts ~long:(Suit.opposite symbol) ~short:symbol ()
+          /. likelihoods ~counts ~long:(Suit.opposite symbol) ()
+        in
+        p_big_pot *. 130. +. (1. -. p_big_pot) *. 110.
+      )
+    | Sell -> 0.
+  in
+  if profit >. p_gold *. expected_loss_if_losing_pot then (
+    Deferred.List.iter ~how:`Sequential candidates_to_trade_with
+      ~f:(fun order ->
+        trade_with t ~order ~size:order.size
+      )
+  ) else (
+    Deferred.unit
+  )
+
 let spec =
   Bot.Spec.create
     ~username_stem:"countbot"
@@ -154,39 +197,13 @@ let spec =
           let counts = total_num_cards_seen t in
           let ps = ps_gold ~counts in
           Deferred.List.iter ~how:`Parallel Suit.all ~f:(fun suit ->
-            let p_gold = Hand.get ps ~suit in
-            let { Dirpair.buy; sell } = Hand.get book ~suit in
-            Deferred.List.iter ~how:`Parallel
-              (buy @ sell)
-              ~f:(fun order ->
-                  let want_to_trade, size =
-                    match order.dir with
-                    | Buy ->
-                      let size =
-                        Size.min
-                          order.size
-                          (Hand.get (Bot.sellable_hand t) ~suit:order.symbol)
-                      in
-                      let loss =
-                        max_loss_per_sell t ~counts
-                          ~symbol:order.symbol
-                          ~size
-                      in
-                      ( loss *. p_gold <. Price.to_float order.price
-                      , size
-                      )
-                    | Sell ->
-                      ( 10. *. p_gold >. Price.to_float order.price
-                      , order.size
-                      )
-                  in
-                  if want_to_trade && Size.(>) size Size.zero
-                  then (
-                    trade_with t ~order ~size
-                  ) else (
-                    Deferred.unit
-                  )
-                )
+              let { Dirpair.buy; sell } = Hand.get book ~suit in
+              let%bind () =
+                consider_halfbook t ~symbol:suit ~dir:Buy ~counts ~ps buy
+              and () =
+                consider_halfbook t ~symbol:suit ~dir:Sell ~counts ~ps sell
+              in
+              return ()
             )
         | _ -> Deferred.unit))
 

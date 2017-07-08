@@ -38,6 +38,8 @@ module Dirpair : sig
   val map  : 'a t -> f:('a -> 'b) -> 'b t
   val mapi : 'a t -> f:(Dir.t -> 'a -> 'b) -> 'b t
   val map2 : 'a t -> 'b t -> f:('a -> 'b -> 'c) -> 'c t
+
+  val iteri : 'a t -> f:(Dir.t -> 'a -> unit) -> unit
 end
 
 module type With_units = sig
