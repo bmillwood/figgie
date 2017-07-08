@@ -112,6 +112,32 @@ let ps_gold ~counts =
       likelihoods ~counts ~long:(Suit.opposite suit) () /. p_counts
     )
 
+let trade_with t ~(order : Order.t) ~size =
+  if Username.equal order.owner (Bot.username t) then (
+    match%bind Bot.cancel t order.id with
+    | Error e ->
+      Log.Global.sexp ~level:`Error
+        [%sexp (e : Protocol.Cancel.error)];
+      Deferred.unit
+    | Ok `Ack -> Deferred.unit
+  ) else (
+    let order =
+      Bot.Staged_order.create t
+        ~symbol:order.symbol
+        ~dir:(Dir.other order.dir)
+        ~price:order.price
+        ~size
+    in
+    match%bind Bot.Staged_order.send_exn order t with
+    | Error (`Game_not_in_progress | `Not_enough_to_sell as e) ->
+      Log.Global.sexp ~level:`Info
+        [%message "Reject" (e : Protocol.Order.error)];
+      Deferred.unit
+    | Error e ->
+      raise_s [%sexp (e : Protocol.Order.error)]
+    | Ok `Ack -> Deferred.unit
+  )
+
 let spec =
   Bot.Spec.create
     ~username_stem:"countbot"
@@ -126,10 +152,11 @@ let spec =
             Log.Global.sexp ~level:`Debug [%message
               "Saw my order" (order.dir : Dir.t) (order.symbol : Suit.t)]
           end;
+          let counts = total_num_cards_seen t in
           Log.Global.sexp ~level:`Debug
             [%message "update"
-              ~counts:(total_num_cards_seen t : Market.Size.t Card.Hand.t)
-              ~gold:(ps_gold t : float Hand.t)
+              (counts : Market.Size.t Card.Hand.t)
+              ~gold:(ps_gold ~counts : float Hand.t)
           ];
           Bot.request_update_exn t Market
         | Market book when List.is_empty (Bot.unacked_orders t) ->
@@ -140,7 +167,7 @@ let spec =
             let { Dirpair.buy; sell } = Hand.get book ~suit in
             Deferred.List.iter ~how:`Parallel
               (buy @ sell)
-                ~f:(fun order ->
+              ~f:(fun order ->
                   let want_to_trade, size =
                     match order.dir with
                     | Buy ->
@@ -163,35 +190,13 @@ let spec =
                       )
                   in
                   if want_to_trade && Size.(>) size Size.zero
-                  then begin
-                    if Username.equal order.owner username
-                    then begin
-                      Bot.cancel t order.id
-                      >>= function
-                      | Error e ->
-                        Log.Global.sexp ~level:`Error
-                          [%sexp (e : Protocol.Cancel.error)];
-                        Deferred.unit
-                      | Ok `Ack -> Deferred.unit
-                    end else begin
-                      let order =
-                        Bot.Staged_order.create t
-                          ~symbol:order.symbol
-                          ~dir:(Dir.other order.dir)
-                          ~price:order.price
-                          ~size:order.size
-                      in
-                      Bot.Staged_order.send_exn order t
-                      >>= function
-                      | Error (`Game_not_in_progress | `Not_enough_to_sell as e) ->
-                        Log.Global.sexp ~level:`Info
-                          [%message "Reject" (e : Protocol.Order.error)];
-                        Deferred.unit
-                      | Error e ->
-                        raise_s [%sexp (e : Protocol.Order.error)]
-                      | Ok _id -> Deferred.unit
-                    end
-                  end else Deferred.unit))
+                  then (
+                    trade_with t ~order ~size
+                  ) else (
+                    Deferred.unit
+                  )
+                )
+            )
         | _ -> Deferred.unit))
 
 let command =
