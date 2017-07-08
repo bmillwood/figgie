@@ -1,0 +1,10 @@
+(library (
+  (name botlib)
+  (libraries (
+    figgie
+
+    async
+    core
+  ))
+  (preprocess (pps (ppx_jane)))
+))

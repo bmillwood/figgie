@@ -1,9 +1,8 @@
 (executables (
   (names (main))
   (libraries (
-    figgie
+    botlib
 
-    async
     core
   ))
   (preprocess (pps (ppx_jane)))

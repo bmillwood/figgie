@@ -4,7 +4,7 @@ set -eux
 BUILD=_build/system
 
 SERVER=$BUILD/server/main.exe
-BOT=$BUILD/bot/main.exe
+BOT=$BUILD/bot/bin/main.exe
 
 "$SERVER" -length-of-round 1m -enable-chat true -log-level Debug \
   -room "Room 101" &

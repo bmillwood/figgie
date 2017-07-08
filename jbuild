@@ -1,4 +1,4 @@
 (alias (
   (name install)
-  (deps (web/main.bc.js bot/main.exe server/main.exe))
+  (deps (web/main.bc.js bot/bin/main.exe server/main.exe))
 ))
