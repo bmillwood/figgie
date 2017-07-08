@@ -20,7 +20,7 @@ module Config = struct
 
   let default =
     { aggression = half
-    ; mean_chaos_interval = sec 2.
+    ; mean_chaos_interval = sec 1.
     }
 
   let param =
