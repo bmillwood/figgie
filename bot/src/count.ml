@@ -56,21 +56,6 @@ let likelihood ~counts ~long ~short =
     numerator /. denominator
   )
 
-let max_loss_per_sell t ~symbol ~size =
-  let might_lose_pot = 130. in
-  match Bot.hand_if_filled t with
-  | None -> might_lose_pot
-  | Some hand ->
-    let if_sold =
-      Hand.map hand ~f:(Dirpair.get ~dir:Sell)
-      |> Per_symbol.get ~symbol
-    in
-    if Size.(if_sold - size > of_int 5) then (
-      10.
-    ) else (
-      might_lose_pot
-    )
-
 let total_num_cards_seen t =
   match Bot.players t with
   | None -> Hand.create_all Size.zero
@@ -85,27 +70,46 @@ let total_num_cards_seen t =
           )
       )
 
-let ps_gold t =
-  let counts = total_num_cards_seen t in
-  let likelihoods ?long ?short () =
-    let or_all suit =
-      Option.value_map suit ~default:Suit.all ~f:List.return
-    in
-    List.sum (module Float) (or_all long) ~f:(fun long ->
-        List.sum (module Float) (or_all short) ~f:(fun short ->
-            likelihood ~counts ~long ~short
-          )
-      )
+let likelihoods ~counts ?long ?short () =
+  let or_all suit =
+    Option.value_map suit ~default:Suit.all ~f:List.return
   in
-  let p_counts = likelihoods () in
+  List.sum (module Float) (or_all long) ~f:(fun long ->
+      List.sum (module Float) (or_all short) ~f:(fun short ->
+          likelihood ~counts ~long ~short
+        )
+    )
+
+let max_loss_per_sell t ~counts ~symbol ~size =
+  let might_lose_pot =
+    let p_big_pot =
+      likelihoods ~counts ~long:(Suit.opposite symbol) ~short:symbol ()
+        /. likelihoods ~counts ~long:(Suit.opposite symbol) ()
+    in
+    p_big_pot *. 130. +. (1. -. p_big_pot) *. 110.
+  in
+  match Bot.hand_if_filled t with
+  | None -> might_lose_pot
+  | Some hand ->
+    let if_sold =
+      Hand.map hand ~f:(Dirpair.get ~dir:Sell)
+      |> Per_symbol.get ~symbol
+    in
+    if Size.(if_sold - size > of_int 5) then (
+      10.
+    ) else (
+      might_lose_pot
+    )
+
+let ps_gold ~counts =
+  let p_counts = likelihoods ~counts () in
   if p_counts =. 0. then (
     raise_s [%message "these counts seem impossible"
-      (Bot.players t : Lobby.User.Player.t Username.Map.t option)
       (counts : Size.t Hand.t)
     ]
   );
   Hand.init ~f:(fun suit ->
-      likelihoods ~long:(Suit.opposite suit) () /. p_counts
+      likelihoods ~counts ~long:(Suit.opposite suit) () /. p_counts
     )
 
 let spec =
@@ -129,7 +133,8 @@ let spec =
           ];
           Bot.request_update_exn t Market
         | Market book when List.is_empty (Bot.unacked_orders t) ->
-          let ps = ps_gold t in
+          let counts = total_num_cards_seen t in
+          let ps = ps_gold ~counts in
           Deferred.List.iter ~how:`Parallel Suit.all ~f:(fun suit ->
             let p_gold = Hand.get ps ~suit in
             let { Dirpair.buy; sell } = Hand.get book ~suit in
@@ -145,7 +150,7 @@ let spec =
                     match order.dir with
                     | Buy ->
                       let loss =
-                        max_loss_per_sell t
+                        max_loss_per_sell t ~counts
                           ~symbol:order.symbol
                           ~size
                       in
