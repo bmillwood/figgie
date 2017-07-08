@@ -62,6 +62,12 @@ module Room : sig
     include Comparable.S_binable with type t := t
   end
 
+  module Phase : sig
+    type t =
+      | Waiting
+      | Playing
+  end
+
   type t [@@deriving bin_io, sexp]
 
   val empty : t
@@ -76,6 +82,7 @@ module Room : sig
   val is_empty   : t -> bool
   val is_ready   : t -> bool
   val can_delete : t -> bool
+  val phase      : t -> Phase.t
 
   module Update : sig
     type room

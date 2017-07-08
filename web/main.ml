@@ -222,9 +222,30 @@ module App = struct
       { in_room with user_info }
     | Game_update up ->
       let just_schedule act = schedule act; in_room in
+      let setup_playing_room (in_room : In_room.Model.t) =
+        don't_wait_for begin
+          (* Sample the time *before* we send the RPC. Then the game end
+             time we get is actually roughly "last time we can expect to
+             send an RPC and have it arrive before the game ends". *)
+          let current_time = Time_ns.now () in
+          Rpc.Rpc.dispatch_exn Protocol.Time_remaining.rpc conn ()
+          >>| function
+          | Error #Protocol.not_playing -> ()
+          | Ok remaining ->
+            let end_time = Time_ns.add current_time remaining in
+            schedule (Action.playing (Set_clock end_time))
+        end;
+        let exchange = Exchange.Model.empty in
+        let playing = Playing.Model.initial in
+        { in_room with exchange; game = Playing playing }
+      in
       match up with
       | Room_snapshot room ->
-        { in_room with room }
+        let in_room = { in_room with room } in
+        begin match Lobby.Room.phase room with
+        | Playing -> setup_playing_room in_room
+        | Waiting -> in_room
+        end
       | Hand hand ->
         { in_room with my_hand = Partial_hand.create_known hand }
       | Market market ->
@@ -239,21 +260,7 @@ module App = struct
               Chat.Message.(simple status)
                 "Everyone's ready: game is starting!"
             ));
-          don't_wait_for begin
-            (* Sample the time *before* we send the RPC. Then the game end
-               time we get is actually roughly "last time we can expect to
-               send an RPC and have it arrive before the game ends". *)
-            let current_time = Time_ns.now () in
-            Rpc.Rpc.dispatch_exn Protocol.Time_remaining.rpc conn ()
-            >>| function
-            | Error #Protocol.not_playing -> ()
-            | Ok remaining ->
-              let end_time = Time_ns.add current_time remaining in
-              schedule (Action.playing (Set_clock end_time))
-          end;
-          let exchange = Exchange.Model.empty in
-          let playing = Playing.Model.initial in
-          { in_room with exchange; game = Playing playing }
+          setup_playing_room in_room
         | Player_event { username; event } ->
           Option.iter
             (Chat.Message.player_event ~username ~room_id:None ~event)

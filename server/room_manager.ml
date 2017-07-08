@@ -89,10 +89,8 @@ let player_join t ~username ~is_bot =
   Updates_manager.update t.room_updates ~username
     (Room_snapshot (room_snapshot t));
   Option.iter t.game ~f:(fun round ->
-      Updates_manager.updates t.room_updates ~username
-        [ Broadcast (Room_update Start_round)
-        ; Market (Game.market round)
-        ];
+      Updates_manager.update t.room_updates ~username
+        (Market (Game.market round));
       tell_player_their_hand t ~round ~username
     );
   updates_r

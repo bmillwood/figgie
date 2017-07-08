@@ -72,16 +72,25 @@ module Room = struct
     include Comparable.Make_binable(T)
   end
 
+  module Phase = struct
+    type t =
+      | Waiting
+      | Playing
+      [@@deriving bin_io, sexp]
+  end
+
   type t =
     { seating : Username.t Seat.Map.t
     ; users   : User.t Username.Map.t
     ; gold    : Card.Suit.t option
+    ; phase   : Phase.t
     } [@@deriving bin_io, sexp]
 
   let empty =
     { seating = Seat.Map.empty
     ; users = Username.Map.empty
     ; gold = None
+    ; phase = Waiting
     }
 
   let users t = t.users
@@ -94,6 +103,7 @@ module Room = struct
       )
 
   let seating t = t.seating
+  let phase t = t.phase
 
   let in_seat t ~seat =
     let open Option.Let_syntax in
@@ -287,7 +297,7 @@ module Room = struct
               { player with role }
             )
         in
-        { room with users; gold = None }
+        { room with users; gold = None; phase = Playing }
       | Player_event { username; event } ->
         apply_player_update room ~username ~event
       | Exec exec ->
@@ -359,7 +369,7 @@ module Room = struct
                 Some { user with role }
             )
         in
-        { room with users; gold = Some results.gold }
+        { room with users; gold = Some results.gold; phase = Waiting }
   end
 end
 
