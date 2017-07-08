@@ -141,23 +141,26 @@ let spec =
             Deferred.List.iter ~how:`Parallel
               (buy @ sell)
                 ~f:(fun order ->
-                  let size =
-                    Size.min
-                      order.size
-                      (Hand.get (Bot.sellable_hand t) ~suit:order.symbol)
-                  in
-                  let want_to_trade =
+                  let want_to_trade, size =
                     match order.dir with
                     | Buy ->
+                      let size =
+                        Size.min
+                          order.size
+                          (Hand.get (Bot.sellable_hand t) ~suit:order.symbol)
+                      in
                       let loss =
                         max_loss_per_sell t ~counts
                           ~symbol:order.symbol
                           ~size
                       in
-                      loss *. p_gold <. Price.to_float order.price
+                      ( loss *. p_gold <. Price.to_float order.price
+                      , size
+                      )
                     | Sell ->
-                      10. *. p_gold
-                      >. Price.to_float order.price
+                      ( 10. *. p_gold >. Price.to_float order.price
+                      , order.size
+                      )
                   in
                   if want_to_trade && Size.(>) size Size.zero
                   then begin
