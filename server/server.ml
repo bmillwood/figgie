@@ -238,7 +238,7 @@ let serve t ~tcp_port ~web_port =
         ~on_handshake_error:`Raise
         ~connection_state:(fun conn -> initial_connection_state None conn)
     );
-  let%bind _server =
+  let%bind _rpc_server =
     Rpc.Connection.serve
       ~initial_connection_state:(fun addr conn ->
           initial_connection_state (Some addr) conn
@@ -246,7 +246,7 @@ let serve t ~tcp_port ~web_port =
       ~implementations
       ~where_to_listen:(Tcp.on_port tcp_port)
       ()
-  and () =
+  and _web_server =
     Web_transport.serve ~port:web_port
       ~f:(fun addr transport ->
         Rpc_kernel.Rpc.Connection.server_with_close transport
@@ -256,8 +256,6 @@ let serve t ~tcp_port ~web_port =
               initial_connection_state (Some addr) conn
             )
       )
-    >>| function
-    | Ok () | Error () -> ()
   in
   Deferred.never ()
 

@@ -73,6 +73,4 @@ let serve ~port ~f =
           f addr transport
         in
         Deferred.any_unit [finished; f_result]
-      )
-    >>| fun _server ->
-    Ok ())
+      ))
