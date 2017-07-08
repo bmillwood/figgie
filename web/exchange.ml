@@ -120,6 +120,11 @@ module Action = struct
 end
 open Action
 
+let cancel_reject_message ~oid ~reject =
+  Chat.Message.(simple error)
+    !"Couldn't cancel #%{Order.Id}: %{sexp:Protocol.Cancel.error}"
+    oid reject
+
 let apply_action action model ~my_name ~conn
   ~(add_message : Chat.Message.t -> unit)
   =
@@ -139,7 +144,10 @@ let apply_action action model ~my_name ~conn
       >>| function
       | Ok `Ack -> ()
       | Error reject ->
-        add_message (Order_reject (order, reject))
+        add_message (
+          Chat.Message.(simple error)
+            !"%{sexp:Protocol.Order.error}" reject
+        )
     end;
     let pending_ack =
       Card.Hand.modify model.pending_ack ~suit:symbol
@@ -152,7 +160,7 @@ let apply_action action model ~my_name ~conn
       >>| function
       | Ok `Ack -> ()
       | Error reject ->
-        add_message (Cancel_reject (`Id oid, reject))
+        add_message (cancel_reject_message ~oid ~reject)
     end;
     model
   | Send_cancel (By_symbol_side { symbol; dir }) ->
@@ -172,12 +180,12 @@ let apply_action action model ~my_name ~conn
       Deferred.List.iter
         (pending_order_ids @ live_order_ids)
         ~how:`Parallel
-        ~f:(fun id ->
-            Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn id
+        ~f:(fun oid ->
+            Rpc.Rpc.dispatch_exn Protocol.Cancel.rpc conn oid
             >>| function
             | Ok `Ack -> ()
             | Error reject ->
-              add_message (Cancel_reject (`Id id, reject))
+              add_message (cancel_reject_message ~oid ~reject)
           )
     end;
     let pending_ack =
@@ -191,8 +199,11 @@ let apply_action action model ~my_name ~conn
       >>| function
       | Ok `Ack -> ()
       | Error reject ->
-        let reject = (reject :> Protocol.Cancel.error) in
-        add_message (Cancel_reject (`All, reject))
+        add_message (
+          Chat.Message.(simple error)
+            !"Can't cancel orders: %{sexp:Protocol.not_playing}"
+            reject
+        )
     end;
     model
   | Scroll_trades scract ->

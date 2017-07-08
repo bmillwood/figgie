@@ -235,7 +235,10 @@ module App = struct
         let in_room = { in_room with room } in
         begin match update with
         | Start_round ->
-          schedule (Add_message New_round);
+          schedule (Add_message (
+              Chat.Message.(simple status)
+                "Everyone's ready: game is starting!"
+            ));
           don't_wait_for begin
             (* Sample the time *before* we send the RPC. Then the game end
                time we get is actually roughly "last time we can expect to
@@ -252,12 +255,23 @@ module App = struct
           let playing = Playing.Model.initial in
           { in_room with exchange; game = Playing playing }
         | Player_event { username; event } ->
-          schedule (Add_message (Player_room_event
-            { username; room_id = None; event }
-          ));
+          Option.iter
+            (Chat.Message.player_event ~username ~room_id:None ~event)
+            ~f:(fun msg -> schedule (Add_message msg));
           in_room
         | Round_over results ->
-          schedule (Add_message (Round_over results));
+          schedule (Add_message (
+              Chat.Message.status
+                [ Node.text "Time's up! The gold suit was "
+                ; Node.span
+                    [Attr.classes [Card.Suit.name results.gold; "gold"]]
+                    [ Style.suit_span ~gold:None results.gold
+                    ; Node.text " "
+                    ; Node.text (Card.Suit.name results.gold)
+                    ]
+                ; Chat.Message.horizontal_rule
+                ]
+            ));
           { in_room with game = Waiting { last_gold = Some results.gold } }
         | Exec exec ->
           don't_wait_for begin
@@ -275,7 +289,9 @@ module App = struct
         end
       | Broadcast (Chat (username, msg)) ->
         let is_me = Username.equal username my_name in
-        just_schedule (Add_message (Chat { username; is_me; msg }))
+        just_schedule (Add_message (
+            Chat.Message.chat ~username ~is_me ~msg
+          ))
       | Broadcast (Out _) ->
         don't_wait_for begin
           Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Market
@@ -295,7 +311,9 @@ module App = struct
         begin match up with
         | Chat (username, msg) ->
           let is_me = Username.equal username login.my_name in
-          schedule (Add_message (Chat { username; is_me; msg }));
+          schedule (Add_message (
+              Chat.Message.chat ~username ~is_me ~msg
+            ));
           login
         | Lobby_snapshot new_lobby ->
           { login with where = Lobby { lobby = new_lobby; updates } }
@@ -305,13 +323,19 @@ module App = struct
               { room_id
               ; update = Player_event { username; event }
               } ->
-            schedule (Add_message
-              (Player_room_event { username; room_id = Some room_id; event })
-            )
+            Option.iter
+              (Chat.Message.player_event
+                ~username ~room_id:(Some room_id) ~event)
+              ~f:(fun msg -> schedule (Add_message msg))
           | Lobby_update { username; event } ->
-            schedule (Add_message
-              (Player_lobby_event { username; event })
-            )
+            schedule (Add_message (
+              let verb =
+                match event with
+                | Connected    -> "connected"
+                | Disconnected -> "disconnected"
+              in
+              Chat.Message.(simple status) !"%{Username} %s" username verb
+            ))
           | _ -> ()
           end;
           let new_lobby = Lobby.Update.apply up lobby in
@@ -327,7 +351,12 @@ module App = struct
         don't_wait_for begin
           Rpc.Pipe_rpc.dispatch_exn Protocol.Join_room.rpc conn id
           >>= fun (pipe, _metadata) ->
-          schedule (Add_message (Joined_room id));
+          schedule (Add_message (
+              Chat.Message.status
+                [ Chat.Message.horizontal_rule
+                ; Node.text (sprintf !"Joined %{Lobby.Room.Id}" id)
+                ]
+            ));
           Pipe.iter_without_pushback pipe ~f:(fun update ->
               schedule (Action.in_room (Game_update update))
             )
@@ -411,9 +440,15 @@ module App = struct
           Rpc.Rpc.dispatch_exn Protocol.Chat.rpc conn msg
           >>| function
           | Error `Chat_disabled ->
-            state.schedule (Action.Add_message (Chat_failed `Chat_disabled))
+            state.schedule (Action.Add_message (
+                Chat.Message.(simple error)
+                  "Chat system administratively disabled"
+              ))
           | Error `Not_logged_in ->
-            state.schedule (Action.Add_message (Chat_failed `Not_logged_in))
+            state.schedule (Action.Add_message (
+                Chat.Message.(simple error)
+                  "Must log in to chat"
+              ))
           | Ok () -> ()
         end
       );
@@ -458,10 +493,15 @@ module App = struct
         }
       }
     | Finish_connecting { host_and_port; conn } ->
-      state.schedule (Add_message (Connected_to_server host_and_port));
+      state.schedule (Add_message (
+          Chat.Message.(simple status)
+            !"Connected to %{Host_and_port}" host_and_port
+        ));
       { model with state = Connected { host_and_port; conn; login = None } }
     | Connection_lost ->
-      state.schedule (Add_message Disconnected_from_server);
+      state.schedule (Add_message (
+          Chat.Message.(error [Node.text "Disconnected"; horizontal_rule])
+        ));
       { model with state = Not_connected (Some Connection_lost) }
     | Connection_failed ->
       { model with state = Not_connected (Some Failed_to_connect) }

@@ -3,29 +3,22 @@ open Incr_dom
 open Vdom
 
 open Figgie
-open Market
 
 module Message : sig
-  type t =
-    | Connected_to_server of Host_and_port.t
-    | Disconnected_from_server
-    | Chat of { username : Username.t; is_me : bool; msg : string }
-    | Chat_failed of [ `Chat_disabled | `Not_logged_in ]
-    | Player_room_event of
-        { username : Username.t
-        ; room_id : Lobby.Room.Id.t option
-        ; event : Lobby.Room.Update.User_event.t
-        }
-    | Player_lobby_event of
-        { username : Username.t
-        ; event : Lobby.Update.User_event.t
-        }
-    | Joined_room of Lobby.Room.Id.t
-    | New_round
-    | Round_over of Lobby.Room.Update.Round_results.t
-    | Order_reject of Order.t * Protocol.Order.error
-    | Cancel_reject of [ `All | `Id of Order.Id.t ] * Protocol.Cancel.error
-    [@@deriving sexp_of]
+  type t [@@deriving sexp_of]
+
+  val horizontal_rule : Node.t
+  val status : Node.t list -> t
+  val error  : Node.t list -> t
+  val simple : (Node.t list -> t) -> ('a, unit, string, t) format4 -> 'a
+
+  val chat : username:Username.t -> is_me:bool -> msg:string -> t
+
+  val player_event
+    :  username:Username.t
+    -> room_id:Lobby.Room.Id.t option
+    -> event:Lobby.Room.Update.User_event.t
+    -> t option
 end
 
 module Model : sig
