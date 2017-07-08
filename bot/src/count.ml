@@ -108,10 +108,8 @@ let ps_gold t =
       likelihoods ~long:(Suit.opposite suit) () /. p_counts
     )
 
-let command =
-  Bot.make_command
-    ~summary:"Count cards"
-    ~config_param:(Command.Param.return ())
+let spec =
+  Bot.Spec.create
     ~username_stem:"countbot"
     ~auto_ready:true
     (fun t ~config:() ->
@@ -187,3 +185,10 @@ let command =
                     end
                   end else Deferred.unit))
         | _ -> Deferred.unit))
+
+let command =
+  Bot.Spec.to_command spec
+    ~summary:"Count cards"
+    ~config_param:(Command.Param.return ())
+
+let run = Bot.Spec.run spec ~config:()

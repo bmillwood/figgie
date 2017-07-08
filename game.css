@@ -114,3 +114,8 @@ div#userinfo .observers {
     margin: 0.1em 4em;
     text-align: left;
 }
+div#userinfo .addBot {
+    border: 0;
+    background-color: #447;
+    color: white;
+}

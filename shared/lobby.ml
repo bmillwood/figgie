@@ -381,6 +381,10 @@ let decr_count_map t key =
 
 let empty = { rooms = Room.Id.Map.empty; others = Username.Map.empty }
 
+let has_user { rooms; others } ~username =
+  Map.exists rooms ~f:(Room.has_user ~username)
+  || Map.mem others username
+
 module Update = struct
   module User_event = struct
     type t =

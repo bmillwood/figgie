@@ -3,35 +3,42 @@ open Async
 
 open Figgie
 
-type t = {
-  initial_sell_price : Market.Price.t;
-  fade : Market.Price.t;
-  size : Market.Size.t;
-}
-
-let config_param =
-  let open Command.Let_syntax in
-  [%map_open
-    let initial_sell_price =
-      flag "-at" (optional_with_default 6 int)
-        ~doc:"P sell price"
-    and fade =
-      flag "-fade" (optional_with_default 1 int)
-        ~doc:"F increase price after a sale"
-    and size =
-      flag "-size" (optional_with_default 1 int)
-        ~doc:"S sell at most S at a time"
-    in
-    { initial_sell_price = Market.Price.of_int initial_sell_price
-    ; fade = Market.Price.of_int fade
-    ; size = Market.Size.of_int size
+module Config = struct
+  type t =
+    { initial_sell_price : Market.Price.t
+    ; fade : Market.Price.t
+    ; size : Market.Size.t
     }
-  ]
 
-let command =
-  Bot.make_command
-    ~summary:"Offer all your cards at a fixed price"
-    ~config_param
+  let default =
+    { initial_sell_price = Market.Price.of_int 6
+    ; fade = Market.Price.of_int 1
+    ; size = Market.Size.of_int 1
+    }
+
+  let price = Command.Arg_type.create Market.Price.of_string
+  let size  = Command.Arg_type.create Market.Size.of_string
+
+  let param =
+    let open Command.Let_syntax in
+    [%map_open
+      let initial_sell_price =
+        flag "-at" (optional_with_default default.initial_sell_price price)
+          ~doc:"P sell price"
+      and fade =
+        flag "-fade" (optional_with_default default.fade price)
+          ~doc:"F increase price after a sale"
+      and size =
+        flag "-size" (optional_with_default default.size size)
+          ~doc:"S sell at most S at a time"
+      in
+      { initial_sell_price; fade; size }
+    ]
+end
+open Config
+
+let spec =
+  Bot.Spec.create
     ~username_stem:"sellbot"
     ~auto_ready:true
     (fun t ~config ->
@@ -112,3 +119,10 @@ let command =
             in
             sell ~suit ~size)
         | _ -> Deferred.unit))
+
+let command =
+  Bot.Spec.to_command spec
+    ~summary:"Offer all your cards at a fixed price"
+    ~config_param:Config.param
+
+let run = Bot.Spec.run spec ~config:Config.default

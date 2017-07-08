@@ -16,11 +16,15 @@ module Action = struct
   type t =
     | Set_ready of bool
     | Sit of Lobby.Room.Seat.t
+    | Request_bot of
+        { seat : Lobby.Room.Seat.t
+        ; type_ : Protocol.Bot_type.t
+        }
   [@@deriving sexp_of]
 end
 open Action
 
-let apply_action action () ~conn =
+let apply_action action () ~conn ~room_id =
   match action with
   | Set_ready readiness ->
     don't_wait_for begin
@@ -41,6 +45,15 @@ let apply_action action () ~conn =
       | Error (`Not_logged_in | `Not_in_a_room) -> assert false
       | Error (`Game_already_started | `Seat_occupied) -> ()
       | Error `You're_already_playing | Ok (_ : Lobby.Room.Seat.t) -> ()
+    end
+  | Request_bot { seat; type_ } ->
+    don't_wait_for begin
+      Rpc.Rpc.dispatch_exn Protocol.Request_bot.rpc conn
+        { type_; room = room_id; seat }
+      >>| function
+      | Error `No_such_room -> assert false
+      | Error `Seat_occupied -> ()
+      | Ok () -> ()
     end
 
 module Player = struct
@@ -140,18 +153,46 @@ let hand ~gold (hand : Partial_hand.t) =
   in
   known @ [unknown]
 
-let nobody ~sit_here =
+let nobody ~inject ~seat ~can_sit =
+  let add_bot =
+    let no_bot = "" in
+    let bots_by_value =
+      String.Map.of_alist_exn
+        (List.map Protocol.Bot_type.all ~f:(fun bot_type ->
+            sprintf !"%{sexp:Protocol.Bot_type.t}" bot_type, bot_type
+          ))
+    in
+    let handle_change _changeEvent new_value =
+      match Map.find bots_by_value new_value with
+      | None -> Event.Ignore
+      | Some type_ -> inject (Request_bot { seat; type_ })
+    in
+    let options =
+      Node.option [Attr.value no_bot] [Node.text "Bot"]
+      :: List.map (Map.keys bots_by_value) ~f:(fun value ->
+          Node.option [Attr.value value] [Node.text value]
+        )
+    in
+    Node.select
+      [ Attr.class_ "addBot"
+      ; Attr.on_change handle_change
+      ]
+      options
+  in
+  let buttons =
+    List.filter_map ~f:(fun (cond, elt) -> Option.some_if cond elt)
+      [ ( can_sit
+        , Node.button
+            [Attr.on_click (fun _mouseEvent -> inject (Sit seat))]
+            [Node.text "Join"]
+        )
+      ; (true, add_bot)
+      ]
+  in
   Node.div [Attr.classes ["userinfo"]]
     [ Node.span [Attr.class_ "name"] [Node.text "[nobody]"]
     ; Node.create "br" [] []
-    ; match sit_here with
-      | Some sit_event ->
-        Node.button
-          [Attr.on_click (fun _mouseEvent -> sit_event)]
-          [Node.text "sit"]
-      | None ->
-        let nbsp = "\xc2\xa0" in
-        Node.text nbsp
+    ; Node.span [] buttons
     ]
 
 let somebody ~is_me ~all_scores ~gold ~inject (player : Player.t) =
@@ -235,17 +276,16 @@ let view () ~inject ~room ~my_hand ~my_name ~gold =
     Node.div [Attr.class_ (Position.class_ pos)]
       [ match Map.find seating pos with
         | None ->
-          let sit_here =
-            Option.bind (Map.find (Lobby.Room.users room) my_name)
+          let seat = Position.to_seat ~south:Near pos in
+          let can_sit =
+            Option.exists (Map.find (Lobby.Room.users room) my_name)
               ~f:(fun me ->
                   match me.role with
-                  | Observer _ ->
-                    let seat = Position.to_seat ~south:Near pos in
-                    Some (inject (Sit seat))
-                  | Player _ -> None
+                  | Observer _ -> true
+                  | Player _ -> false
                 )
           in
-          nobody ~sit_here
+          nobody ~inject ~seat ~can_sit
         | Some player ->
           let is_me = Username.equal my_name player.username in
           let player =

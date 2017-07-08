@@ -10,7 +10,7 @@ body {
     text-align: center;
 }
 input, button {
-    padding: 0;
+    padding: 0 0.2em;
     border: 0;
 }
 input {
@@ -19,7 +19,7 @@ input {
 button {
     margin: 0.2em 0.5em;
     color: white;
-    background-color: #448;
+    background-color: #447;
 }
 button:hover {
     background-color: #004;

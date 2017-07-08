@@ -115,6 +115,8 @@ type t =
 
 val empty : t
 
+val has_user : t -> username:Username.t -> bool
+
 module Update : sig
   type lobby
 

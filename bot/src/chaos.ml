@@ -18,17 +18,22 @@ module Config = struct
     ; mean_chaos_interval : Time.Span.t
     }
 
+  let default =
+    { aggression = half
+    ; mean_chaos_interval = sec 2.
+    }
+
   let param =
     let rational = Command.Param.sexp_conv Rational.t_of_sexp in
     let open Command.Let_syntax in
     [%map_open
       let aggression =
         flag "-aggression"
-          (optional_with_default half rational)
+          (optional_with_default default.aggression rational)
           ~doc:"N/D how often to send orders more agg than last"
       and mean_chaos_interval =
         flag "-mean-interval"
-          (optional_with_default (sec 3.) time_span)
+          (optional_with_default default.mean_chaos_interval time_span)
           ~doc:"SPAN average time between orders"
       in
       { aggression
@@ -87,10 +92,8 @@ let rec chaos_loop t ~config ~lasts =
 let price_of_fills (fills : Order.t list) =
   (List.hd_exn fills).price
 
-let command =
-  Bot.make_command
-    ~summary:"Send orders randomly around last"
-    ~config_param:Config.param
+let spec =
+  Bot.Spec.create
     ~username_stem:"chaosbot"
     ~auto_ready:true
     (fun t ~config ->
@@ -114,3 +117,11 @@ let command =
             Deferred.unit
           )
       )
+
+let command =
+  Bot.Spec.to_command spec
+    ~summary:"Send orders randomly around last"
+    ~config_param:Config.param
+
+let run =
+  Bot.Spec.run spec ~config:Config.default

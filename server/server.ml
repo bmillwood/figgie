@@ -28,6 +28,7 @@ type t =
   ; others : int Username.Map.t
   ; game_config : Game.Config.t
   ; chat_enabled : bool
+  ; local_transport : Local_transport.t
   }
 
 let lobby_snapshot t : Lobby.t =
@@ -65,12 +66,13 @@ let new_room_exn t ~room_id =
   | Ok () -> ()
 
 let create ~game_config ~chat_enabled ~rooms =
-  let t = 
+  let t =
     { lobby_updates = Updates_manager.create ()
     ; rooms = Lobby.Room.Id.Table.create ()
     ; others = Username.Map.empty
     ; game_config
     ; chat_enabled
+    ; local_transport = Local_transport.create ()
     }
   in
   List.iter (List.dedup_and_sort ~compare:Lobby.Room.Id.compare rooms)
@@ -142,6 +144,28 @@ let implementations t =
           state := Logged_in { username; conn; room = Some room };
           return (Ok updates_r)
       )
+    ; Rpc.Rpc.implement Protocol.Request_bot.rpc
+        (fun (_state : Connection_state.t) { type_; room; seat } ->
+          Local_transport.connect t.local_transport
+          >>| ok_exn
+          >>= fun conn ->
+          let avoid_username =
+            let lobby = lobby_snapshot t in
+            fun username -> Lobby.has_user lobby ~username
+          in
+          let room_choice  : Botlib.Room_choice.t = Named room in
+          let where_to_sit : Protocol.Start_playing.query = Sit_in seat in
+          let run_bot =
+            match type_ with
+            | Chaos -> Botlib.Chaos.run
+            | Count -> Botlib.Count.run
+            | Sell -> Botlib.Sell.run
+          in
+          don't_wait_for (
+            run_bot ~conn ~avoid_username ~room_choice ~where_to_sit
+          );
+          return (Ok ())
+      )
     ; Rpc.Rpc.implement Protocol.Delete_room.rpc
         (fun (_state : Connection_state.t) room_id ->
           match Hashtbl.find t.rooms room_id with
@@ -199,15 +223,23 @@ let serve t ~tcp_port ~web_port =
         player_disconnected t ~connection_state:state;
         Log.Global.sexp ~level:`Info [%message
           "disconnected"
-            (addr : Socket.Address.Inet.t)
+            (addr : Socket.Address.Inet.t option)
             (reason : Info.t)
           ]
       );
     state
   in
+  Local_transport.listen t.local_transport ~f:(fun transport ->
+      Rpc_kernel.Rpc.Connection.server_with_close transport
+        ~implementations
+        ~on_handshake_error:`Raise
+        ~connection_state:(fun conn -> initial_connection_state None conn)
+    );
   let%bind _server =
     Rpc.Connection.serve
-      ~initial_connection_state
+      ~initial_connection_state:(fun addr conn ->
+          initial_connection_state (Some addr) conn
+        )
       ~implementations
       ~where_to_listen:(Tcp.on_port tcp_port)
       ()
@@ -217,7 +249,9 @@ let serve t ~tcp_port ~web_port =
         Rpc_kernel.Rpc.Connection.server_with_close transport
           ~implementations
           ~on_handshake_error:`Raise
-          ~connection_state:(fun conn -> initial_connection_state addr conn)
+          ~connection_state:(fun conn ->
+              initial_connection_state (Some addr) conn
+            )
       )
     >>| function
     | Ok () | Error () -> ()

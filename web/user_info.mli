@@ -24,6 +24,7 @@ val apply_action
   :  Action.t
   -> Model.t
   -> conn:Rpc.Connection.t
+  -> room_id:Lobby.Room.Id.t
   -> Model.t
 
 val view

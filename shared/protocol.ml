@@ -71,6 +71,33 @@ module Join_room = struct
       ()
 end
 
+module Bot_type = struct
+  type t =
+    | Chaos
+    | Count
+    | Sell
+  [@@deriving bin_io, enumerate, sexp]
+end
+
+module Request_bot = struct
+  type query =
+    { type_ : Bot_type.t
+    ; room : Lobby.Room.Id.t
+    ; seat : Lobby.Room.Seat.t
+    } [@@deriving bin_io, sexp]
+  type error =
+    [ `No_such_room
+    | `Seat_occupied
+    ] [@@deriving bin_io, sexp]
+  type response = (unit, error) Result.t [@@deriving bin_io, sexp]
+
+  let rpc =
+    Rpc.Rpc.create
+      ~name:"request-bot" ~version:1
+      ~bin_query
+      ~bin_response
+end
+
 module Create_room = struct
   type query = Lobby.Room.Id.t [@@deriving bin_io, sexp]
   type error =

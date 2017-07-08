@@ -44,10 +44,28 @@ val request_update_exn : t -> Protocol.Get_update.query -> unit Deferred.t
 
 val try_set_ready : t -> unit Deferred.t
 
-val make_command
-  :  summary:string
-  -> config_param:'a Command.Param.t
-  -> username_stem:string
-  -> ?auto_ready:bool
-  -> (t -> config:'a -> unit Deferred.t)
-  -> Command.t
+module Spec : sig
+  type bot
+  type 'a t
+
+  val create
+    :  username_stem:string
+    -> ?auto_ready:bool
+    -> (bot -> config:'a -> unit Deferred.t)
+    -> 'a t
+
+  val to_command
+    :  'a t
+    -> summary:string
+    -> config_param:'a Command.Param.t
+    -> Command.t
+
+  val run
+    :  'a t
+    -> conn:Rpc.Connection.t
+    -> avoid_username:(Username.t -> bool)
+    -> config:'a
+    -> room_choice:Room_choice.t
+    -> where_to_sit:Protocol.Start_playing.query
+    -> unit Deferred.t
+end with type bot := t
