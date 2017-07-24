@@ -56,15 +56,6 @@ let apply_action action () ~conn ~room_id =
       | Ok () -> ()
     end
 
-module Player = struct
-  type t = Lobby.User.Player.t [@@deriving sexp]
-
-  let of_user user =
-    match Lobby.User.role user with
-    | Player p -> Some { user with role = p }
-    | _ -> None
-end
-
 module Position = struct
   module T = struct
     type t =
@@ -128,7 +119,7 @@ let people_in_places ~my_name ~room =
     ~f:(fun ~key:seat ~data:username acc ->
         Option.fold
           (Option.bind (Map.find (Lobby.Room.users room) username)
-             ~f:Player.of_user)
+             ~f:Lobby.User.to_player)
           ~init:acc
           ~f:(fun acc player ->
               Map.add
@@ -195,7 +186,8 @@ let nobody ~inject ~seat ~can_sit =
     ; Node.span [] buttons
     ]
 
-let somebody ~is_me ~all_scores ~gold ~inject (player : Player.t) =
+let somebody ~is_me ~all_scores ~gold ~inject
+    (player : Lobby.User.Player.t) =
   let name = Style.User.Gen.span ~is_me player in
   let ready =
     match player.role.phase with

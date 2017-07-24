@@ -44,6 +44,9 @@ module User : sig
 
   type t = Role.t Gen.t [@@deriving sexp]
 
+  val of_player : Player.t -> t
+  val to_player : t -> Player.t option
+
   val username     : t -> Username.t
   val role         : t -> Role.t
   val is_connected : t -> bool

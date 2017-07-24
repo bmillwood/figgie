@@ -51,6 +51,14 @@ module User = struct
   type t = Role.t Gen.t
     [@@deriving bin_io, sexp]
 
+  let of_player (p : _ Gen.t) =
+    { p with role = Role.Player p.role }
+
+  let to_player (t : t) =
+    match t.role with
+    | Player p -> Some { t with role = p }
+    | Observer _ -> None
+
   let username     (t : t) = t.username
   let role         (t : t) = t.role
   let is_connected (t : t) = t.is_connected
@@ -95,12 +103,7 @@ module Room = struct
 
   let users t = t.users
 
-  let players t =
-    Map.filter_map t.users ~f:(fun user ->
-        match user.role with
-        | Observer _ -> None
-        | Player p -> Some { user with role = p }
-      )
+  let players t = Map.filter_map t.users ~f:User.to_player
 
   let seating t = t.seating
   let phase t = t.phase
@@ -109,9 +112,7 @@ module Room = struct
     let open Option.Let_syntax in
     let%bind username = Map.find t.seating seat in
     let%bind user = Map.find t.users username in
-    match user.role with
-    | Player role -> Some { user with role }
-    | Observer _ -> None
+    User.to_player user
 
   let has_user   t ~username = Map.mem (users t)   username
   let has_player t ~username = Map.mem (players t) username
