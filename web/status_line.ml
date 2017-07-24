@@ -26,7 +26,7 @@ let set_username_field_colour ~self input =
   self##.style##.backgroundColor := Js.string (
     let u = Username.of_string input in
     if String.is_empty input || Username.is_valid u then (
-      Hash_colour.username_colour (Username.of_string input)
+      Style.Name.colour (Username.of_string input)
     ) else (
       "red"
     )
@@ -107,7 +107,7 @@ let view (model : Model.t) ~(inject : Action.t -> _) =
   | Logged_in { connected_to; username; room_id; clock } ->
     line ~class_:"Connected"
       ~status:(
-          [ Some (Hash_colour.username_span ~is_me:true username)
+          [ Some (Style.Name.span ~is_me:true username)
           ; Some (Node.text (
               " connected to " ^ Host_and_port.to_string connected_to
             ))

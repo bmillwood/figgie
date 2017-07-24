@@ -18,7 +18,7 @@ module Message = struct
 
   let chat ~username ~is_me ~msg =
     Node.li []
-      [ Hash_colour.username_span ~is_me username
+      [ Style.Name.span ~is_me username
       ; Node.text ": "
       ; Node.text msg
       ]

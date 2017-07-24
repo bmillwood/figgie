@@ -25,7 +25,7 @@ let room_row ?(extra_classes=[]) contents =
 let player_row (p : Lobby.User.Player.t) ~all_scores =
   room_row
     ~extra_classes:(if p.is_connected then [] else ["disconnected"])
-    [ Hash_colour.username_span ~is_me:false p.username
+    [ Style.Name.span ~is_me:false p.username
     ; User_info.score_display ~all_scores p.role.score
     ]
 
@@ -90,21 +90,20 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
         [Node.text button_text]
     in
     let observers =
-      let keep_trues =
-        List.filter_map ~f:(fun (cond, x) -> Option.some_if cond x)
-      in
       let shortener = Username.Shortener.of_list (Map.keys users) in
       List.concat_map (Map.data observers)
         ~f:(fun o ->
             let style =
-              Hash_colour.username_style
+              Style.Name.style
                 ~is_me:(Username.equal o.username my_name)
                 o.username
             in
             let attrs =
-              keep_trues
-                [ not o.is_connected,   Attr.class_ "disconnected"
-                ; o.role.is_omniscient, Attr.class_ "omniscient"
+              List.filter_opt
+                [ Option.some_if (not o.is_connected)
+                    (Attr.class_ "disconnected")
+                ; Option.some_if o.role.is_omniscient
+                    (Attr.class_ "omniscient")
                 ]
               @ [ Attr.class_ "name"
                 ; Attr.style style

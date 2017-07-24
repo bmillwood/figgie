@@ -200,7 +200,7 @@ let somebody ~is_me ~all_scores ~gold ~inject (player : Player.t) =
     let classes =
       "name" :: if player.is_connected then [] else ["disconnected"]
     in
-    Hash_colour.username_span ~attrs:[Attr.classes classes] ~is_me
+    Style.Name.span ~attrs:[Attr.classes classes] ~is_me
       player.username
   in
   let ready =
@@ -248,20 +248,19 @@ let observer_row ~my_name ~room =
         | Observer o -> Some { user with role = o }
       )
   in
-  let keep_trues =
-    List.filter_map ~f:(fun (cond, x) -> Option.some_if cond x)
-  in
   let observer_spans =
     List.concat_map observers ~f:(fun o ->
         let attrs =
-          keep_trues
-            [ not o.is_connected, Attr.class_ "disconnected"
-            ; o.role.is_omniscient,    Attr.class_ "omniscient"
+          List.filter_opt
+            [ Option.some_if (not o.is_connected)
+                (Attr.class_ "disconnected")
+            ; Option.some_if o.role.is_omniscient
+                (Attr.class_ "omniscient")
             ]
         in
         let is_me = Username.equal o.username my_name in
         [ Node.text " "
-        ; Hash_colour.username_span ~attrs ~is_me o.username
+        ; Style.Name.span ~attrs ~is_me o.username
         ]
       )
   in

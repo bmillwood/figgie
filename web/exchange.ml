@@ -299,7 +299,7 @@ let market_table
                 let span ~attrs text =
                   Node.span
                     (Attr.style
-                       (Hash_colour.username_style ~is_me order.owner)
+                       (Style.Name.style ~is_me order.owner)
                      :: attrs)
                     [Node.text text]
                 in
@@ -346,7 +346,7 @@ let market_table
 let tape_table ~my_name ~gold trades =
   let row_of_order ~traded_with (trade : Order.t) =
     let person_td username =
-      Hash_colour.username_span
+      Style.Name.span
         ~is_me:(Username.equal username my_name)
         username
     in
