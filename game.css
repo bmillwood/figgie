@@ -104,9 +104,6 @@ div#userinfo .me {
 div.userinfo .name {
     padding: 0 0.5em;
 }
-div.userinfo .name.disconnected {
-    text-decoration: line-through;
-}
 div.userinfo .score {
     float: right;
 }

@@ -17,15 +17,11 @@ module Action = struct
     [@@deriving sexp_of]
 end
 
-let room_row ?(extra_classes=[]) contents =
-  Node.li
-    [Attr.classes ("name" :: extra_classes)]
-    contents
+let room_row contents = Node.li [] contents
 
 let player_row (p : Lobby.User.Player.t) ~all_scores =
   room_row
-    ~extra_classes:(if p.is_connected then [] else ["disconnected"])
-    [ Style.Name.span ~is_me:false p.username
+    [ Style.User.gen ~is_me:false p
     ; User_info.score_display ~all_scores p.role.score
     ]
 

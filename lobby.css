@@ -28,12 +28,9 @@ button.delete {
 button.delete:hover {
     background-color: #904;
 }
-div.room .names .name {
+div.room .names li {
     background-color: #004;
     margin: 0.2em;
-}
-div.room .name.disconnected {
-    text-decoration: line-through;
 }
 div.room .score {
     float: right;

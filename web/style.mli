@@ -16,3 +16,8 @@ module Name : sig
     -> Username.t
     -> Node.t
 end
+
+module User : sig
+  val gen      : is_me:bool -> _ Lobby.User.Gen.t    -> Node.t
+  val observer : is_me:bool -> Lobby.User.Observer.t -> Node.t
+end

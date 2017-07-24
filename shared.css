@@ -88,3 +88,6 @@ input#cmdline:disabled {
 .omniscient {
     font-weight: bold;
 }
+.name.disconnected {
+    text-decoration: line-through;
+}

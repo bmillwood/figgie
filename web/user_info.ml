@@ -196,13 +196,7 @@ let nobody ~inject ~seat ~can_sit =
     ]
 
 let somebody ~is_me ~all_scores ~gold ~inject (player : Player.t) =
-  let name =
-    let classes =
-      "name" :: if player.is_connected then [] else ["disconnected"]
-    in
-    Style.Name.span ~attrs:[Attr.classes classes] ~is_me
-      player.username
-  in
+  let name = Style.User.gen ~is_me player in
   let ready =
     match player.role.phase with
     | Playing -> []
@@ -250,17 +244,9 @@ let observer_row ~my_name ~room =
   in
   let observer_spans =
     List.concat_map observers ~f:(fun o ->
-        let attrs =
-          List.filter_opt
-            [ Option.some_if (not o.is_connected)
-                (Attr.class_ "disconnected")
-            ; Option.some_if o.role.is_omniscient
-                (Attr.class_ "omniscient")
-            ]
-        in
         let is_me = Username.equal o.username my_name in
         [ Node.text " "
-        ; Style.Name.span ~attrs ~is_me o.username
+        ; Style.User.observer ~is_me o
         ]
       )
   in
