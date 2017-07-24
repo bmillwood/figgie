@@ -21,7 +21,7 @@ let room_row contents = Node.li [] contents
 
 let player_row (p : Lobby.User.Player.t) ~all_scores =
   room_row
-    [ Style.User.gen ~is_me:false p
+    [ Style.User.Gen.span ~is_me:false p
     ; User_info.score_display ~all_scores p.role.score
     ]
 
@@ -89,22 +89,15 @@ let view (model : Lobby.t) ~my_name ~(inject : Action.t -> _) =
       let shortener = Username.Shortener.of_list (Map.keys users) in
       List.concat_map (Map.data observers)
         ~f:(fun o ->
-            let style =
-              Style.Name.style
-                ~is_me:(Username.equal o.username my_name)
-                o.username
-            in
             let attrs =
-              List.filter_opt
-                [ Option.some_if (not o.is_connected)
-                    (Attr.class_ "disconnected")
-                ; Option.some_if o.role.is_omniscient
-                    (Attr.class_ "omniscient")
-                ]
-              @ [ Attr.class_ "name"
-                ; Attr.style style
-                ; Attr.create "title" (Username.to_string o.username)
-                ]
+              [ Attr.classes ("name" :: Style.User.Observer.classes o)
+              ; Attr.style (
+                  Style.Name.style
+                    ~is_me:(Username.equal o.username my_name)
+                    o.username
+                )
+              ; Attr.create "title" (Username.to_string o.username)
+              ]
             in
             let u = Username.Shortener.short shortener o.username in
             [ Node.text " "

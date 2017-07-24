@@ -33,27 +33,31 @@ module Name = struct
     then [("color", "black"); ("background-color", colour)]
     else [("color", colour)]
 
-  let span ?(extra_classes=[]) ~is_me u =
+  let span' ?(extra_classes=[]) ~is_me u =
     Node.span
       [ Attr.style (style ~is_me u)
       ; Attr.classes ("name" :: extra_classes)
       ]
       [ Node.text (Username.to_string u) ]
+
+  let span = span' ~extra_classes:[]
 end
 
 module User = struct
-  let gen ~is_me (u : _ Lobby.User.Gen.t) =
-    let extra_classes =
+  module Gen = struct
+    let classes (u : _ Lobby.User.Gen.t) =
       if u.is_connected then [] else ["disconnected"]
-    in
-    Name.span ~extra_classes ~is_me u.username
 
-  let observer ~is_me (o : Lobby.User.Observer.t) =
-    let extra_classes =
-      List.filter_opt
-        [ Option.some_if (not o.is_connected) "disconnected"
-        ; Option.some_if o.role.is_omniscient "omniscient"
-        ]
-    in
-    Name.span ~extra_classes ~is_me o.username
+    let span ~is_me (u : _ Lobby.User.Gen.t) =
+      Name.span' ~extra_classes:(classes u) ~is_me u.username
+  end
+
+  module Observer = struct
+    let classes (o : Lobby.User.Observer.t) =
+      (if o.role.is_omniscient then ["omniscient"] else [])
+      @ Gen.classes o
+
+    let span ~is_me (o : Lobby.User.Observer.t) =
+      Name.span' ~extra_classes:(classes o) ~is_me o.username
+  end
 end

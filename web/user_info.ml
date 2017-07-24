@@ -196,7 +196,7 @@ let nobody ~inject ~seat ~can_sit =
     ]
 
 let somebody ~is_me ~all_scores ~gold ~inject (player : Player.t) =
-  let name = Style.User.gen ~is_me player in
+  let name = Style.User.Gen.span ~is_me player in
   let ready =
     match player.role.phase with
     | Playing -> []
@@ -246,7 +246,7 @@ let observer_row ~my_name ~room =
     List.concat_map observers ~f:(fun o ->
         let is_me = Username.equal o.username my_name in
         [ Node.text " "
-        ; Style.User.observer ~is_me o
+        ; Style.User.Observer.span ~is_me o
         ]
       )
   in

@@ -10,14 +10,15 @@ module Name : sig
 
   val style : is_me:bool -> Username.t -> (string * string) list
 
-  val span
-    :  ?attrs:Attr.t list
-    -> is_me:bool
-    -> Username.t
-    -> Node.t
+  val span : is_me:bool -> Username.t -> Node.t
 end
 
 module User : sig
-  val gen      : is_me:bool -> _ Lobby.User.Gen.t    -> Node.t
-  val observer : is_me:bool -> Lobby.User.Observer.t -> Node.t
+  module Gen : sig
+    val span : is_me:bool -> _ Lobby.User.Gen.t    -> Node.t
+  end
+  module Observer : sig
+    val classes : Lobby.User.Observer.t -> string list
+    val span : is_me:bool -> Lobby.User.Observer.t -> Node.t
+  end
 end
