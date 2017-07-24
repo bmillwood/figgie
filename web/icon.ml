@@ -13,7 +13,7 @@ let suit (suit : Card.Suit.t) =
 
 let unknown_suit = Node.text "\xe2\x96\x88"
 
-let ready     = Node.text "\xe2\x9c\x93"
-let not_ready = Node.text "\xf0\x9f\x9a\xab"
 let delete    = Node.text "\xc3\x97"
 let observer  = Node.text "\xf0\x9f\x91\x81"
+
+let nbsp = Node.text "\xc2\xa0"

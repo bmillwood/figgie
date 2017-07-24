@@ -10,6 +10,10 @@ let empty =
   ; unknown = Size.zero
   }
 
+let is_empty t =
+  Card.Hand.for_all t.known ~f:Size.(equal zero)
+    && Size.(equal zero) t.unknown
+
 let create_unknown size = { empty with unknown = size }
 
 let create_known hand = { empty with known = hand }

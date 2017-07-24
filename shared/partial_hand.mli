@@ -8,6 +8,8 @@ type t =
 val empty    : t
 val starting : t
 
+val is_empty : t -> bool
+
 val create_unknown : Size.t             -> t
 val create_known   : Size.t Card.Hand.t -> t
 

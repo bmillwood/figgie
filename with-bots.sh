@@ -21,7 +21,4 @@ function bot() {
   sleep 3
 }
 
-bot count
-bot chaos
-bot sell
 wait

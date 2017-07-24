@@ -41,5 +41,6 @@ module Hand : sig
   val foldi : 'a t -> init:'b -> f:(Suit.t -> 'b -> 'a -> 'b) -> 'b
   val iter  : 'a t -> f:('a -> unit) -> unit
 
-  val exists : 'a t -> f:('a -> bool) -> bool
+  val exists  : 'a t -> f:('a -> bool) -> bool
+  val for_all : 'a t -> f:('a -> bool) -> bool
 end

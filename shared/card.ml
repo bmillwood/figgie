@@ -93,4 +93,7 @@ module Hand = struct
 
   let exists t ~f =
     f t.spades || f t.hearts || f t.diamonds || f t.clubs
+
+  let for_all t ~f =
+    f t.spades && f t.hearts && f t.diamonds && f t.clubs
 end

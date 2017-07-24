@@ -86,6 +86,16 @@ div.userinfo {
     vertical-align: top;
     background-color: #224;
 }
+
+div.userinfo.ready, div#userinfo button.ready {
+    background-color: #133;
+}
+div.userinfo.notReady, div#userinfo button.notReady {
+    background-color: #313;
+}
+div#userinfo button.ready:hover    { background-color: #355; }
+div#userinfo button.notReady:hover { background-color: #535; }
+
 div#userinfo .left {
     float: left;
     margin-left: 3em;

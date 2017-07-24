@@ -270,10 +270,9 @@ let market_table
   (market : Book.t)
   =
   let market_depth = 3 in
-  let nbsp = "\xc2\xa0" in
   let empty_cell_contents =
     List.init market_depth ~f:(fun _ ->
-      [Node.text nbsp])
+      [Icon.nbsp])
   in
   let input_row ~dir =
     let dir_s = Dir.to_string dir in

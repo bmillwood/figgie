@@ -25,9 +25,7 @@ let player_row (p : Lobby.User.Player.t) ~all_scores =
     ; User_info.score_display ~all_scores p.role.score
     ]
 
-let no_player_row =
-  let nbsp = "\xc2\xa0" in
-  room_row [Node.text nbsp]
+let no_player_row = room_row [Icon.nbsp]
 
 let player_list ~(players : Lobby.User.Player.t Username.Map.t) =
   let num_players = Map.length players in
