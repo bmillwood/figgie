@@ -1,7 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -eux
 
-BUILD=_build/system
+BUILD=_build/default
 
 SERVER=$BUILD/server/main.exe
 BOT=$BUILD/bot/bin/main.exe
