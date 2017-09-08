@@ -1,4 +1,0 @@
-(context (
- (switch system)
- (merlin true)
-))
