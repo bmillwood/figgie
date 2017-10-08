@@ -217,7 +217,7 @@ module App = struct
     | User_info uiact ->
       let user_info =
         User_info.apply_action uiact in_room.user_info
-          ~conn ~room_id:in_room.room_id
+          ~conn ~room_id:in_room.room_id ~room:in_room.room ~my_name
       in
       { in_room with user_info }
     | Game_update up ->

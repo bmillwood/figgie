@@ -12,50 +12,6 @@ module Model = struct
   let initial = ()
 end
 
-module Action = struct
-  type t =
-    | Set_ready of bool
-    | Sit of Lobby.Room.Seat.t
-    | Request_bot of
-        { seat : Lobby.Room.Seat.t
-        ; type_ : Protocol.Bot_type.t
-        }
-  [@@deriving sexp_of]
-end
-open Action
-
-let apply_action action () ~conn ~room_id =
-  match action with
-  | Set_ready readiness ->
-    don't_wait_for begin
-      Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn readiness
-      >>| function
-      | Ok ()
-      | Error
-          ( `Game_already_started
-          | `You're_not_playing
-          | `Not_logged_in
-          | `Not_in_a_room
-          ) -> ()
-    end
-  | Sit seat ->
-    don't_wait_for begin
-      Rpc.Rpc.dispatch_exn Protocol.Start_playing.rpc conn (Sit_in seat)
-      >>| function
-      | Error (`Not_logged_in | `Not_in_a_room) -> assert false
-      | Error (`Game_already_started | `Seat_occupied) -> ()
-      | Error `You're_already_playing | Ok (_ : Lobby.Room.Seat.t) -> ()
-    end
-  | Request_bot { seat; type_ } ->
-    don't_wait_for begin
-      Rpc.Rpc.dispatch_exn Protocol.Request_bot.rpc conn
-        { type_; room = room_id; seat }
-      >>| function
-      | Error `No_such_room -> assert false
-      | Error `Seat_occupied -> ()
-      | Ok () -> ()
-    end
-
 module Position = struct
   module T = struct
     type t =
@@ -69,21 +25,15 @@ module Position = struct
     let clockwise_quarter_turns_from_north : Lobby.Room.Seat.t -> _ =
       function | North -> 0 | East -> 1 | South -> 2 | West -> 3
     in
-    [| Near; Left; Far; Right |].(
-      ( clockwise_quarter_turns_from_north seat
-      - clockwise_quarter_turns_from_north near
-      ) % 4
-    )
+    let (!!) = clockwise_quarter_turns_from_north in
+    [| Near; Left; Far; Right |].((!! seat - !! near) % 4)
 
   let to_seat ~south pos =
     let clockwise_quarter_turns_from_near =
       function | Near -> 0 | Left -> 1 | Far -> 2 | Right -> 3
     in
-    [| Lobby.Room.Seat.South; West; North; East |].(
-      ( clockwise_quarter_turns_from_near pos
-      - clockwise_quarter_turns_from_near south
-      ) % 4
-    )
+    let (!!) = clockwise_quarter_turns_from_near in
+    [| Lobby.Room.Seat.South; West; North; East |].((!! pos - !! south) % 4)
 
   let class_ =
     function
@@ -92,6 +42,63 @@ module Position = struct
     | Far -> "far"
     | Right -> "right"
 end
+
+module Action = struct
+  type t =
+    | Set_ready of bool
+    | Sit of Position.t
+    | Request_bot of
+        { pos : Position.t
+        ; type_ : Protocol.Bot_type.t
+        }
+  [@@deriving sexp_of]
+end
+open Action
+
+let near_seat ~room ~my_name : Lobby.Room.Seat.t =
+  let seat_and_user_list = Map.to_alist (Lobby.Room.seating room) in
+  let is_me (_p, u) = Username.equal u my_name in
+  match List.find seat_and_user_list ~f:is_me with
+  | None -> South
+  | Some (seat, _) -> seat
+
+let apply_action action () ~conn ~room_id ~room ~my_name =
+  match action with
+  | Set_ready readiness ->
+    don't_wait_for begin
+      Rpc.Rpc.dispatch_exn Protocol.Is_ready.rpc conn readiness
+      >>| function
+      | Ok ()
+      | Error
+          ( `Game_already_started
+          | `You're_not_playing
+          | `Not_logged_in
+          | `Not_in_a_room
+          ) -> ()
+    end
+  | Sit pos ->
+    let near_seat = near_seat ~room ~my_name in
+    let south = Position.of_seat ~near:near_seat South in
+    let seat = Position.to_seat ~south pos in
+    don't_wait_for begin
+      Rpc.Rpc.dispatch_exn Protocol.Start_playing.rpc conn (Sit_in seat)
+      >>| function
+      | Error (`Not_logged_in | `Not_in_a_room) -> assert false
+      | Error (`Game_already_started | `Seat_occupied) -> ()
+      | Error `You're_already_playing | Ok (_ : Lobby.Room.Seat.t) -> ()
+    end
+  | Request_bot { pos; type_ } ->
+    let near_seat = near_seat ~room ~my_name in
+    let south = Position.of_seat ~near:near_seat South in
+    let seat = Position.to_seat ~south pos in
+    don't_wait_for begin
+      Rpc.Rpc.dispatch_exn Protocol.Request_bot.rpc conn
+        { type_; room = room_id; seat }
+      >>| function
+      | Error `No_such_room -> assert false
+      | Error `Seat_occupied -> ()
+      | Ok () -> ()
+    end
 
 let score_display ~all_scores score =
   let ranking =
@@ -106,15 +113,7 @@ let score_display ~all_scores score =
     [Node.text (Price.to_string score)]
 
 let people_in_places ~my_name ~room =
-  let seating_by_name =
-    Map.fold (Lobby.Room.seating room) ~init:Username.Map.empty
-      ~f:(fun ~key:data ~data:key acc -> Map.add acc ~key ~data)
-  in
-  let near : Lobby.Room.Seat.t =
-    match Map.find seating_by_name my_name with
-    | None -> South
-    | Some seat -> seat
-  in
+  let near = near_seat ~room ~my_name in
   Map.fold (Lobby.Room.seating room) ~init:Position.Map.empty
     ~f:(fun ~key:seat ~data:username acc ->
         Option.fold
@@ -148,7 +147,7 @@ let hand ~gold (hand : Partial_hand.t) =
     known @ [unknown]
   )
 
-let nobody ~inject ~seat ~can_sit =
+let nobody ~inject ~pos ~can_sit =
   let add_bot =
     let no_bot = "" in
     let bots_by_value =
@@ -160,7 +159,7 @@ let nobody ~inject ~seat ~can_sit =
     let handle_change _changeEvent new_value =
       match Map.find bots_by_value new_value with
       | None -> Event.Ignore
-      | Some type_ -> inject (Request_bot { seat; type_ })
+      | Some type_ -> inject (Request_bot { pos; type_ })
     in
     let options =
       Node.option [Attr.value no_bot] [Node.text "Bot"]
@@ -178,7 +177,7 @@ let nobody ~inject ~seat ~can_sit =
     List.filter_map ~f:(fun (cond, elt) -> Option.some_if cond elt)
       [ ( can_sit
         , Node.button
-            [Attr.on_click (fun _mouseEvent -> inject (Sit seat))]
+            [Attr.on_click (fun _mouseEvent -> inject (Sit pos))]
             [Node.text "Join"]
         )
       ; (true, add_bot)
@@ -239,7 +238,6 @@ let view () ~inject ~room ~my_hand ~my_name ~gold =
     Node.div [Attr.class_ (Position.class_ pos)]
       [ match Map.find seating pos with
         | None ->
-          let seat = Position.to_seat ~south:Near pos in
           let can_sit =
             Option.exists (Map.find (Lobby.Room.users room) my_name)
               ~f:(fun me ->
@@ -248,7 +246,7 @@ let view () ~inject ~room ~my_hand ~my_name ~gold =
                   | Player _ -> false
                 )
           in
-          nobody ~inject ~seat ~can_sit
+          nobody ~inject ~pos ~can_sit
         | Some player ->
           let is_me = Username.equal my_name player.username in
           let player =
