@@ -494,11 +494,19 @@ module App = struct
       }
     | Status_line (Log_in username) ->
       state.schedule (Connected (Start_login username));
+      state.schedule (Add_message (
+          Chat.Message.(simple status)
+            !"Logging in as %{Username}" username
+        ));
       { model with for_status_line =
         { model.for_status_line with input_error = false }
       }
     | Status_line (Start_connecting_to host_and_port) ->
       let host, port = Host_and_port.tuple host_and_port in
+      state.schedule (Add_message (
+          Chat.Message.(simple status)
+            !"Connecting to %{Host_and_port}" host_and_port
+        ));
       don't_wait_for begin
         Async_js.Rpc.Connection.client
           ~address:(Host_and_port.create ~host ~port)
@@ -529,10 +537,16 @@ module App = struct
       { model with state = Connected { host_and_port; conn; login = None } }
     | Connection_lost ->
       state.schedule (Add_message (
+          Chat.Message.(simple error) !"Connection lost"
+        ));
+      state.schedule (Add_message (
           Chat.Message.(error [Node.text "Disconnected"; horizontal_rule])
         ));
       { model with state = Not_connected (Some Connection_lost) }
     | Connection_failed ->
+      state.schedule (Add_message (
+          Chat.Message.(simple error) !"Failed to connect"
+        ));
       { model with state = Not_connected (Some Failed_to_connect) }
     | Connected cact ->
       begin match model.state with

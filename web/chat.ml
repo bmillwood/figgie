@@ -58,7 +58,15 @@ module Model = struct
     }
 
   let initial =
-    { messages = Fqueue.empty
+    { messages =
+      [ Message.status
+          [ Node.text "Figgie ("
+          ; Node.a [Attr.href "https://github.com/bmillwood/figgie"] [Node.text "github"]
+          ; Node.text ")"
+          ]
+      ; Message.horizontal_rule
+      ]
+      |> Fqueue.of_list
     ; scrolling = Scrolling.Model.create ~id:Id.history
     }
 
