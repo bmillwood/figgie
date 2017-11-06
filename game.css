@@ -116,6 +116,7 @@ div.userinfo .name {
 }
 div.userinfo .score {
     float: right;
+    margin-left: 0.5em;
 }
 div#userinfo .observers {
     margin: 0.1em 4em;

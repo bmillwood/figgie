@@ -100,6 +100,19 @@ let apply_action action () ~conn ~room_id ~room ~my_name =
       | Ok () -> ()
     end
 
+let name ~username ~is_me ~colour ~score =
+  let attrs =
+    [ Some (Attr.class_ "name")
+    ; Option.some_if colour
+        (Attr.style (Style.Name.style ~is_me username))
+    ] |> List.filter_opt
+  in
+  Node.div attrs (
+    [ Some (Node.text (Username.to_string username))
+    ; score
+    ] |> List.filter_opt
+  )
+
 let score_display ~all_scores score =
   let ranking =
     match List.count all_scores ~f:(fun s -> Price.O.(s > score)) with
@@ -180,9 +193,12 @@ let nobody ~inject ~pos ~can_sit =
       ]
   in
   Node.div [Attr.classes ["userinfo"]]
-    [ Node.span [Attr.class_ "name"] [Node.text "[nobody]"]
-    ; Node.create "br" [] []
-    ; Node.span [] buttons
+    [ name
+        ~username:(Username.of_string "[nobody]")
+        ~is_me:false
+        ~colour:false
+        ~score:None
+    ; Node.div [] buttons
     ]
 
 let ready_button ~inject ~am_ready =
@@ -199,7 +215,6 @@ let ready_button ~inject ~am_ready =
     [ Node.text text ]
 
 let somebody ~inject ~is_me ~all_scores ~gold (player : Lobby.User.Player.t) =
-  let name = Style.User.Gen.span ~is_me player in
   let ready_class, content =
     match player.role.phase with
     | Playing ->
@@ -219,9 +234,11 @@ let somebody ~inject ~is_me ~all_scores ~gold (player : Lobby.User.Player.t) =
       ]
   in
   Node.div [Attr.classes classes] (
-    [ [name]
-    ; [ score_display ~all_scores player.role.score
-      ; Node.create "br" [] []
+    [ [ name
+          ~username:player.username
+          ~is_me
+          ~colour:true
+          ~score:(Some (score_display ~all_scores player.role.score))
       ]
     ; if List.is_empty content
       then [Icon.nbsp]
