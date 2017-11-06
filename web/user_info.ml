@@ -129,23 +129,19 @@ let people_in_places ~my_name ~room =
       )
 
 let hand ~gold (hand : Partial_hand.t) =
-  if Partial_hand.is_empty hand then (
-    [Icon.nbsp]
-  ) else (
-    let known =
-      Card.Hand.foldi hand.known
-        ~init:[]
-        ~f:(fun suit acc count ->
-            Style.suit_span ~count:(Size.to_int count) ~gold suit
-            :: acc)
-      |> List.rev
-    in
-    let unknown =
-      Node.span [Attr.class_ "Unknown"]
-        (List.init (Size.to_int hand.unknown) ~f:(fun _ -> Icon.unknown_suit))
-    in
-    known @ [unknown]
-  )
+  let known =
+    Card.Hand.foldi hand.known
+      ~init:[]
+      ~f:(fun suit acc count ->
+          Style.suit_span ~count:(Size.to_int count) ~gold suit
+          :: acc)
+    |> List.rev
+  in
+  let unknown =
+    Node.span [Attr.class_ "Unknown"]
+      (List.init (Size.to_int hand.unknown) ~f:(fun _ -> Icon.unknown_suit))
+  in
+  known @ [unknown]
 
 let nobody ~inject ~pos ~can_sit =
   let add_bot =
@@ -189,16 +185,37 @@ let nobody ~inject ~pos ~can_sit =
     ; Node.span [] buttons
     ]
 
-let somebody ~is_me ~all_scores ~gold (player : Lobby.User.Player.t) =
+let ready_button ~inject ~am_ready =
+  let text, class_, set_it_to =
+    if am_ready
+    then "cancel ready", "notReady", false
+    else "click when ready", "ready", true
+  in
+  Node.button
+    [ Id.attr Id.ready_button
+    ; Attr.class_ class_
+    ; Attr.on_click (fun _mouseEv -> inject (Set_ready set_it_to))
+    ]
+    [ Node.text text ]
+
+let somebody ~inject ~is_me ~all_scores ~gold (player : Lobby.User.Player.t) =
   let name = Style.User.Gen.span ~is_me player in
+  let ready_class, content =
+    match player.role.phase with
+    | Playing ->
+      (None, hand ~gold player.role.hand)
+    | Waiting { is_ready } ->
+      ( Some (if is_ready then "ready" else "notReady")
+      , if is_me
+        then [ ready_button ~inject ~am_ready:is_ready ]
+        else []
+      )
+  in
   let classes =
     List.filter_opt
       [ Some "userinfo"
       ; Option.some_if is_me "me"
-      ; match player.role.phase with
-        | Playing -> None
-        | Waiting { is_ready } ->
-          Some (if is_ready then "ready" else "notReady")
+      ; ready_class
       ]
   in
   Node.div [Attr.classes classes] (
@@ -206,7 +223,9 @@ let somebody ~is_me ~all_scores ~gold (player : Lobby.User.Player.t) =
     ; [ score_display ~all_scores player.role.score
       ; Node.create "br" [] []
       ]
-    ; hand ~gold player.role.hand
+    ; if List.is_empty content
+      then [Icon.nbsp]
+      else content
     ] |> List.concat
   )
 
@@ -254,34 +273,13 @@ let view () ~inject ~room ~my_hand ~my_name ~gold =
             then { player with role = { player.role with hand = my_hand } }
             else player
           in
-          somebody ~is_me ~all_scores ~gold player
+          somebody ~inject ~is_me ~all_scores ~gold player
       ]
-  in
-  let ready_button =
-    Option.bind (Map.find (Lobby.Room.players room) my_name) ~f:(fun me ->
-        match me.role.phase with
-        | Playing -> None
-        | Waiting { is_ready } ->
-          let text, class_, set_it_to =
-            if is_ready
-            then "I'm not ready!", "notReady", false
-            else "I'm ready!", "ready", true
-          in
-          Some (
-            Node.button
-              [ Id.attr Id.ready_button
-              ; Attr.class_ class_
-              ; Attr.on_click (fun _mouseEv -> inject (Set_ready set_it_to))
-              ]
-              [ Node.text text ]
-          )
-      )
   in
   Node.div [Id.attr Id.user_info]
     [ in_position Far
     ; Node.div [Attr.class_ "mid"] (
         [ Some (in_position Left)
-        ; ready_button
         ; Some (in_position Right)
         ] |> List.filter_opt
       )
