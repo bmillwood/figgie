@@ -215,15 +215,14 @@ let ready_button ~inject ~am_ready =
     [ Node.text text ]
 
 let somebody ~inject ~is_me ~all_scores ~gold (player : Lobby.User.Player.t) =
-  let ready_class, content =
+  let ready_class, button =
     match player.role.phase with
-    | Playing ->
-      (None, hand ~gold player.role.hand)
+    | Playing -> (None, None)
     | Waiting { is_ready } ->
       ( Some (if is_ready then "ready" else "notReady")
       , if is_me
-        then [ ready_button ~inject ~am_ready:is_ready ]
-        else []
+        then Some (ready_button ~inject ~am_ready:is_ready)
+        else None
       )
   in
   let classes =
@@ -239,10 +238,9 @@ let somebody ~inject ~is_me ~all_scores ~gold (player : Lobby.User.Player.t) =
           ~is_me
           ~colour:true
           ~score:(Some (score_display ~all_scores player.role.score))
+      ; Node.div [] (hand ~gold player.role.hand)
       ]
-    ; if List.is_empty content
-      then [Icon.nbsp]
-      else content
+    ; Option.to_list button
     ] |> List.concat
   )
 
