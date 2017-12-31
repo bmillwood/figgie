@@ -172,14 +172,14 @@ module Room = struct
                         | `Both (_, _) -> assert false)
                   )
                 | Equal ->
-                  ( Map.add winners ~key:username ~data:hand
+                  ( Map.set winners ~key:username ~data:hand
                   , gold
                   , losers
                   )
                 | Less ->
                   ( winners
                   , winning_amount
-                  , Map.add losers ~key:username ~data:hand
+                  , Map.set losers ~key:username ~data:hand
                   )
               )
         in
@@ -275,7 +275,7 @@ module Room = struct
       let seating =
         match event with
         | Observer_started_playing { in_seat } ->
-          Map.add room.seating ~key:in_seat ~data:username
+          Map.set room.seating ~key:in_seat ~data:username
         | _ -> room.seating
       in
       { room with users; seating }
@@ -414,7 +414,7 @@ module Update = struct
   let apply t lobby =
     match t with
     | New_empty_room { room_id } ->
-      let rooms = Map.add lobby.rooms ~key:room_id ~data:Room.empty in
+      let rooms = Map.set lobby.rooms ~key:room_id ~data:Room.empty in
       { lobby with rooms }
     | Room_closed { room_id } ->
       { lobby with rooms = Map.remove lobby.rooms room_id }

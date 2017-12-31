@@ -13,7 +13,8 @@ let serve ~port ~f =
         (exn : exn)
     ]);
   within' ~monitor (fun () ->
-    Tcp.Server.create (Tcp.on_port port)
+    Tcp.Server.create (Tcp.Where_to_listen.of_port port)
+      ~on_handler_error:`Raise
       (fun addr reader writer ->
         let on_exn ~where exn =
           Log.Global.sexp ~level:`Error [%message

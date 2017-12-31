@@ -137,7 +137,7 @@ module Spec = struct
 
   let to_command spec ~summary ~config_param =
     let open Command.Let_syntax in
-    Command.async_or_error'
+    Command.async_or_error
       ~summary
       [%map_open
         let server =
@@ -160,8 +160,7 @@ module Spec = struct
               (username : Username.t)
           ];
           Rpc.Connection.with_client
-            ~host:(Host_and_port.host server)
-            ~port:(Host_and_port.port server)
+            (Tcp.Where_to_connect.of_host_and_port server)
             (fun conn ->
               run ~conn ~config ~username ~room_choice
                 ~where_to_sit:Sit_anywhere

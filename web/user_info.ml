@@ -134,7 +134,7 @@ let people_in_places ~my_name ~room =
              ~f:Lobby.User.to_player)
           ~init:acc
           ~f:(fun acc player ->
-              Map.add
+              Map.set
                 acc
                 ~key:(Position.of_seat ~near seat)
                 ~data:player

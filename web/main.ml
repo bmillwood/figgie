@@ -509,7 +509,7 @@ module App = struct
         ));
       don't_wait_for begin
         Async_js.Rpc.Connection.client
-          ~address:(Host_and_port.create ~host ~port)
+          ~uri:(Uri.of_string (sprintf "ws://%s:%d" host port))
           ()
         >>| function
         | Error _error ->

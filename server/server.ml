@@ -36,7 +36,7 @@ let lobby_snapshot t : Lobby.t =
   { rooms =
       Hashtbl.fold t.rooms ~init:Lobby.Room.Id.Map.empty
         ~f:(fun ~key ~data acc ->
-            Map.add acc ~key ~data:(Room_manager.room_snapshot data)
+            Map.set acc ~key ~data:(Room_manager.room_snapshot data)
           )
   ; others = t.others
   }
@@ -243,7 +243,7 @@ let serve t ~tcp_port ~web_port =
           initial_connection_state (Some addr) conn
         )
       ~implementations
-      ~where_to_listen:(Tcp.on_port tcp_port)
+      ~where_to_listen:(Tcp.Where_to_listen.of_port tcp_port)
       ()
   and _web_server =
     Web_transport.serve ~port:web_port
@@ -260,7 +260,7 @@ let serve t ~tcp_port ~web_port =
 
 let command =
   let open Command.Let_syntax in
-  Command.async'
+  Command.async
     ~summary:"Figgie server"
     [%map_open
       let tcp_port =
