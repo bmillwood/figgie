@@ -633,7 +633,10 @@ module App = struct
       | In_room { exchange; game; room; my_hand; user_info; _ } ->
         let can_send_orders, gold =
           match game with
-          | Playing _ -> (true, None)
+          | Playing _ ->
+            ( Lobby.Room.has_player room ~username:my_name
+            , None
+            )
           | Waiting { last_gold } -> (false, last_gold)
         in
         [ Exchange.view exchange ~my_name
