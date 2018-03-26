@@ -11,7 +11,6 @@
     incr_dom
   ))
   (js_of_ocaml (
-    (flags (+nat.js +weak.js))
   ))
   (preprocess (pps (
     ppx_jane
