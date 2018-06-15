@@ -1,4 +1,4 @@
-open Core_kernel.Std
+open Core_kernel
 
 let gcd a b =
   let rec g a b =

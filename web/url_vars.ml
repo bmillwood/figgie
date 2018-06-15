@@ -1,4 +1,4 @@
-open Core_kernel.Std
+open Core_kernel
 
 let from_query_string key =
   List.Assoc.find Url.Current.arguments

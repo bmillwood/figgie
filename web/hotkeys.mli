@@ -1,4 +1,4 @@
-open! Core_kernel.Std
+open! Core_kernel
 open Incr_dom
 
 val char_code : Dom_html.keyboardEvent Js.t -> char option

@@ -1,4 +1,4 @@
-open Core_kernel.Std
+open Core_kernel
 
 let with_input ~id ~f =
   let (>>>) t f = Option.iter t ~f in

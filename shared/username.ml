@@ -1,4 +1,4 @@
-open Core_kernel.Std
+open Core_kernel
 
 let is_valid username =
   not (String.is_empty username)
