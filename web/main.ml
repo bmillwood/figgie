@@ -127,6 +127,7 @@ module App = struct
       { messages : Chat.Model.t
       ; state : Connection_state.t
       ; for_status_line : For_status_line.t
+      ; settings : Settings.t
       }
 
     let initial =
@@ -136,6 +137,7 @@ module App = struct
         { input_error = false
         ; connectbox_prefill = Url_vars.prefill_connect_to
         }
+      ; settings = Settings.initial
       }
 
     let get_conn t =
@@ -201,6 +203,7 @@ module App = struct
       (t : In_room.Action.t)
       (in_room : In_room.Model.t)
       ~(schedule : Action.t -> _)
+      ~(settings : Settings.t)
       ~conn ~my_name : In_room.Model.t
     =
     match t with
@@ -292,6 +295,7 @@ module App = struct
             ()
           end;
           let exchange = Exchange.exec in_room.exchange ~my_name ~exec in
+          Auto_cancel.exec settings.auto_cancel ~exec ~my_name ~conn;
           { in_room with exchange }
         end
       | Broadcast (Chat (username, msg)) ->
@@ -308,7 +312,7 @@ module App = struct
 
   let apply_logged_in_action
       (t : Logged_in.Action.t)
-      ~(schedule : Action.t -> _) ~conn
+      ~(schedule : Action.t -> _) ~settings ~conn
       (login : Logged_in.Model.t) : Logged_in.Model.t
     =
     match t with
@@ -415,7 +419,7 @@ module App = struct
       | In_room room ->
         let room =
           apply_in_room_action iract room
-            ~schedule ~conn ~my_name:login.my_name
+            ~schedule ~conn ~settings ~my_name:login.my_name
         in
         { login with where = In_room room }
       | Lobby _ -> login
@@ -424,6 +428,7 @@ module App = struct
   let apply_connected_action
       (t : Connected.Action.t)
       ~(schedule : Action.t -> _)
+      ~settings
       (conn : Connected.Model.t) : Connected.Model.t
     =
     match t with
@@ -454,7 +459,8 @@ module App = struct
       | None -> conn
       | Some logged_in ->
         let logged_in =
-          apply_logged_in_action lact ~schedule ~conn:conn.conn logged_in
+          apply_logged_in_action lact
+            ~schedule ~settings ~conn:conn.conn logged_in
         in
         { conn with login = Some logged_in }
       end
@@ -552,7 +558,8 @@ module App = struct
       begin match model.state with
       | Connected conn ->
         let conn =
-          apply_connected_action cact ~schedule:state.schedule conn
+          apply_connected_action cact
+            ~schedule:state.schedule ~settings:model.settings conn
         in
         { model with state = Connected conn }
       | _ -> model

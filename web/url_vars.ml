@@ -11,3 +11,5 @@ let auto_connect_to =
     ~f:Parse.host_and_port
 
 let username = from_query_string "username"
+
+let cancel_on = from_query_string "cancelon"

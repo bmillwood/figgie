@@ -218,6 +218,10 @@ module Exec = struct
     posted           : Order.t option;
   } [@@deriving bin_io, sexp]
 
+  let is_fill t =
+    Option.is_some t.partially_filled
+    || not (List.is_empty t.fully_filled)
+
   let fills t =
     match t.partially_filled with
     | None -> t.fully_filled

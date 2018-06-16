@@ -145,6 +145,8 @@ module Exec : sig
     ; posted           : Order.t option
     } [@@deriving bin_io, sexp]
 
+  val is_fill : t -> bool
+
   val fills : t -> Order.t list
 
   val position_effect : t -> Positions.t Cpty.Map.t
