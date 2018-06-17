@@ -2,3 +2,4 @@
 _build
 virtualdom.compiled.js
 *.swp
+sounds/*.wav

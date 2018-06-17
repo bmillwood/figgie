@@ -38,4 +38,3 @@ val history : t
 val cmdline : t
 
 val settings : t
-val auto_cancel_setting : t

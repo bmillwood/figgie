@@ -8,7 +8,12 @@ end
 module Action : sig
   type t [@@deriving sexp_of]
 
-  val apply : t -> schedule:(t -> unit) -> Model.t -> Model.t
+  val apply
+    :  t
+    -> schedule:(t -> unit)
+    -> settings:Settings.Model.t
+    -> Model.t
+    -> Model.t
 end
 
 val of_end_time : schedule:(Action.t -> unit) -> Time_ns.t -> Model.t

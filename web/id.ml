@@ -43,4 +43,3 @@ let cmdline = "cmdline"
 let history = "history"
 
 let settings = "settings"
-let auto_cancel_setting = "autoCancelSetting"

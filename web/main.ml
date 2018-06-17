@@ -180,6 +180,7 @@ module App = struct
   let apply_playing_action
       (t : Playing.Action.t)
       ~(schedule : Action.t -> _)
+      ~settings
       (round : Playing.Model.t)
       : Playing.Model.t
     =
@@ -196,6 +197,7 @@ module App = struct
         Option.map round.clock ~f:(fun c ->
           Countdown.Action.apply cdact
             ~schedule:(fun cdact -> schedule (Action.clock cdact))
+            ~settings
             c)
       in
       { clock }
@@ -210,7 +212,7 @@ module App = struct
     match t with
     | Playing pact ->
       In_room.update_round_if_playing in_room
-        ~f:(apply_playing_action pact ~schedule)
+        ~f:(apply_playing_action pact ~schedule ~settings)
     | Exchange exact ->
       let exchange =
         Exchange.apply_action exact in_room.exchange
@@ -271,6 +273,7 @@ module App = struct
             ~f:(fun msg -> schedule (Add_message msg));
           in_room
         | Round_over results ->
+          Audio.end_ ~settings;
           schedule (Add_message (
               Chat.Message.status
                 [ Node.text "Time's up! The gold suit was "
@@ -296,6 +299,9 @@ module App = struct
             ()
           end;
           let exchange = Exchange.exec in_room.exchange ~my_name ~exec in
+          begin if Market.Exec.is_fill exec
+          then Audio.trade ~suit:exec.order.symbol ~settings
+          end;
           Auto_cancel.exec
             (Settings.Model.auto_cancel settings)
             ~exec ~my_name ~conn;
@@ -627,7 +633,7 @@ module App = struct
                   ~inject:(fun act -> inject (Status_line act))
               ]
             ; bits_in_between
-            ; [chat_view model ~inject]
+            ; [ chat_view model ~inject ]
             ; [ Settings.view model.settings
                   ~inject:(fun sact -> inject (Settings sact))
               ]

@@ -5,11 +5,13 @@ open Vdom
 module Model = struct
   type t =
     { auto_cancel   : Auto_cancel.t
+    ; enable_sounds : bool
     ; show_settings : bool
     } [@@deriving fields, sexp_of]
 
   let initial =
     { auto_cancel = Auto_cancel.initial
+    ; enable_sounds = false
     ; show_settings = false
     }
 end
@@ -27,7 +29,19 @@ let view (model : Model.t) ~(inject : Action.t -> Event.t) =
   let settings =
     if model.show_settings
     then begin
-      [ Node.text "auto-cancel "
+      [ Node.text "sounds "
+      ; Node.button
+          [ Attr.on_click (fun _mouseEvent ->
+                let enable_sounds = not model.enable_sounds in
+                inject (Set { model with enable_sounds })
+              )
+          ]
+          [ begin match model.enable_sounds with
+            | true -> "enabled;"
+            | false -> "disabled;"
+            end |> Node.text
+          ]
+      ; Node.text " auto-cancel "
       ; Node.button
           [ Attr.on_click (fun _mouseEvent ->
                 let auto_cancel : Auto_cancel.t =
@@ -38,7 +52,6 @@ let view (model : Model.t) ~(inject : Action.t -> Event.t) =
                 in
                 inject (Set { model with auto_cancel })
               )
-          ; Id.attr Id.auto_cancel_setting
           ]
           [ begin match model.auto_cancel with
             | Never -> "never."
@@ -48,8 +61,7 @@ let view (model : Model.t) ~(inject : Action.t -> Event.t) =
           ]
       ; Node.text " "
       ; Node.button
-          [ Id.attr Id.settings
-          ; Attr.on_click (fun _mouseEvent ->
+          [ Attr.on_click (fun _mouseEvent ->
               inject (Set { model with show_settings = false })
             )
           ]
@@ -57,8 +69,7 @@ let view (model : Model.t) ~(inject : Action.t -> Event.t) =
       ]
     end else begin
       [ Node.button
-          [ Id.attr Id.settings
-          ; Attr.on_click (fun _mouseEvent ->
+          [ Attr.on_click (fun _mouseEvent ->
               inject (Set { model with show_settings = true })
             )
           ]

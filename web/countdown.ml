@@ -46,7 +46,13 @@ module Action = struct
     in
     { Model.end_time; hr; min; sec; tick_event }
 
-  let apply Tick ~schedule (clock : Model.t) =
+  let sound (clock : Model.t) ~settings =
+    if ((clock.hr > 0 || clock.min > 0) && clock.sec = 0)
+    || (clock.hr = 0 && clock.min = 0 && clock.sec > 0 && clock.sec <= 5)
+    then Audio.tick ~settings
+
+  let apply Tick ~schedule ~settings (clock : Model.t) =
+    sound clock ~settings;
     if Time_ns.(now () >= clock.end_time)
     (* probably redundant, but will return sanity in more cases *)
     then { clock with hr = 0; min = 0; sec = 0 }

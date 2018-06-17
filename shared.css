@@ -78,6 +78,8 @@ input#cmdline:disabled {
     background-color: #223;
 }
 #settings {
+    width: 40em;
+    text-align: right;
     font-size: small;
 }
 #settings button {

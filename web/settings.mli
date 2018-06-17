@@ -6,7 +6,8 @@ module Model : sig
 
   val initial : t
 
-  val auto_cancel : t -> Auto_cancel.t
+  val auto_cancel   : t -> Auto_cancel.t
+  val enable_sounds : t -> bool
 end
 
 module Action : sig
