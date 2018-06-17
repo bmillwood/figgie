@@ -294,7 +294,9 @@ module App = struct
               >>| Protocol.playing_exn
             and () =
               Rpc.Rpc.dispatch_exn Protocol.Get_update.rpc conn Hand
-              >>| Protocol.playing_exn
+              >>| function
+              | Error `You're_not_playing -> ()
+              | other -> Protocol.playing_exn other
             in
             ()
           end;
