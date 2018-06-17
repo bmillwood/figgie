@@ -77,6 +77,13 @@ input#cmdline {
 input#cmdline:disabled {
     background-color: #223;
 }
+#settings {
+    font-size: small;
+}
+#settings button {
+    margin-left: 0;
+    margin-right: 0;
+}
 .first  { background-color: gold;   color: black; }
 .second { background-color: silver; color: black; }
 .third  { background-color: brown;  color: black; }

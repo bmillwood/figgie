@@ -8,6 +8,7 @@ type t =
   | Never
   | My_trades
   | Any_trades
+  [@@deriving sexp_of]
 
 let initial =
   match Url_vars.cancel_on with

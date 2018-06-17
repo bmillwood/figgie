@@ -20,5 +20,8 @@ function bot() {
   victims="$victims $!"
   sleep 3
 }
+bot sell
+bot count
+bot chaos
 
 wait

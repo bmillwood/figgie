@@ -127,7 +127,7 @@ module App = struct
       { messages : Chat.Model.t
       ; state : Connection_state.t
       ; for_status_line : For_status_line.t
-      ; settings : Settings.t
+      ; settings : Settings.Model.t
       }
 
     let initial =
@@ -137,7 +137,7 @@ module App = struct
         { input_error = false
         ; connectbox_prefill = Url_vars.prefill_connect_to
         }
-      ; settings = Settings.initial
+      ; settings = Settings.Model.initial
       }
 
     let get_conn t =
@@ -162,6 +162,7 @@ module App = struct
       | Connection_failed
       | Connection_lost
       | Connected of Connected.Action.t
+      | Settings of Settings.Action.t
     [@@deriving sexp_of]
 
     let should_log _ = false
@@ -203,7 +204,7 @@ module App = struct
       (t : In_room.Action.t)
       (in_room : In_room.Model.t)
       ~(schedule : Action.t -> _)
-      ~(settings : Settings.t)
+      ~(settings : Settings.Model.t)
       ~conn ~my_name : In_room.Model.t
     =
     match t with
@@ -295,7 +296,9 @@ module App = struct
             ()
           end;
           let exchange = Exchange.exec in_room.exchange ~my_name ~exec in
-          Auto_cancel.exec settings.auto_cancel ~exec ~my_name ~conn;
+          Auto_cancel.exec
+            (Settings.Model.auto_cancel settings)
+            ~exec ~my_name ~conn;
           { in_room with exchange }
         end
       | Broadcast (Chat (username, msg)) ->
@@ -564,6 +567,11 @@ module App = struct
         { model with state = Connected conn }
       | _ -> model
       end
+    | Settings sact ->
+      let settings =
+        Settings.apply_action sact model.settings
+      in
+      { model with settings }
 
   let chat_view (model : Model.t) ~(inject : Action.t -> _) =
     let chat_inject : Chat.Action.t -> _ = function
@@ -618,8 +626,11 @@ module App = struct
                   (status_line model)
                   ~inject:(fun act -> inject (Status_line act))
               ]
-            ; bits_in_between 
+            ; bits_in_between
             ; [chat_view model ~inject]
+            ; [ Settings.view model.settings
+                  ~inject:(fun sact -> inject (Settings sact))
+              ]
             ] |> List.concat
           )
         ]

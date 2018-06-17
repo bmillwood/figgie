@@ -5,6 +5,7 @@ type t =
   | Never
   | My_trades
   | Any_trades
+  [@@deriving sexp_of]
 
 val initial : t
 
