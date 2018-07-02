@@ -9,6 +9,7 @@ let audio name =
     if Settings.Model.enable_sounds settings
     then elt##play
 
+let start = audio "start"
 let tick = audio "tick"
 let end_ = audio "end"
 

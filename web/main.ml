@@ -266,6 +266,7 @@ module App = struct
               Chat.Message.(simple status)
                 "Everyone's ready: game is starting!"
             ));
+          Audio.start ~settings;
           setup_playing_room in_room
         | Player_event { username; event } ->
           Option.iter

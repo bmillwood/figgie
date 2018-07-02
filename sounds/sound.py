@@ -24,6 +24,15 @@ def wav(name, duration):
 def s(t):
     return math.sin(2 * math.pi * t)
 
+@wav('start.wav', 0.3)
+def f(t):
+    if t < 0.1:
+        return s(t * 440)
+    elif t < 0.2:
+        return s(t * math.sqrt(440*880))
+    else:
+        return s(t * 880)
+
 @wav('end.wav', 0.3)
 def f(t):
     if t < 0.1:
