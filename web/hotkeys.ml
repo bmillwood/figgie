@@ -1,4 +1,4 @@
-open Core_kernel.Std
+open Core_kernel
 open Incr_dom
 
 type t = (char * Id.t) array

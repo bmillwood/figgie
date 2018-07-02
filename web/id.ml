@@ -1,4 +1,4 @@
-open Core_kernel.Std
+open Core_kernel
 open Incr_dom
 open Figgie
 
@@ -8,7 +8,7 @@ let of_elt (elt : Dom_html.element Js.t) = Js.to_string elt##.id
 
 let lookup_elt t =
   match Dom_html.getElementById t with
-  | exception Not_found -> None
+  | exception Caml.Not_found -> None
   | elt -> Some elt
 
 let attr t = Vdom.Attr.id t

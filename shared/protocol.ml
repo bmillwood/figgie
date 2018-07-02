@@ -1,4 +1,4 @@
-open Core_kernel.Std
+open Core_kernel
 open Async_rpc_kernel
 
 let default_async_rpc_port = 58828
